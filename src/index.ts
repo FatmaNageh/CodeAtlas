@@ -7,10 +7,10 @@ const parser = new Parser();
 parser.setLanguage(JavaScript as unknown as import("tree-sitter").Language);
 import neo4j from 'neo4j-driver'
 
-const driver = neo4j.driver(
-  'neo4j://localhost',
-  neo4j.auth.basic('neo4j', 'password')
-)
+// const driver = neo4j.driver(
+//   'neo4j://localhost',
+//   neo4j.auth.basic('neo4j', 'password')
+// )
 
 
 const sourceCode = `
