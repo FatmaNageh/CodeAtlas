@@ -5,22 +5,21 @@ import Parser from 'tree-sitter';
 import JavaScript from 'tree-sitter-javascript';
 const parser = new Parser();
 parser.setLanguage(JavaScript as unknown as import("tree-sitter").Language);
-import neo4j from 'neo4j-driver'
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // const driver = neo4j.driver(
 //   'neo4j://localhost',
 //   neo4j.auth.basic('neo4j', 'password')
 // )
 
-
-const sourceCode = `
-const x = function (a, b) {
-  return a * b;
-};
-let z = x(4, 3);
-const beep = 5+10;
-`;
-const tree = parser.parse(sourceCode);
+const filePath = path.join(__dirname, '../example_files/index.js');
+const sourceCode = fs.readFileSync(filePath);
+const tree = parser.parse(sourceCode.toString());
 
 
 console.log(tree.rootNode.toString());
