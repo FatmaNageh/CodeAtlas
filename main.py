@@ -1,20 +1,30 @@
 from pathlib import Path
+from tree_sitter import Parser
+from tree_sitter_languages import get_language
 
-from tree_sitter_languages import get_parser
-from tree_sitter import Tree
+# Get JavaScript parser directly
+parser = Parser()
+parser.set_language(get_language('javascript'))
 
-
-def parse() -> Tree:
+def parse():
     file = Path("./example_files/index.js")
-    lang = "javascript"
-    lang_parser = get_parser(lang)
-    with file.open("rb") as f:
-        return lang_parser.parse(f.read())
+    if not file.exists():
+        print(f"File not found: {file}")
+        return None
 
+    src = file.read_bytes()
+    tree = parser.parse(src)
+    # Print clean syntax tree
+    print("JavaScript Syntax Tree:")
+    print("----------------------")
+    print(tree.root_node.sexp())
+    return tree
 
 def main():
-    print("helo")
-   
+    parsed_file = parse()
+    print(f"Parsed file: {parsed_file}")
 
 if __name__ == "__main__":
     main()
+  
+ 

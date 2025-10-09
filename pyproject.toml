@@ -7,6 +7,6 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "tree-sitter==0.21.3",
-  "tree-sitter-languages==1.10.2",
-
+    "tree-sitter-javascript>=0.25.0",
+    "tree-sitter-languages==1.10.2",
 ]
