@@ -17,7 +17,7 @@ const __dirname = path.dirname(__filename);
 //   neo4j.auth.basic('neo4j', 'password')
 // )
 
-const filePath = path.join(__dirname, '../example_files/index.js');
+const filePath = path.join(__dirname, '../example_files/simple_js_project/index.js');
 const sourceCode = fs.readFileSync(filePath);
 const tree = parser.parse(sourceCode.toString());
 
