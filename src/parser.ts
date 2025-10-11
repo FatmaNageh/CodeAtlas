@@ -95,7 +95,7 @@ export function parseProject(projectPath: string) {
     const classes: string[] = [];
     const modules: string[] = []; //Added Modules
 
-    const walk = (node: any) => {
+    const walk = (node: Parser.SyntaxNode) => {
       switch (ext) {
         // --- JavaScript / TypeScript ---
         case ".js":
@@ -152,7 +152,7 @@ export function parseProject(projectPath: string) {
         case ".cpp":
         case ".cc":
         case ".hpp":
-          if (node.type === "namespace_definition") modules.push(node.text);
+          if (node.type === "namespace_definition") modules.push(node.child(1)?.text || ""); 
           if (node.type === "function_definition") {
             const name = extractName(node);
             if (name) functions.push(name);
@@ -165,7 +165,10 @@ export function parseProject(projectPath: string) {
       }
 
       for (let i = 0; i < node.childCount; i++) {
-        walk(node.child(i));
+        const child = node.child(i);
+        if (child) {
+          walk(child);
+        }
       }
     };
 
