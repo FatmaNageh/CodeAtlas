@@ -54,7 +54,7 @@ function analyzeFileStructure(filePath: string) {
 
 // Endpoint to analyze project
 app.get('/analyze', async (c) => {
-  const baseDir = path.join(process.cwd(), 'src')
+  const baseDir = path.join(process.cwd(), './example_files/project')
   const files = getAllSourceFiles(baseDir)
 
   const boxes = files.map((filePath) => analyzeFileStructure(filePath))

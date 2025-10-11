@@ -1,7 +1,8 @@
 type FileNode = {
     basename: string,
     relative_path: string
-}
+    type: 'file' | 'directory',
+} & ({ type: 'file', children?: null } | { type: 'directory', children?: FileNode[] });
 type ASTNode = {
     type: string,
     start_line:number,

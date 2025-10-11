@@ -10,7 +10,18 @@
     ],
     "jsx": "react-jsx",
     "jsxImportSource": "hono/jsx",
-    "outDir": "./dist"
+    "outDir": "./dist",
+    "baseUrl": ".",
+    "paths": {
+      "@example_files/*": [
+        "./example_files/*"
+      ],
+      "@/*": [
+        "./src/*"
+      ]
+    }
   },
-  "exclude": ["node_modules"]
+  "exclude": [
+    "node_modules"
+  ]
 }
