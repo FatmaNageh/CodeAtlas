@@ -8,7 +8,7 @@ const app = new Hono()
 // Endpoint to analyze project
 app.get("/analyze", async (c) => {
   // You can change this path to wherever your test project is
-  const baseDir = path.join(process.cwd(), "./example_files/project");
+  const baseDir = path.join(process.cwd(), "./example_files/fzf-master");
 
   try {
     // Call your parser

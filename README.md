@@ -1,7 +1,7 @@
 This project only runs on nodejs (v22.14) (not bun or deno or workers)
 
 ```
-npm install
+npm install --legacy-peer-deps
 npm run dev
 ```
 

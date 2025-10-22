@@ -1,11 +1,13 @@
-import Parser from "tree-sitter";
+import Parser, { type Language } from "tree-sitter";
 import JavaScript from "tree-sitter-javascript";
 import Python from "tree-sitter-python";
 import Java from "tree-sitter-java";
 import CPP from "tree-sitter-cpp";
+import Go from "tree-sitter-go";
+import Ruby from "tree-sitter-ruby";
 import fs from "fs";
 import path from "path";
-
+import type { FileNode, DirectoryNode, GraphNode } from "./types/graph.d.ts";
 
 function getLanguageParser(ext: string): Parser {
   const parser = new Parser();
@@ -13,18 +15,24 @@ function getLanguageParser(ext: string): Parser {
   switch (ext) {
     case ".js":
     case ".ts":
-      parser.setLanguage(JavaScript as any);
+      parser.setLanguage(JavaScript as Language);
       break;
     case ".py":
-      parser.setLanguage(Python as any);
+      parser.setLanguage(Python as Language);
       break;
     case ".java":
-      parser.setLanguage(Java as any);
+      parser.setLanguage(Java as Language);
       break;
     case ".cpp":
     case ".cc":
     case ".hpp":
-      parser.setLanguage(CPP as any);
+      parser.setLanguage(CPP as Language);
+      break;
+    case ".rb":
+      parser.setLanguage(Ruby as Language);
+      break;
+      case ".go":
+      parser.setLanguage(Go as Language);
       break;
     default:
       throw new Error(`Unsupported file type: ${ext}`);
@@ -33,16 +41,60 @@ function getLanguageParser(ext: string): Parser {
   return parser;
 }
 
-function getAllFiles(dirPath: string, files: string[] = []): string[] {
-  const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-  for (const entry of entries) {
-    const fullPath = path.join(dirPath, entry.name);
-    if (entry.isDirectory()) {
-      getAllFiles(fullPath, files);
-    }  else if (/\.(js|ts|py|java|cpp|cc|hpp)$/.test(fullPath)) files.push(fullPath);
+
+// Enhanced: collect directories as well as files to preserve folder hierarchy with nested structure.
+function getAllFiles(dirPath: string): GraphNode {
+  function buildDirectory(absPath: string, relPath: string): GraphNode {
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(absPath, { withFileTypes: true });
+    } catch (e) {
+      return {
+        id: absPath,
+        type: {
+          basename: path.basename(absPath),
+          relative_path: relPath === "" ? "" : relPath + path.sep,
+          isDirectory: true,
+          children: []
+        } as DirectoryNode
+      };
+    }
+
+    const children: GraphNode[] = [];
+
+    for (const entry of entries) {
+      const entryAbsPath = path.join(absPath, entry.name);
+      const entryRelPath = path.join(relPath, entry.name);
+
+      if (entry.isDirectory()) {
+        children.push(buildDirectory(entryAbsPath, entryRelPath));
+      } else if (/\.(js|ts|py|java|cpp|cc|hpp|rb|go)$/.test(entry.name)) {
+        const fileNode: FileNode = {
+          basename: path.basename(entryAbsPath),
+          relative_path: entryRelPath
+        };
+        children.push({
+          id: entryAbsPath,
+          type: fileNode
+        });
+      }
+    }
+
+    return {
+      id: absPath,
+      type: {
+        basename: path.basename(absPath),
+        relative_path: relPath === "" ? "" : relPath + path.sep,
+        isDirectory: true,
+        children
+      } as DirectoryNode
+    };
   }
-  return files;
+
+  return buildDirectory(dirPath, "");
 }
+
+
 
 function extractName(node: any): string | null {
   const nameField = node.childForFieldName?.("name");
@@ -72,10 +124,27 @@ function extractName(node: any): string | null {
 }
 
 export function parseProject(projectPath: string) {
-  const allFiles = getAllFiles(projectPath);
-  const projectData: any[] = [];
+  const rootNode = getAllFiles(projectPath);
+  
+  function parseNode(node: GraphNode): any {
+    const filePath = node.id;
+    
+    // Handle directories
+    if ((node.type as any)?.isDirectory) {
+      const directoryData = {
+        file: path.basename(filePath),
+        path: filePath,
+        isDirectory: true,
+        imports: [],
+        functions: [],
+        classes: [],
+        modules: [],
+        children: (node.type as DirectoryNode).children?.map(child => parseNode(child)) || []
+      };
+      return directoryData;
+    }
 
-  for (const filePath of allFiles) {
+    // Handle files
     const code = fs.readFileSync(filePath, "utf8");
     const ext = path.extname(filePath);
     let parser: Parser;
@@ -84,12 +153,21 @@ export function parseProject(projectPath: string) {
       parser = getLanguageParser(ext);
     } catch {
       console.warn(`Skipping unsupported file: ${filePath}`);
-      continue;
+      return {
+        file: path.basename(filePath),
+        path: filePath,
+        isDirectory: false,
+        imports: [],
+        functions: [],
+        classes: [],
+        modules: [],
+        children: []
+      };
     }
 
     const tree = parser.parse(code);
     const root = tree.rootNode;
-    
+
     const imports: string[] = [];
     const functions: string[] = [];
     const classes: string[] = [];
@@ -152,7 +230,8 @@ export function parseProject(projectPath: string) {
         case ".cpp":
         case ".cc":
         case ".hpp":
-          if (node.type === "namespace_definition") modules.push(node.child(1)?.text || ""); 
+          if (node.type === "namespace_definition")
+            modules.push(node.child(1)?.text || "");
           if (node.type === "function_definition") {
             const name = extractName(node);
             if (name) functions.push(name);
@@ -161,6 +240,41 @@ export function parseProject(projectPath: string) {
             const name = extractName(node);
             if (name) classes.push(name);
           }
+          break;
+
+        // --- Go ---
+        case ".go":
+          if (node.type === "import_declaration") imports.push(node.text);
+          if (node.type === "function_declaration") {
+            const name = extractName(node);
+            if (name) functions.push(name);
+          }
+          if (node.type === "type_declaration") {
+            const name = extractName(node);
+            if (name) classes.push(name);
+          }
+          break;
+
+        // --- Ruby ---
+        case ".rb":
+          if (node.type === "call") {
+            const identifier = node.childForFieldName("name") || node.namedChildren?.find((n: any) => n.type === "identifier");
+            if (identifier?.text === "require" || identifier?.text === "require_relative") {
+              imports.push(node.text);
+            }
+          }
+          if (node.type === "method") {
+            const name = extractName(node);
+            if (name) functions.push(name);
+          }
+          if (node.type === "class") {
+            const name = extractName(node);
+            if (name) classes.push(name);
+          }
+          break;
+
+        default:
+          console.warn(`Unsupported language: ${ext}`);
           break;
       }
 
@@ -174,15 +288,17 @@ export function parseProject(projectPath: string) {
 
     walk(root);
 
-    projectData.push({
+    return {
       file: path.basename(filePath),
       path: filePath,
+      isDirectory: false,
       imports,
       functions,
       classes,
       modules,
-    });
+      children: []
+    };
   }
 
-  return projectData;
+  return parseNode(rootNode);
 }
