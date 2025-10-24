@@ -1,4 +1,4 @@
-import Parser, { type Language } from "tree-sitter";
+import Parser, { type Language, type SyntaxNode } from "tree-sitter";
 import JavaScript from "tree-sitter-javascript";
 import Python from "tree-sitter-python";
 import Java from "tree-sitter-java";
@@ -96,42 +96,57 @@ function getAllFiles(dirPath: string): GraphNode {
 
 
 
-function extractName(node: any): string | null {
+function extractName(node: SyntaxNode): string | null {
   const nameField = node.childForFieldName?.("name");
   if (nameField && nameField.text) return nameField.text;
 
-  const idNode = node.namedChildren?.find((n: any) =>
+  const idNode = node.namedChildren?.find((n: SyntaxNode) =>
     /identifier|name|property_identifier/.test(n.type)
   );
   if (idNode && idNode.text) return idNode.text;
 
   if (node.type === "function_definition") {
     const declarator = node.namedChildren?.find(
-      (n: any) => n.type === "function_declarator"
+      (n: SyntaxNode) => n.type === "function_declarator"
     );
     const ident = declarator?.namedChildren?.find(
-      (n: any) => n.type === "identifier"
+      (n: SyntaxNode) => n.type === "identifier"
     );
     if (ident && ident.text) return ident.text;
   }
 
   const fallback = node.namedChildren?.find(
-    (n: any) => n.type === "identifier" || n.type === "name"
+    (n: SyntaxNode) => n.type === "identifier" || n.type === "name"
   );
   if (fallback && fallback.text) return fallback.text;
 
   return null;
 }
 
-export function parseProject(projectPath: string) {
+type ParsedNode = {
+  file: string;
+  path: string;
+  isDirectory: boolean;
+  imports: string[];
+  functions: string[];
+  classes: string[];
+  modules: string[];
+  children: ParsedNode[];
+};
+
+function isDirectoryGraphNode(node: GraphNode): node is GraphNode & { type: DirectoryNode } {
+  return (node.type as DirectoryNode).isDirectory === true;
+}
+
+export function parseProject(projectPath: string): ParsedNode {
   const rootNode = getAllFiles(projectPath);
   
-  function parseNode(node: GraphNode): any {
+  function parseNode(node: GraphNode): ParsedNode {
     const filePath = node.id;
     
     // Handle directories
-    if ((node.type as any)?.isDirectory) {
-      const directoryData = {
+    if (isDirectoryGraphNode(node)) {
+      const directoryData: ParsedNode = {
         file: path.basename(filePath),
         path: filePath,
         isDirectory: true,
@@ -139,7 +154,7 @@ export function parseProject(projectPath: string) {
         functions: [],
         classes: [],
         modules: [],
-        children: (node.type as DirectoryNode).children?.map(child => parseNode(child)) || []
+        children: node.type.children?.map(child => parseNode(child)) || []
       };
       return directoryData;
     }
@@ -173,7 +188,7 @@ export function parseProject(projectPath: string) {
     const classes: string[] = [];
     const modules: string[] = []; //Added Modules
 
-    const walk = (node: Parser.SyntaxNode) => {
+    const walk = (node: SyntaxNode) => {
       switch (ext) {
         // --- JavaScript / TypeScript ---
         case ".js":
@@ -258,7 +273,7 @@ export function parseProject(projectPath: string) {
         // --- Ruby ---
         case ".rb":
           if (node.type === "call") {
-            const identifier = node.childForFieldName("name") || node.namedChildren?.find((n: any) => n.type === "identifier");
+            const identifier = node.childForFieldName("name") || node.namedChildren?.find((n: SyntaxNode) => n.type === "identifier");
             if (identifier?.text === "require" || identifier?.text === "require_relative") {
               imports.push(node.text);
             }
