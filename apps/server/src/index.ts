@@ -12,14 +12,8 @@ app.use(logger());
 app.use(
 	"/*",
 	cors({
-		origin: process.env.CORS_ORIGIN || "http://localhost:3001",
+		origin: process.env.CORS_ORIGIN || "",
 		allowMethods: ["GET", "POST", "OPTIONS"],
-		allowHeaders: [
-			"Content-Type",
-			"Authorization",
-			"x-trpc-source",
-		],
-		credentials: true,
 	}),
 );
 

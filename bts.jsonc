@@ -4,7 +4,7 @@
 {
   "$schema": "https://r2.better-t-stack.dev/schema.json",
   "version": "3.4.2",
-  "createdAt": "2025-11-15T20:39:11.087Z",
+  "createdAt": "2025-11-16T18:51:53.939Z",
   "database": "sqlite",
   "orm": "drizzle",
   "backend": "hono",
@@ -17,7 +17,7 @@
   ],
   "examples": [],
   "auth": "none",
-  "packageManager": "npm",
+  "packageManager": "pnpm",
   "dbSetup": "none",
   "api": "trpc",
   "webDeploy": "none",

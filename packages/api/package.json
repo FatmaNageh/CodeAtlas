@@ -15,18 +15,18 @@
     "build": "tsdown"
   },
   "devDependencies": {
-    "tsdown": "^0.15.5",
-    "@CodeAtlas/config": "*"
+    "tsdown": "catalog:",
+    "@CodeAtlas/config": "workspace:*"
   },
   "peerDependencies": {
     "typescript": "^5"
   },
   "dependencies": {
-    "@trpc/server": "^11.5.0",
-    "@trpc/client": "^11.5.0",
-    "hono": "^4.8.2",
-    "dotenv": "^17.2.2",
-    "zod": "^4.1.11",
-    "@CodeAtlas/db": "*"
+    "@trpc/server": "catalog:",
+    "@trpc/client": "catalog:",
+    "hono": "catalog:",
+    "dotenv": "catalog:",
+    "zod": "catalog:",
+    "@CodeAtlas/db": "workspace:*"
   }
 }
