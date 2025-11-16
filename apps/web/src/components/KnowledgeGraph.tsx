@@ -99,11 +99,11 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ data, onNodeClic
     });
 
     node.on('mouseover', function(this: SVGGElement, _event: Event, d: SimNode) {
-      d3.select(this).select('circle').attr('r', (n: SimNode) => (n.isDirectory ? 16 : 10));
+      d3.select(this).select('circle').attr('r', d.isDirectory ? 16 : 10);
       d3.select(this).select('text').style('font-weight', 'bold');
     }).on('mouseout', function(this: SVGGElement, _event: Event, d: SimNode) {
       if (d.path !== selectedNodePath) {
-        d3.select(this).select('circle').attr('r', (n: SimNode) => (n.isDirectory ? 12 : 7));
+        d3.select(this).select('circle').attr('r', d.isDirectory ? 12 : 7);
       }
       d3.select(this).select('text').style('font-weight', 'normal');
     });
