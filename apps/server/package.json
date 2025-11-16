@@ -10,20 +10,29 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "hono": "^4.8.2",
+    "@CodeAtlas/api": "workspace:*",
+    "@CodeAtlas/db": "workspace:*",
     "@hono/node-server": "^1.14.4",
-    "@trpc/server": "^11.5.0",
     "@hono/trpc-server": "^0.4.0",
-    "dotenv": "^17.2.2",
-    "zod": "^4.1.11",
-    "@CodeAtlas/api": "*",
-    "@CodeAtlas/db": "*"
+    "@trpc/server": "catalog:",
+    "dotenv": "catalog:",
+    "hono": "catalog:",
+    "tree-sitter": "^0.22.4",
+    "tree-sitter-c": "^0.24.1",
+    "tree-sitter-c-sharp": "^0.23.1",
+    "tree-sitter-cpp": "^0.23.4",
+    "tree-sitter-go": "^0.23.4",
+    "tree-sitter-java": "^0.23.5",
+    "tree-sitter-javascript": "^0.25.0",
+    "tree-sitter-python": "^0.25.0",
+    "tree-sitter-ruby": "^0.23.1",
+    "zod": "catalog:"
   },
   "devDependencies": {
-    "typescript": "^5.8.2",
+    "@CodeAtlas/config": "workspace:*",
+    "@types/node": "catalog:",
+    "tsdown": "catalog:",
     "tsx": "^4.19.2",
-    "@types/node": "^22.13.11",
-    "tsdown": "^0.15.5",
-    "@CodeAtlas/config": "*"
+    "typescript": "catalog:"
   }
 }

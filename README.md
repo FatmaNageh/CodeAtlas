@@ -20,7 +20,7 @@ This project was created with [Better-T-Stack](https://github.com/AmanVarshney01
 First, install the dependencies:
 
 ```bash
-npm install
+pnpm install
 ```
 ## Database Setup
 
@@ -28,7 +28,7 @@ This project uses SQLite with Drizzle ORM.
 
 1. Start the local SQLite database:
 ```bash
-cd apps/server && npm run db:local
+cd apps/server && pnpm run db:local
 ```
 
 
@@ -36,14 +36,14 @@ cd apps/server && npm run db:local
 
 3. Apply the schema to your database:
 ```bash
-npm run db:push
+pnpm run db:push
 ```
 
 
 Then, run the development server:
 
 ```bash
-npm run dev
+pnpm run dev
 ```
 
 Open [http://localhost:3001](http://localhost:3001) in your browser to see the web application.
@@ -69,11 +69,11 @@ CodeAtlas/
 
 ## Available Scripts
 
-- `npm run dev`: Start all applications in development mode
-- `npm run build`: Build all applications
-- `npm run dev:web`: Start only the web application
-- `npm run dev:server`: Start only the server
-- `npm run check-types`: Check TypeScript types across all apps
-- `npm run db:push`: Push schema changes to database
-- `npm run db:studio`: Open database studio UI
-- `cd apps/server && npm run db:local`: Start the local SQLite database
+- `pnpm run dev`: Start all applications in development mode
+- `pnpm run build`: Build all applications
+- `pnpm run dev:web`: Start only the web application
+- `pnpm run dev:server`: Start only the server
+- `pnpm run check-types`: Check TypeScript types across all apps
+- `pnpm run db:push`: Push schema changes to database
+- `pnpm run db:studio`: Open database studio UI
+- `cd apps/server && pnpm run db:local`: Start the local SQLite database

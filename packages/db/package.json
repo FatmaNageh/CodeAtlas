@@ -21,8 +21,8 @@
   },
   "devDependencies": {
     "drizzle-kit": "^0.31.2",
-    "tsdown": "^0.15.5",
-    "@CodeAtlas/config": "*"
+    "tsdown": "catalog:",
+    "@CodeAtlas/config": "workspace:*"
   },
   "peerDependencies": {
     "typescript": "^5"
@@ -30,7 +30,7 @@
   "dependencies": {
     "drizzle-orm": "^0.44.2",
     "@libsql/client": "^0.14.0",
-    "dotenv": "^17.2.2",
-    "zod": "^4.1.11"
+    "dotenv": "catalog:",
+    "zod": "catalog:"
   }
 }
