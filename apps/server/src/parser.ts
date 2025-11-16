@@ -7,10 +7,12 @@ import Go from "tree-sitter-go";
 import Ruby from "tree-sitter-ruby";
 import fs from "fs";
 import path from "path";
-import type { FileNode, DirectoryNode, GraphNode } from "../types/graph";
+import type { FileNode, DirectoryNode, GraphNode } from "./types/graph";
 
 function getLanguageParser(ext: string): Parser {
   const parser = new Parser();
+  console.log("This is the ext i received" , ext);
+  
 
   switch (ext) {
     case ".js":

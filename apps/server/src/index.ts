@@ -6,8 +6,10 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import path from "path";
+import { serve } from "@hono/node-server";
 
 
+import { parseProject } from "./parser";
 const app = new Hono();
 
 app.use(logger());
@@ -30,7 +32,7 @@ app.use(
 );
 
 app.get("/", (c) => {
-	const baseDir = path.join(process.cwd(), "../../../example_files/fzf-master");
+	const baseDir = path.join(process.cwd(), "../../example_files/fzf-master/");
 	
 	
 	try {
@@ -39,7 +41,7 @@ app.get("/", (c) => {
 
     return c.json({
       project: path.basename(baseDir),
-      filesAnalyzed: projectData.length,
+    //   filesAnalyzed: projectData.length,
       data: projectData,
     });
   } catch (err: any) {
@@ -51,8 +53,6 @@ app.get("/", (c) => {
 
 });
 
-import { serve } from "@hono/node-server";
-import { parseProject } from "./parser";
 
 serve(
 	{
