@@ -32,7 +32,7 @@ app.use(
 );
 
 app.get("/", (c) => {
-	const baseDir = path.join(process.cwd(), "../../example_files/fzf-master/");
+	const baseDir = path.join(process.cwd(), "../../example_files/");
 	
 	
 	try {
@@ -53,7 +53,7 @@ app.get("/", (c) => {
 
 });
 
-
+	 
 serve(
 	{
 		fetch: app.fetch,
