@@ -31,13 +31,13 @@ app.use(
 	}),
 );
 
-app.get("/", (c) => {
+app.get("/", async (c) => {
 	const baseDir = path.join(process.cwd(), "../../example_files/");
 	
 	
 	try {
-    // Call your parser
-    const projectData = parseProject(baseDir);
+    // Call your parser (now async)
+    const projectData = await parseProject(baseDir);
 
     return c.json({
       project: path.basename(baseDir),

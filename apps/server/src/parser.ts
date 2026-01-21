@@ -8,6 +8,7 @@ import Ruby from "tree-sitter-ruby";
 import fs from "fs";
 import path from "path";
 import type { FileNode, DirectoryNode, GraphNode } from "./types/graph";
+import { getNeo4jService } from "./neo4j";
 
 function getLanguageParser(ext: string): Parser {
   const parser = new Parser();
@@ -125,7 +126,7 @@ function extractName(node: SyntaxNode): string | null {
   return null;
 }
 
-type ParsedNode = {
+export type ParsedNode = {
   file: string;
   path: string;
   isDirectory: boolean;
@@ -140,7 +141,7 @@ function isDirectoryGraphNode(node: GraphNode): node is GraphNode & { type: Dire
   return (node.type as DirectoryNode).isDirectory === true;
 }
 
-export function parseProject(projectPath: string): ParsedNode {
+export async function parseProject(projectPath: string): Promise<ParsedNode> {
   const rootNode = getAllFiles(projectPath);
   
   function parseNode(node: GraphNode): ParsedNode {
@@ -317,5 +318,17 @@ export function parseProject(projectPath: string): ParsedNode {
     };
   }
 
-  return parseNode(rootNode);
+  const parsedData = parseNode(rootNode);
+  
+  // Save to Neo4j
+  try {
+    const neo4j = getNeo4jService();
+    await neo4j.clearDatabase();
+    await neo4j.saveParsedNode(parsedData);
+    console.log('Project data saved to Neo4j successfully');
+  } catch (error) {
+    console.error('Error saving to Neo4j:', error);
+  }
+  
+  return parsedData;
 }
