@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "repoRoot": "C:\\Users\\hp\\OneDrive\\Desktop\\codeAtlas\\example_files\\simple_js_project",
+  "scannedAt": "2026-01-22T20:06:14.461Z",
+  "files": {
+    "index.js": {
+      "mtimeMs": 1769112369385.8323,
+      "size": 154,
+      "hash": "73db197daf690acec1f8dfdb24f1e66289e01223"
+    },
+    "source.js": {
+      "mtimeMs": 1769112350365.5479,
+      "size": 105,
+      "hash": "8d03c7bc8f03ecc4230b72ee2711057783f49b13"
+    }
+  }
+}
