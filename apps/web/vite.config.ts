@@ -11,4 +11,10 @@ export default defineConfig({
 			"@": path.resolve(__dirname, "./src"),
 		},
 	},
+  server: {
+    proxy: {
+      "/trpc": "http://localhost:3000",
+      "/indexRepo": "http://localhost:3000",
+    },
+  },
 });
