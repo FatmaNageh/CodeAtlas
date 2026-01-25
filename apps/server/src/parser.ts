@@ -12,7 +12,7 @@ import { getNeo4jService } from "./neo4j";
 
 function getLanguageParser(ext: string): Parser {
   const parser = new Parser();
-  console.log("This is the ext i received" , ext);
+  // console.log("This is the ext i received" , ext);
   
 
   switch (ext) {

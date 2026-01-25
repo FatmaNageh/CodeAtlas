@@ -5,11 +5,9 @@ import { appRouter } from "@CodeAtlas/api/routers/index";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
-import path from "path";
 import { serve } from "@hono/node-server";
-
-
 import { parseProject } from "./parser";
+
 const app = new Hono();
 
 app.use(logger());
@@ -26,34 +24,16 @@ app.use(
 	trpcServer({
 		router: appRouter,
 		createContext: (_opts, context) => {
-			return createContext({ context });
+			return createContext({
+				context,
+				backendServices: {
+					parseProject,
+				},
+			});
 		},
 	}),
 );
 
-app.get("/", async (c) => {
-	const baseDir = path.join(process.cwd(), "../../example_files/");
-	
-	
-	try {
-    // Call your parser (now async)
-    const projectData = await parseProject(baseDir);
-
-    return c.json({
-      project: path.basename(baseDir),
-    //   filesAnalyzed: projectData.length,
-      data: projectData,
-    });
-  } catch (err: any) {
-    console.error("Error analyzing project:", err);
-    return c.json({ error: err.message }, 500);
-  }
-
-
-
-});
-
-	 
 serve(
 	{
 		fetch: app.fetch,
@@ -63,3 +43,5 @@ serve(
 		console.log(`Server is running on http://localhost:${info.port}`);
 	},
 );
+
+

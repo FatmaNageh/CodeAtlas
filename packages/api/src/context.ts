@@ -1,13 +1,19 @@
 import type { Context as HonoContext } from "hono";
 
-export type CreateContextOptions = {
-	context: HonoContext;
+export type BackendServices = {
+	parseProject: (projectPath: string) => Promise<any>;
 };
 
-export async function createContext({ context }: CreateContextOptions) {
+export type CreateContextOptions = {
+	context: HonoContext;
+	backendServices?: BackendServices;
+};
+
+export async function createContext({ context, backendServices }: CreateContextOptions) {
 	// No auth configured
 	return {
 		session: null,
+		backendServices,
 	};
 }
 
