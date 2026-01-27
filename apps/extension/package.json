@@ -1,0 +1,49 @@
+{
+  "name": "codeatlas-extension",
+  "displayName": "CodeAtlas",
+  "description": "Graph + Chat for CodeAtlas",
+  "version": "0.0.1",
+  "publisher": "codeatlas",
+  "engines": { "vscode": "^1.90.0" },
+  "categories": ["Other"],
+  "main": "./dist/extension.cjs",
+  "type": "commonjs",
+ "activationEvents": [
+  "onCommand:codeatlas.openGraph",
+  "onView:codeatlas.chatView"
+]
+,
+  "contributes": {
+ "commands": [
+  { "command": "codeatlas.openGraph", "title": "CodeAtlas: Open Graph" }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "codeatlasContainer",
+          "title": "CodeAtlas",
+          "icon": "apps/extension/src/media/icon.jpeg"
+        }
+      ]
+    },
+    "views": {
+      "codeatlasContainer": [
+        {
+          "id": "codeatlas.chatView",
+          "name": "Chat"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "build": "esbuild src/extension.ts --bundle --platform=node --format=cjs --outfile=dist/extension.cjs --external:vscode",
+    "watch": "pnpm build -- --watch",
+    "lint": "node -e \"console.log('add eslint later')\""
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.11",
+    "@types/vscode": "^1.90.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.7.3"
+  }
+}
