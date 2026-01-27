@@ -1,0 +1,103 @@
+{
+  "repoId": "5b450673e00d",
+  "nodes": [
+    {
+      "id": "repo:5b450673e00d",
+      "kind": "Repo",
+      "repoId": "5b450673e00d",
+      "props": {
+        "repoId": "5b450673e00d",
+        "rootPath": "C:/Users/hp/OneDrive/Desktop/codeAtlas/example_files/simple_js_project",
+        "name": "simple_js_project"
+      }
+    },
+    {
+      "id": "dir:5b450673e00d:.",
+      "kind": "Directory",
+      "repoId": "5b450673e00d",
+      "props": {
+        "repoId": "5b450673e00d",
+        "relPath": ".",
+        "name": "simple_js_project"
+      }
+    },
+    {
+      "id": "file:5b450673e00d:index.js",
+      "kind": "File",
+      "repoId": "5b450673e00d",
+      "props": {
+        "repoId": "5b450673e00d",
+        "relPath": "index.js",
+        "path": "C:/Users/hp/OneDrive/Desktop/codeAtlas/example_files/simple_js_project/index.js",
+        "language": "javascript",
+        "ext": ".js",
+        "size": 154,
+        "mtimeMs": 1769112369385.8323
+      }
+    },
+    {
+      "id": "chunk:1e72cd8037ddbac28f9016d3a6893253dfb15b83",
+      "kind": "DocChunk",
+      "repoId": "5b450673e00d",
+      "props": {
+        "repoId": "5b450673e00d",
+        "fileRelPath": "index.js",
+        "chunkType": "file",
+        "startLine": 1,
+        "endLine": 14,
+        "textPreview": "import cool from './source.js';\r\n\r\nconst x = function (a, b) {\r\n  return a * b;\r\n};\r\nlet z = x(4, 3);\r\nconst beep = 5+10;\r\ncool();\r\n\r\n///fatma\r\n\r\n\r\n\r\n//65",
+        "textHash": "73db197daf690acec1f8dfdb24f1e66289e01223"
+      }
+    },
+    {
+      "id": "file:5b450673e00d:source.js",
+      "kind": "File",
+      "repoId": "5b450673e00d",
+      "props": {
+        "repoId": "5b450673e00d",
+        "relPath": "source.js",
+        "path": "C:/Users/hp/OneDrive/Desktop/codeAtlas/example_files/simple_js_project/source.js",
+        "language": "javascript",
+        "ext": ".js",
+        "size": 105,
+        "mtimeMs": 1769112350365.5479
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:c48367b695eeaf6ebe8df5020916d4cd938e52d4",
+      "type": "CONTAINS",
+      "from": "repo:5b450673e00d",
+      "to": "dir:5b450673e00d:.",
+      "repoId": "5b450673e00d"
+    },
+    {
+      "id": "edge:93499ade8af9ef029953f00ce692db2ff6107337",
+      "type": "CONTAINS",
+      "from": "dir:5b450673e00d:.",
+      "to": "file:5b450673e00d:index.js",
+      "repoId": "5b450673e00d"
+    },
+    {
+      "id": "edge:e3f7062186c12938fd96540f59090d79e91e067b",
+      "type": "HAS_CHUNK",
+      "from": "file:5b450673e00d:index.js",
+      "to": "chunk:1e72cd8037ddbac28f9016d3a6893253dfb15b83",
+      "repoId": "5b450673e00d"
+    },
+    {
+      "id": "edge:44b27de4f7882d3256c3dfe1b0345256a8683a02",
+      "type": "CONTAINS",
+      "from": "dir:5b450673e00d:.",
+      "to": "file:5b450673e00d:source.js",
+      "repoId": "5b450673e00d"
+    }
+  ],
+  "stats": {
+    "files": 2,
+    "dirs": 1,
+    "symbols": 0,
+    "importsRaw": 0
+  }
+}

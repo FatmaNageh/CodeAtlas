@@ -1,0 +1,13 @@
+{
+  "index.js": {
+    "fileRelPath": "index.js",
+    "language": "javascript",
+    "imports": [],
+    "symbols": [],
+    "callSites": [],
+    "parseErrors": 0,
+    "lineCount": 14,
+    "textPreview": "import cool from './source.js';\r\n\r\nconst x = function (a, b) {\r\n  return a * b;\r\n};\r\nlet z = x(4, 3);\r\nconst beep = 5+10;\r\ncool();\r\n\r\n///fatma\r\n\r\n\r\n\r\n//65",
+    "textHash": "73db197daf690acec1f8dfdb24f1e66289e01223"
+  }
+}
