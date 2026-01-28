@@ -8,6 +8,9 @@ import { logger } from "hono/logger";
 import path from "path";
 import { serve } from "@hono/node-server";
 
+import { healthRoute } from "./routes/health";
+import { indexRepoRoute } from "./routes/indexRepo";
+import { graphRoute } from "./routes/getRepo";
 
 import { parseProject } from "./parser";
 const app = new Hono();
@@ -21,6 +24,9 @@ app.use(
 	}),
 );
 
+app.get("/", (c) => c.json({ ok: true, service: "CodeAtlas server", routes: ["/health", "POST /indexRepo", "/trpc/*", "getGraph"] }));
+
+// Keep tRPC mounting (doesn't interfere with backend-only testing)
 app.use(
 	"/trpc/*",
 	trpcServer({
@@ -31,29 +37,10 @@ app.use(
 	}),
 );
 
-app.get("/", (c) => {
-	const baseDir = path.join(process.cwd(), "../../example_files/");
-	
-	
-	try {
-    // Call your parser
-    const projectData = parseProject(baseDir);
 
-    return c.json({
-      project: path.basename(baseDir),
-    //   filesAnalyzed: projectData.length,
-      data: projectData,
-    });
-  } catch (err: any) {
-    console.error("Error analyzing project:", err);
-    return c.json({ error: err.message }, 500);
-  }
-
-
-
-});
-
-	 
+app.route("/", healthRoute);
+app.route("/", indexRepoRoute);
+app.route("/",graphRoute )
 serve(
 	{
 		fetch: app.fetch,
