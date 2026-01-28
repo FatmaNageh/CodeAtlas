@@ -49,4 +49,5 @@ coverage
 tmp
 temp
 
-.codeatlas/**
+**/.codeatlas/**
+
