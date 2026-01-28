@@ -9,6 +9,7 @@ import { serve } from "@hono/node-server";
 
 import { healthRoute } from "./routes/health";
 import { indexRepoRoute } from "./routes/indexRepo";
+import { graphRoute } from "./routes/getRepo";
 
 const app = new Hono();
 
@@ -21,7 +22,7 @@ app.use(
   }),
 );
 
-app.get("/", (c) => c.json({ ok: true, service: "CodeAtlas server", routes: ["/health", "POST /indexRepo", "/trpc/*"] }));
+app.get("/", (c) => c.json({ ok: true, service: "CodeAtlas server", routes: ["/health", "POST /indexRepo", "/trpc/*", "getGraph"] }));
 
 // Keep tRPC mounting (doesn't interfere with backend-only testing)
 app.use(
@@ -32,10 +33,10 @@ app.use(
   }),
 );
 
-// Phase 1 routes
+
 app.route("/", healthRoute);
 app.route("/", indexRepoRoute);
-
+app.route("/",graphRoute )
 serve(
   { fetch: app.fetch, port: Number(process.env.PORT || 3000) },
   (info) => console.log(`Server is running on http://localhost:${info.port}`),
