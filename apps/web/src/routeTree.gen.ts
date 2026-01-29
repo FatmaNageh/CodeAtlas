@@ -9,8 +9,32 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as IrRouteImport } from './routes/ir'
+import { Route as IndexingRouteImport } from './routes/indexing'
+import { Route as GraphRouteImport } from './routes/graph'
+import { Route as AnalyticsRouteImport } from './routes/analytics'
 import { Route as IndexRouteImport } from './routes/index'
 
+const IrRoute = IrRouteImport.update({
+  id: '/ir',
+  path: '/ir',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const IndexingRoute = IndexingRouteImport.update({
+  id: '/indexing',
+  path: '/indexing',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GraphRoute = GraphRouteImport.update({
+  id: '/graph',
+  path: '/graph',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AnalyticsRoute = AnalyticsRouteImport.update({
+  id: '/analytics',
+  path: '/analytics',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -19,28 +43,72 @@ const IndexRoute = IndexRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/analytics': typeof AnalyticsRoute
+  '/graph': typeof GraphRoute
+  '/indexing': typeof IndexingRoute
+  '/ir': typeof IrRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/analytics': typeof AnalyticsRoute
+  '/graph': typeof GraphRoute
+  '/indexing': typeof IndexingRoute
+  '/ir': typeof IrRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/analytics': typeof AnalyticsRoute
+  '/graph': typeof GraphRoute
+  '/indexing': typeof IndexingRoute
+  '/ir': typeof IrRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths: '/' | '/analytics' | '/graph' | '/indexing' | '/ir'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to: '/' | '/analytics' | '/graph' | '/indexing' | '/ir'
+  id: '__root__' | '/' | '/analytics' | '/graph' | '/indexing' | '/ir'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AnalyticsRoute: typeof AnalyticsRoute
+  GraphRoute: typeof GraphRoute
+  IndexingRoute: typeof IndexingRoute
+  IrRoute: typeof IrRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/ir': {
+      id: '/ir'
+      path: '/ir'
+      fullPath: '/ir'
+      preLoaderRoute: typeof IrRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/indexing': {
+      id: '/indexing'
+      path: '/indexing'
+      fullPath: '/indexing'
+      preLoaderRoute: typeof IndexingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/graph': {
+      id: '/graph'
+      path: '/graph'
+      fullPath: '/graph'
+      preLoaderRoute: typeof GraphRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/analytics': {
+      id: '/analytics'
+      path: '/analytics'
+      fullPath: '/analytics'
+      preLoaderRoute: typeof AnalyticsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -53,6 +121,10 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AnalyticsRoute: AnalyticsRoute,
+  GraphRoute: GraphRoute,
+  IndexingRoute: IndexingRoute,
+  IrRoute: IrRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
