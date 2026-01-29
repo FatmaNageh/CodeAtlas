@@ -33,10 +33,16 @@ indexRepoRoute.post("/indexRepo", async (c) => {
 
   // Normalize project paths coming from the web UI.
   // Browsers sometimes provide file URLs like: file:///C:/Users/... which Node can't use.
-  const projectPath = parsed.data.projectPath
+  let projectPath = parsed.data.projectPath
     .replace(/^file:\/\/\//i, "")
-    .replace(/\//g, "\\")
     .trim();
+
+  // Convert to Windows path only if it looks like a Windows path (has drive letter like C:)
+  // Leave Unix paths (starting with /) as-is
+  const isWindowsPath = /^[a-zA-Z]:/.test(projectPath);
+  if (isWindowsPath) {
+    projectPath = projectPath.replace(/\//g, "\\");
+  }
 
   try {
     indexingInProgress = true;

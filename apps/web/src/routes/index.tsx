@@ -107,7 +107,7 @@ function Dashboard() {
               <label className="text-sm text-muted-foreground">Project path (local on server machine)</label>
               <input
                 className="w-full px-3 py-2 rounded border bg-background"
-                placeholder="e.g. C:\\Users\\...\\myRepo"
+                placeholder="e.g. /home/user/project or C:\\Users\\...\\myRepo"
                 value={projectPath}
                 onChange={(e) => setProjectPath(e.target.value)}
               />
