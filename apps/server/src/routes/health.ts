@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { getNeo4jClient } from "../neo4j/client";
+import { getNeo4jClient } from "../db/neo4j/client";
 
 export const healthRoute = new Hono();
 

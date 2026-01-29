@@ -1,18 +1,39 @@
 import fs from "fs/promises";
 import path from "path";
-import type { FileIndexEntry, ScanResult, SupportedLanguage } from "../types/scan";
+import type {
+  FileIndexEntry,
+  ScanResult,
+  SupportedLanguage,
+  TextKind,
+} from "../types/scan";
 import { normalizePath } from "./id";
 
-const SUPPORTED: Record<string, SupportedLanguage> = {
+const CODE_EXT: Record<string, SupportedLanguage> = {
   ".js": "javascript",
+  ".jsx": "javascript",
   ".ts": "typescript",
+  ".tsx": "typescript",
   ".py": "python",
   ".java": "java",
   ".cpp": "cpp",
   ".cc": "cpp",
+  ".cxx": "cpp",
   ".hpp": "cpp",
+  ".h": "cpp",
+  ".hh": "cpp",
+  ".hxx": "cpp",
   ".go": "go",
   ".rb": "ruby",
+};
+
+const TEXT_EXT: Record<string, TextKind> = {
+  ".md": "markdown",
+  ".markdown": "markdown",
+  ".txt": "plaintext",
+  ".rst": "rst",
+  ".adoc": "adoc",
+  ".asciidoc": "adoc",
+  ".tex": "latex",
 };
 
 const DEFAULT_IGNORES = [
@@ -65,20 +86,32 @@ export async function scanRepo(
       }
 
       const ext = path.extname(d.name).toLowerCase();
-      const language = SUPPORTED[ext];
-      if (!language) continue;
+      const language = CODE_EXT[ext];
+      const textKind = TEXT_EXT[ext];
+      if (!language && !textKind) continue;
 
       const stat = await fs.stat(abs).catch(() => null);
       if (!stat) continue;
 
-      const entry: FileIndexEntry = {
-        relPath: normalizePath(rel),
-        absPath: abs,
-        language,
-        ext,
-        size: stat.size,
-        mtimeMs: stat.mtimeMs,
-      };
+      const entry: FileIndexEntry = language
+        ? {
+            kind: "code",
+            relPath: normalizePath(rel),
+            absPath: abs,
+            language,
+            ext,
+            size: stat.size,
+            mtimeMs: stat.mtimeMs,
+          }
+        : {
+            kind: "text",
+            relPath: normalizePath(rel),
+            absPath: abs,
+            ext,
+            size: stat.size,
+            mtimeMs: stat.mtimeMs,
+            textKind: textKind!,
+          };
 
       if (computeHash) {
         const buf = await fs.readFile(abs).catch(() => null);

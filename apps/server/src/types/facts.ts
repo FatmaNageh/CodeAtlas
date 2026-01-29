@@ -15,6 +15,10 @@ export type RawSymbol = {
   qname?: string;
   range?: Range;
   parentName?: string;
+  /** Names of base types (best-effort). */
+  extendsNames?: string[];
+  /** Names of implemented interfaces (best-effort). */
+  implementsNames?: string[];
 };
 
 export type RawImport = {
@@ -26,9 +30,12 @@ export type RawImport = {
 export type RawCallSite = {
   calleeText: string;
   range?: Range;
+  /** Qualified name of the enclosing symbol (function/method/class) if known. */
+  enclosingSymbolQname?: string;
 };
 
-export type RawFacts = {
+export type CodeFacts = {
+  kind: "code";
   fileRelPath: string;
   language: SupportedLanguage;
   imports: RawImport[];
@@ -43,4 +50,17 @@ export type RawFacts = {
   textHash?: string;
 };
 
-export type FactsByFile = Record<string, RawFacts>;
+export type TextFacts = {
+  kind: "text";
+  fileRelPath: string;
+  /** Links/paths referenced from docs (best-effort). */
+  references: { raw: string; range?: Range }[];
+  /** Backticked identifiers or headings that likely refer to symbols (best-effort). */
+  symbolMentions: { name: string; range?: Range }[];
+  lineCount?: number;
+  textPreview?: string;
+  textHash?: string;
+};
+
+export type FileFacts = CodeFacts | TextFacts;
+export type FactsByFile = Record<string, FileFacts>;

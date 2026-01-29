@@ -1,4 +1,4 @@
-import { getNeo4jClient } from "../neo4j/client";
+import { getNeo4jClient } from "./neo4j/client";
 
 /**
  * Lightweight Cypher runner that returns each record as a plain JS object.
