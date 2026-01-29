@@ -1,280 +1,132 @@
-import fs from "fs/promises";
-import crypto from "crypto";
-import Parser, { type Language, type SyntaxNode } from "tree-sitter";
-import JavaScript from "tree-sitter-javascript";
-import Python from "tree-sitter-python";
-import Java from "tree-sitter-java";
-import CPP from "tree-sitter-cpp";
-import Go from "tree-sitter-go";
-import Ruby from "tree-sitter-ruby";
+import crypto from "node:crypto";
+import os from "node:os";
 
-import type { FileIndexEntry } from "../types/scan";
-import type { FactsByFile, RawFacts, RawImport, RawSymbol, RawCallSite } from "../types/facts";
-import type { Range } from "../types/ir";
+import type { CodeFileIndexEntry } from "../types/scan";
+import type { CodeFacts, FactsByFile } from "../types/facts";
 
-function getLanguageParser(ext: string): Parser {
-  const parser = new Parser();
-  switch (ext) {
-    case ".js":
-    case ".ts":
-      parser.setLanguage(JavaScript as unknown as Language);
-      break;
-    case ".py":
-      parser.setLanguage(Python as unknown as Language);
-      break;
-    case ".java":
-      parser.setLanguage(Java as unknown as Language);
-      break;
-    case ".cpp":
-    case ".cc":
-    case ".hpp":
-      parser.setLanguage(CPP as unknown as Language);
-      break;
-    case ".rb":
-      parser.setLanguage(Ruby as unknown as Language);
-      break;
-    case ".go":
-      parser.setLanguage(Go as unknown as Language);
-      break;
-    default:
-      throw new Error(`Unsupported file type: ${ext}`);
-  }
-  return parser;
+import { parseFile } from "./parse";
+import { Extractors } from "../extractors";
+import { extractTsJsWithTsCompiler } from "../extractors/tsCompiler";
+import { uniq } from "../extractors/common";
+import { WorkerPool } from "./parallel/workerPool";
+
+function safePreview(text: string, max = 4000): string {
+  return text.length <= max ? text : text.slice(0, max);
 }
 
-function nodeRange(n: SyntaxNode): Range {
-  return {
-    startLine: n.startPosition.row + 1,
-    startCol: n.startPosition.column + 1,
-    endLine: n.endPosition.row + 1,
-    endCol: n.endPosition.column + 1,
-  };
-}
-
-function extractName(node: SyntaxNode): string | null {
-  const nameField = node.childForFieldName?.("name");
-  if (nameField?.text) return nameField.text;
-
-  const idNode = node.namedChildren?.find((n) => /identifier|name|property_identifier/.test(n.type));
-  if (idNode?.text) return idNode.text;
-
-  if (node.type === "function_definition") {
-    const declarator = node.namedChildren?.find((n) => n.type === "function_declarator");
-    const ident = declarator?.namedChildren?.find((n) => n.type === "identifier");
-    if (ident?.text) return ident.text;
-  }
-
-  const fallback = node.namedChildren?.find((n) => n.type === "identifier" || n.type === "name");
-  if (fallback?.text) return fallback.text;
-
-  return null;
-}
-
-export async function parseAndExtract(files: FileIndexEntry[]): Promise<FactsByFile> {
+async function parseAndExtractSequential(files: CodeFileIndexEntry[]): Promise<FactsByFile> {
   const out: FactsByFile = {};
 
   for (const f of files) {
-    const abs = f.absPath;
-    const rel = f.relPath;
-    const ext = f.ext.toLowerCase();
+    const parsed = await parseFile(f);
+    const text = parsed.text ?? "";
+    const lineCount = text ? text.split(/\r\n|\r|\n/).length : 0;
+    const textPreview = safePreview(text);
+    const textHash = text ? crypto.createHash("sha1").update(text).digest("hex") : undefined;
 
-    const code = await fs.readFile(abs, "utf-8").catch(() => "");
-    const lineCount = code ? code.split(/\r\n|\r|\n/).length : 0;
-    const textPreview = code ? code.slice(0, 4000) : "";
-    const textHash = code ? crypto.createHash("sha1").update(code).digest("hex") : undefined;
-    if (!code) {
-      out[rel] = {
-        fileRelPath: rel,
-        language: f.language,
-        imports: [],
-        symbols: [],
-        callSites: [],
-        parseErrors: 0,
-        lineCount,
-        textPreview,
-        textHash,
-      };
-      continue;
+    const tree: any = parsed.tree as any;
+    const root: any = tree?.rootNode;
+    const extractor = Extractors[f.language];
+
+    let imports: any[] = [];
+    let symbols: any[] = [];
+    let callSites: any[] = [];
+
+    // Phase 2 enhancement: prefer TypeScript Compiler API for JS/TS when available.
+    if (f.language === "javascript" || f.language === "typescript") {
+      const res = await extractTsJsWithTsCompiler({ language: f.language, ext: f.ext, relPath: f.relPath, text });
+      if (res) {
+        imports = res.imports;
+        symbols = res.symbols;
+        callSites = res.callSites;
+      }
     }
 
-    let parser: Parser;
-    try {
-      parser = getLanguageParser(ext);
-    } catch {
-      out[rel] = {
-        fileRelPath: rel,
-        language: f.language,
-        imports: [],
-        symbols: [],
-        callSites: [],
-        parseErrors: 0,
-        lineCount,
-        textPreview,
-        textHash,
-      };
-      continue;
+    if (!imports.length && !symbols.length && !callSites.length && root && extractor) {
+      const res = extractor(root, { language: f.language, ext: f.ext, relPath: f.relPath, text });
+      imports = res.imports;
+      symbols = res.symbols;
+      callSites = res.callSites;
     }
 
-    const tree = parser.parse(code);
-    const root = tree.rootNode;
+    // De-dupe (tree-sitter nodes can be reached multiple ways)
+    imports = uniq(imports, (i: any) => `${i.kind || ""}:${i.raw}`);
+    symbols = uniq(symbols, (s: any) => `${s.kind}:${s.qname || s.name}:${s.range?.startLine || 0}:${s.range?.startCol || 0}`);
+    callSites = uniq(callSites, (c: any) => `${c.calleeText}:${c.range?.startLine || 0}:${c.range?.startCol || 0}:${c.enclosingSymbolQname || ""}`);
 
-    const imports: RawImport[] = [];
-    const symbols: RawSymbol[] = [];
-    const callSites: RawCallSite[] = [];
-
-    const walk = (node: SyntaxNode) => {
-      // JS/TS
-      if (ext === ".js" || ext === ".ts") {
-        if (node.type === "import_statement") {
-          const src = node.childForFieldName("source");
-          if (src?.text) imports.push({ raw: src.text.replace(/['"]/g, ""), range: nodeRange(node), kind: "static" });
-        }
-        if (node.type === "call_expression") {
-          const fn = node.childForFieldName("function");
-          const args = node.childForFieldName("arguments");
-          if (fn?.text) callSites.push({ calleeText: fn.text, range: nodeRange(node) });
-          if (fn?.text === "require" && args?.text) imports.push({ raw: args.text, range: nodeRange(node), kind: "require" });
-        }
-        if (node.type === "function_declaration") {
-          const name = extractName(node);
-          if (name) symbols.push({ kind: "function", name, range: nodeRange(node) });
-        }
-        if (node.type === "method_definition") {
-          const name = extractName(node);
-          if (name) symbols.push({ kind: "method", name, range: nodeRange(node) });
-        }
-        if (node.type === "class_declaration") {
-          const name = extractName(node);
-          if (name) symbols.push({ kind: "class", name, range: nodeRange(node) });
-        }
-      }
-
-      // Python
-      if (ext === ".py") {
-        if (node.type === "import_statement" || node.type === "import_from_statement") {
-          imports.push({ raw: node.text, range: nodeRange(node), kind: "static" });
-        }
-        if (node.type === "function_definition") {
-          const name = extractName(node);
-          if (name) symbols.push({ kind: "function", name, range: nodeRange(node) });
-        }
-        if (node.type === "class_definition") {
-          const name = extractName(node);
-          if (name) symbols.push({ kind: "class", name, range: nodeRange(node) });
-        }
-        if (node.type === "call") {
-          const fn = node.child(0);
-          if (fn?.text) callSites.push({ calleeText: fn.text, range: nodeRange(node) });
-        }
-      }
-
-      // Java
-      if (ext === ".java") {
-        if (node.type === "import_declaration") imports.push({ raw: node.text, range: nodeRange(node), kind: "static" });
-        if (node.type === "method_declaration") {
-          const name = extractName(node);
-          if (name) symbols.push({ kind: "method", name, range: nodeRange(node) });
-        }
-        if (node.type === "class_declaration") {
-          const name = extractName(node);
-          if (name) symbols.push({ kind: "class", name, range: nodeRange(node) });
-        }
-        if (node.type === "method_invocation") {
-          const name = node.childForFieldName("name");
-          if (name?.text) callSites.push({ calleeText: name.text, range: nodeRange(node) });
-        }
-      }
-
-      // Go
-      if (ext === ".go") {
-        if (node.type === "import_declaration") imports.push({ raw: node.text, range: nodeRange(node), kind: "static" });
-        if (node.type === "function_declaration") {
-          const name = extractName(node);
-          if (name) symbols.push({ kind: "function", name, range: nodeRange(node) });
-        }
-        if (node.type === "method_declaration") {
-          const name = extractName(node);
-          if (name) symbols.push({ kind: "method", name, range: nodeRange(node) });
-        }
-        if (node.type === "type_declaration") {
-          const name = extractName(node);
-          if (name) symbols.push({ kind: "class", name, range: nodeRange(node) });
-        }
-        if (node.type === "call_expression") {
-          const fn = node.childForFieldName("function");
-          if (fn?.text) callSites.push({ calleeText: fn.text, range: nodeRange(node) });
-        }
-      }
-
-      // Ruby
-      if (ext === ".rb") {
-        if (node.type === "call") {
-          const identifier =
-            node.childForFieldName("name") ||
-            node.namedChildren?.find((n) => n.type === "identifier");
-          if (identifier?.text === "require" || identifier?.text === "require_relative") {
-            imports.push({ raw: node.text, range: nodeRange(node), kind: "require" });
-          }
-          if (identifier?.text) callSites.push({ calleeText: identifier.text, range: nodeRange(node) });
-        }
-        if (node.type === "method") {
-          const name = extractName(node);
-          if (name) symbols.push({ kind: "method", name, range: nodeRange(node) });
-        }
-        if (node.type === "class") {
-          const name = extractName(node);
-          if (name) symbols.push({ kind: "class", name, range: nodeRange(node) });
-        }
-      }
-
-      // C/C++
-      if (ext === ".cpp" || ext === ".cc" || ext === ".hpp") {
-        if (node.type === "preproc_include") imports.push({ raw: node.text, range: nodeRange(node), kind: "include" });
-        if (node.type === "namespace_definition") {
-          const nm = node.child(1)?.text;
-          if (nm) symbols.push({ kind: "namespace", name: nm, range: nodeRange(node) });
-        }
-        if (node.type === "function_definition") {
-          const name = extractName(node);
-          if (name) symbols.push({ kind: "function", name, range: nodeRange(node) });
-        }
-        if (node.type === "class_specifier") {
-          const name = extractName(node);
-          if (name) symbols.push({ kind: "class", name, range: nodeRange(node) });
-        }
-        if (node.type === "call_expression") {
-          const fn = node.childForFieldName("function");
-          if (fn?.text) callSites.push({ calleeText: fn.text, range: nodeRange(node) });
-        }
-      }
-
-      for (let i = 0; i < node.childCount; i++) {
-        const child = node.child(i);
-        if (child) walk(child);
-      }
-    };
-
-    walk(root);
-
-    const hasError =
-      typeof (root as any).hasError === "function"
-        ? (root as any).hasError()
-        : Boolean((root as any).hasError);
-
-    const facts: RawFacts = {
-      fileRelPath: rel,
+    out[f.relPath] = {
+      kind: "code",
+      fileRelPath: f.relPath,
       language: f.language,
       imports,
       symbols,
       callSites,
-      parseErrors: hasError ? 1 : 0,
+      parseErrors: parsed.parseErrors,
       lineCount,
       textPreview,
       textHash,
-    };
-
-    out[rel] = facts;
+    } satisfies CodeFacts;
   }
 
   return out;
+}
+
+function getWorkerCount(): number {
+  // 0/undefined means "auto".
+  const raw = process.env.CODEATLAS_PARSE_WORKERS;
+  if (raw && raw.trim().length > 0) {
+    const n = Number(raw);
+    if (Number.isFinite(n)) return Math.max(0, Math.floor(n));
+  }
+
+  // Auto: leave 1 core for the server/event loop; cap to avoid thrashing.
+  const cpu = os.cpus()?.length ?? 1;
+  return Math.max(1, Math.min(cpu - 1, 8));
+}
+
+async function parseAndExtractParallel(files: CodeFileIndexEntry[], workers: number): Promise<FactsByFile> {
+  const out: FactsByFile = {};
+  if (files.length === 0) return out;
+
+  const workerUrl = new URL("./parallel/parseWorker.ts", import.meta.url);
+  const pool = new WorkerPool(workerUrl, { size: workers });
+
+  try {
+    // Sorting improves determinism and reduces tail-latency if you later switch to size-based scheduling.
+    const ordered = [...files].sort((a, b) => a.relPath.localeCompare(b.relPath));
+    const results = await Promise.all(ordered.map((f) => pool.run<CodeFacts>({ file: f })));
+    for (const fact of results) {
+      out[fact.fileRelPath] = fact;
+    }
+    return out;
+  } finally {
+    await pool.close();
+  }
+}
+
+/**
+ * Parse + extract code facts for a list of code files.
+ *
+ * Phase 2 enhancement:
+ * - Uses a Worker Thread pool for parallel parsing/extraction when possible.
+ * - Falls back to sequential extraction if workers can't start (e.g., loader issues).
+ */
+export async function parseAndExtract(files: CodeFileIndexEntry[]): Promise<FactsByFile> {
+  // Allow disabling parallel parsing explicitly.
+  if (process.env.CODEATLAS_DISABLE_PARALLEL_PARSE === "1") {
+    return parseAndExtractSequential(files);
+  }
+
+  const workers = getWorkerCount();
+  if (workers <= 1 || files.length <= 1) {
+    return parseAndExtractSequential(files);
+  }
+
+  try {
+    return await parseAndExtractParallel(files, workers);
+  } catch (err) {
+    // Safe fallback: correctness over speed.
+    console.warn("[CodeAtlas] Parallel parsing failed; falling back to sequential.", err);
+    return parseAndExtractSequential(files);
+  }
 }

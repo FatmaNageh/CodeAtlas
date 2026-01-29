@@ -1,5 +1,5 @@
 import { getNeo4jClient } from "./client";
-import { fileId } from "../pipeline/id";
+import { fileId } from "../../pipeline/id";
 
 // Phase 1: delete whole repo subgraph
 export async function deleteRepo(repoId: string): Promise<void> {
@@ -30,9 +30,10 @@ export async function deleteFileDerived(repoId: string, relPath: string): Promis
   try {
     await session.run(
       `
-      MATCH (f:File {id: $fileId})
+      MATCH (f {id: $fileId})
+      WHERE f:CodeFile OR f:TextFile
       // Drop outgoing semantic edges derived from this file (will be rebuilt)
-      OPTIONAL MATCH (f)-[r:IMPORTS|IMPORTS_EXTERNAL|REFERS_TO]->()
+      OPTIONAL MATCH (f)-[r:IMPORTS|IMPORTS_EXTERNAL|REFERENCES|DOCUMENTS|REFERS_TO]->()
       DELETE r
       `,
       { fileId: fid },
@@ -41,7 +42,7 @@ export async function deleteFileDerived(repoId: string, relPath: string): Promis
     // Delete declared symbols (removes their CALLS/REFERS_TO/etc via DETACH)
     await session.run(
       `
-      MATCH (f:File {id: $fileId})
+      MATCH (f:CodeFile {id: $fileId})
       OPTIONAL MATCH (f)-[:DECLARES]->(s:Symbol)
       DETACH DELETE s
       `,
@@ -51,7 +52,7 @@ export async function deleteFileDerived(repoId: string, relPath: string): Promis
     // Delete raw import nodes
     await session.run(
       `
-      MATCH (f:File {id: $fileId})
+      MATCH (f:CodeFile {id: $fileId})
       OPTIONAL MATCH (f)-[:IMPORTS_RAW]->(i:Import)
       DETACH DELETE i
       `,
@@ -61,7 +62,7 @@ export async function deleteFileDerived(repoId: string, relPath: string): Promis
     // Delete callsites
     await session.run(
       `
-      MATCH (f:File {id: $fileId})
+      MATCH (f:CodeFile {id: $fileId})
       OPTIONAL MATCH (f)-[:CONTAINS]->(c:CallSite)
       DETACH DELETE c
       `,
@@ -71,7 +72,8 @@ export async function deleteFileDerived(repoId: string, relPath: string): Promis
     // Delete chunks
     await session.run(
       `
-      MATCH (f:File {id: $fileId})
+      MATCH (f {id: $fileId})
+      WHERE f:CodeFile OR f:TextFile
       OPTIONAL MATCH (f)-[:HAS_CHUNK]->(c:DocChunk)
       DETACH DELETE c
       `,
@@ -90,7 +92,8 @@ export async function deleteFile(repoId: string, relPath: string): Promise<void>
   try {
     await session.run(
       `
-      MATCH (f:File {id: $fileId})
+      MATCH (f {id: $fileId})
+      WHERE f:CodeFile OR f:TextFile
       DETACH DELETE f
       `,
       { fileId: fid },

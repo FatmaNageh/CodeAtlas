@@ -71,6 +71,14 @@ export function chunkId(
   return `chunk:${sha1(`${repoId}|${normalizePath(fileRelPath)}|${chunkType}|${startLine}:${endLine}`)}`;
 }
 
+export function externalModuleId(repoId: string, name: string): string {
+  return `extmod:${sha1(`${repoId}|${name}`)}`;
+}
+
+export function externalSymbolId(repoId: string, name: string): string {
+  return `extsym:${sha1(`${repoId}|${name}`)}`;
+}
+
 export function edgeId(repoId: string, type: string, from: string, to: string): string {
   return `edge:${sha1(`${repoId}|${type}|${from}|${to}`)}`;
 }

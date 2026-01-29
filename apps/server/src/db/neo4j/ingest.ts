@@ -1,5 +1,25 @@
-import type { IR, IRNode, IREdge } from "../types/ir";
+import type { IR, IRNode, IREdge } from "../../types/ir";
 import { getNeo4jClient } from "./client";
+
+async function runWithRetry(session: any, query: string, params: any, maxRetries = 5) {
+  let attempt = 0;
+  // Simple exponential backoff for transient Neo4j errors (e.g., deadlocks)
+  while (true) {
+    try {
+      return await session.run(query, params);
+    } catch (e: any) {
+      const code = String(e?.code ?? "");
+      const retryable = Boolean(e?.retryable ?? e?.retriable ?? false);
+      const isDeadlock = code.includes("DeadlockDetected") || code === "Neo.TransientError.Transaction.DeadlockDetected";
+
+      if (attempt >= maxRetries || !(retryable || isDeadlock)) throw e;
+
+      const delayMs = Math.min(2000, 50 * Math.pow(2, attempt)) + Math.floor(Math.random() * 50);
+      await new Promise((r) => setTimeout(r, delayMs));
+      attempt++;
+    }
+  }
+}
 
 function isPrimitive(v: any): boolean {
   return v === null || ["string", "number", "boolean"].includes(typeof v);
@@ -28,7 +48,8 @@ function labelForKind(kind: string): string {
   switch (kind) {
     case "Repo":
     case "Directory":
-    case "File":
+    case "CodeFile":
+    case "TextFile":
     case "Symbol":
     case "Import":
     case "CallSite":
@@ -41,7 +62,7 @@ function labelForKind(kind: string): string {
   }
 }
 
-async function ingestNodes(nodes: IRNode[]): Promise<void> {
+async function ingestNodes(nodes: IRNode[], runId: string | null): Promise<void> {
   const neo4j = getNeo4jClient();
   const session = neo4j.session();
   try {
@@ -59,6 +80,7 @@ async function ingestNodes(nodes: IRNode[]): Promise<void> {
         const batch = group.slice(i, i + batchSize).map((n) => ({
           id: n.id,
           repoId: n.repoId,
+          runId,
           props: sanitizeProps(n.props),
         }));
 
@@ -66,9 +88,10 @@ async function ingestNodes(nodes: IRNode[]): Promise<void> {
           UNWIND $rows AS row
           MERGE (n:${label} {id: row.id})
           SET n.repoId = row.repoId
+          SET n.runId = row.runId
           SET n += row.props
         `;
-        await session.run(q, { rows: batch });
+        await runWithRetry(session, q, { rows: batch });
       }
     }
   } finally {
@@ -76,7 +99,7 @@ async function ingestNodes(nodes: IRNode[]): Promise<void> {
   }
 }
 
-async function ingestEdges(edges: IREdge[]): Promise<void> {
+async function ingestEdges(edges: IREdge[], runId: string | null): Promise<void> {
   const neo4j = getNeo4jClient();
   const session = neo4j.session();
   try {
@@ -94,6 +117,7 @@ async function ingestEdges(edges: IREdge[]): Promise<void> {
         const batch = group.slice(i, i + batchSize).map((e) => ({
           id: e.id,
           repoId: e.repoId,
+          runId,
           from: e.from,
           to: e.to,
           props: sanitizeProps(e.props),
@@ -105,9 +129,10 @@ async function ingestEdges(edges: IREdge[]): Promise<void> {
           MATCH (b {id: row.to})
           MERGE (a)-[r:${type} {id: row.id}]->(b)
           SET r.repoId = row.repoId
+          SET r.runId = row.runId
           SET r += row.props
         `;
-        await session.run(q, { rows: batch });
+        await runWithRetry(session, q, { rows: batch });
       }
     }
   } finally {
@@ -115,7 +140,8 @@ async function ingestEdges(edges: IREdge[]): Promise<void> {
   }
 }
 
-export async function ingestIR(ir: IR): Promise<void> {
-  await ingestNodes(ir.nodes);
-  await ingestEdges(ir.edges);
+export async function ingestIR(ir: IR, opts?: { runId?: string }): Promise<void> {
+  const runId = opts?.runId ?? null;
+  await ingestNodes(ir.nodes, runId);
+    await ingestEdges(ir.edges, runId);
 }

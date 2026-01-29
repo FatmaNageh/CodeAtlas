@@ -1,8 +1,8 @@
 import fs from 'node:fs/promises';
-import type { FileIndexEntry } from '../types/scan';
+import type { CodeFileIndexEntry } from '../types/scan';
 
 export interface ParsedFile {
-  file: FileIndexEntry;
+  file: CodeFileIndexEntry;
   text: string;
   parseErrors: number;
   tree?: unknown; // optional Tree-sitter tree (best-effort)
@@ -22,7 +22,8 @@ async function tryLoadLanguage(language: string): Promise<any | null> {
     switch (language) {
       case 'javascript': {
         const mod = await import('tree-sitter-javascript');
-        return (mod.default ?? mod).javascript ?? (mod.default ?? mod);
+        // JS grammar is the module itself (or default), not `.javascript`
+        return mod.default ?? mod;
       }
       case 'typescript': {
         const mod = await import('tree-sitter-typescript');
@@ -61,7 +62,7 @@ async function tryLoadLanguage(language: string): Promise<any | null> {
   }
 }
 
-export async function parseFile(file: FileIndexEntry): Promise<ParsedFile> {
+export async function parseFile(file: CodeFileIndexEntry): Promise<ParsedFile> {
   const text = await fs.readFile(file.absPath, 'utf8');
 
   // Tree-sitter parsing is best-effort in this phase. Extraction can still proceed via regex.
@@ -77,7 +78,11 @@ export async function parseFile(file: FileIndexEntry): Promise<ParsedFile> {
         parser.setLanguage(Lang);
         const t = parser.parse(text);
         // @ts-ignore - tree-sitter node shape varies
-        parseErrors = typeof t?.rootNode?.hasError === 'boolean' && t.rootNode.hasError ? 1 : 0;
+        const hasErr =
+          typeof t?.rootNode?.hasError === 'function'
+            ? t.rootNode.hasError()
+            : Boolean(t?.rootNode?.hasError);
+        parseErrors = hasErr ? 1 : 0;
         tree = t;
       } catch {
         // ignore parse errors; we still extract by regex

@@ -7,7 +7,10 @@ export type SupportedLanguage =
   | "go"
   | "ruby";
 
-export type FileIndexEntry = {
+export type TextKind = "markdown" | "plaintext" | "rst" | "adoc" | "latex";
+
+export type CodeFileIndexEntry = {
+  kind: "code";
   relPath: string;
   absPath: string;
   language: SupportedLanguage;
@@ -16,6 +19,19 @@ export type FileIndexEntry = {
   mtimeMs: number;
   hash?: string;
 };
+
+export type TextFileIndexEntry = {
+  kind: "text";
+  relPath: string;
+  absPath: string;
+  ext: string;
+  size: number;
+  mtimeMs: number;
+  hash?: string;
+  textKind: TextKind;
+};
+
+export type FileIndexEntry = CodeFileIndexEntry | TextFileIndexEntry;
 
 export type ScanResult = {
   repoRoot: string;
