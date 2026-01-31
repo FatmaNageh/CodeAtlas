@@ -47,26 +47,29 @@ function IRInspector() {
   };
 
   return (
-    <div className="p-4 max-w-6xl mx-auto space-y-4">
-      <Card>
+    <div className="p-6 max-w-7xl mx-auto space-y-8">
+      <Card className="shadow-md border-2 border-primary/10">
         <CardHeader>
-          <CardTitle>IR Inspector (offline)</CardTitle>
+          <CardTitle className="flex items-center gap-2 text-2xl font-bold">
+            <span className="inline-block bg-gradient-to-r from-blue-500 to-violet-500 text-transparent bg-clip-text">IR Inspector (offline)</span>
+            <span className="ml-2 px-2 py-1 rounded bg-primary/10 text-primary text-xs font-semibold tracking-wide">IR Details</span>
+          </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="grid gap-3 sm:grid-cols-2">
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <label className="text-sm text-muted-foreground">Backend base URL</label>
+              <label className="text-sm font-medium text-muted-foreground">Backend base URL <span className="text-xs font-normal">(optional)</span></label>
               <input
-                className="w-full px-3 py-2 rounded border bg-background"
-                placeholder="(optional) http://127.0.0.1:3000"
+                className="w-full px-3 py-2 rounded border bg-background focus:outline-none focus:ring-2 focus:ring-primary/30 transition"
+                placeholder="e.g. http://127.0.0.1:3000  (leave empty if same origin)"
                 value={baseUrl}
                 onChange={(e) => setBaseUrl(e.target.value)}
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm text-muted-foreground">RepoId</label>
+              <label className="text-sm font-medium text-muted-foreground">RepoId <span className="text-xs font-normal">(from last indexRepo run)</span></label>
               <input
-                className="w-full px-3 py-2 rounded border bg-background"
+                className="w-full px-3 py-2 rounded border bg-background focus:outline-none focus:ring-2 focus:ring-primary/30 transition"
                 placeholder="repoId from last indexRepo run"
                 value={repoId}
                 onChange={(e) => setRepoId(e.target.value)}
@@ -75,7 +78,7 @@ function IRInspector() {
           </div>
 
           <div className="flex gap-2 flex-wrap">
-            <Button onClick={loadFromBackend} disabled={!repoId.trim()}>
+            <Button onClick={loadFromBackend} disabled={!repoId.trim()} className="font-semibold">
               Load IR from backend
             </Button>
           </div>
@@ -83,13 +86,13 @@ function IRInspector() {
           <details>
             <summary className="text-sm text-muted-foreground cursor-pointer">Advanced: paste IR JSON manually</summary>
             <textarea
-              className="w-full min-h-[220px] p-3 rounded border bg-background font-mono text-xs mt-2"
+              className="w-full min-h-[220px] p-3 rounded border bg-background font-mono text-xs mt-2 focus:outline-none focus:ring-2 focus:ring-primary/30 transition"
               placeholder='Paste IR JSON here...'
               value={raw}
               onChange={(e) => setRaw(e.target.value)}
             />
 
-            <Button onClick={load} disabled={!raw.trim()} className="mt-2">
+            <Button onClick={load} disabled={!raw.trim()} className="mt-2 font-semibold">
               Load IR from pasted JSON
             </Button>
           </details>
@@ -97,10 +100,12 @@ function IRInspector() {
       </Card>
 
       {summary && (
-        <div className="grid gap-3 md:grid-cols-2">
-          <Card>
+        <div className="grid gap-4 md:grid-cols-2">
+          <Card className="shadow border border-primary/10">
             <CardHeader>
-              <CardTitle>Summary</CardTitle>
+              <CardTitle className="text-lg font-semibold flex items-center gap-2">
+                <span>Summary</span>
+              </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
               <div>Nodes: <b>{summary.nodeCount}</b></div>
@@ -126,9 +131,11 @@ function IRInspector() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="shadow border border-primary/10">
             <CardHeader>
-              <CardTitle>Missing resolutions</CardTitle>
+              <CardTitle className="text-lg font-semibold flex items-center gap-2">
+                <span>Missing resolutions</span>
+              </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="text-xs text-muted-foreground">
@@ -137,14 +144,14 @@ function IRInspector() {
 
               <div className="space-y-2">
                 <div className="text-sm font-semibold">Unresolved Imports</div>
-                <pre className="text-xs whitespace-pre-wrap break-words bg-muted/40 p-3 rounded max-h-[220px] overflow-auto">
+                <pre className="text-xs whitespace-pre-wrap break-words bg-muted/40 p-3 rounded font-mono max-h-56 overflow-auto">
                   {JSON.stringify(missing?.unresolvedImports?.slice(0, 50) ?? [], null, 2)}
                 </pre>
               </div>
 
               <div className="space-y-2">
                 <div className="text-sm font-semibold">Unresolved Calls</div>
-                <pre className="text-xs whitespace-pre-wrap break-words bg-muted/40 p-3 rounded max-h-[220px] overflow-auto">
+                <pre className="text-xs whitespace-pre-wrap break-words bg-muted/40 p-3 rounded font-mono max-h-56 overflow-auto">
                   {JSON.stringify(missing?.unresolvedCalls?.slice(0, 50) ?? [], null, 2)}
                 </pre>
               </div>

@@ -6,8 +6,9 @@ export default function Header() {
     { to: "/", label: "Dashboard" },
     { to: "/indexing", label: "Indexing" },
     { to: "/ir", label: "IR Inspector" },
-    { to: "/graph", label: "Graph Viewer" },
     { to: "/analytics", label: "Analytics" },
+    { to: "/graph", label: "Graph Viewer" },
+
   ] as const;
 
   return (
