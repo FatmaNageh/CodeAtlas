@@ -1,11 +1,31 @@
 {
-  "version": "2.0.0",
-  "tasks": [
-    {
-      "label": "build-extension",
-      "type": "shell",
-      "command": "pnpm -C apps/extension build",
-      "problemMatcher": []
-    }
-  ]
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "build-extension",
+			"type": "shell",
+			"command": "pnpm -C apps/extension build",
+			"problemMatcher": []
+		},
+		{
+			"label": "build-extension",
+			"type": "shell",
+			"command": "pnpm -C apps/extension build"
+		},
+		{
+			"label": "build-graph-ui",
+			"type": "shell",
+			"command": "pnpm -C apps/graph-ui build"
+		},
+		{
+			"label": "build-graph-ui",
+			"type": "shell",
+			"command": "pnpm -C apps/graph-ui build"
+		},
+		{
+			"label": "build-extension",
+			"type": "shell",
+			"command": "pnpm -C apps/extension build"
+		}
+	]
 }
