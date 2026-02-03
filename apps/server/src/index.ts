@@ -11,6 +11,7 @@ import { healthRoute } from "./routes/health";
 import { indexRepoRoute } from "./routes/indexRepo";
 import { diagnosticsRoute } from "./routes/diagnostics";
 import { debugRoute } from "./routes/debug";
+import { summarizeFilesRoute } from "./routes/summarize";
 
 const app = new Hono();
 
@@ -46,6 +47,7 @@ app.route("/", indexRepoRoute);
 app.route("/", diagnosticsRoute);
 
 app.route("/", debugRoute);
+app.route("/", summarizeFilesRoute);
 
 serve(
   { fetch: app.fetch, port: Number(process.env.PORT || 3000) },
