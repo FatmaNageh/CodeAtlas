@@ -24,6 +24,7 @@ const CODE_EXT: Record<string, SupportedLanguage> = {
   ".hxx": "cpp",
   ".go": "go",
   ".rb": "ruby",
+  ".c": "cpp",
 };
 
 const TEXT_EXT: Record<string, TextKind> = {
@@ -88,7 +89,12 @@ export async function scanRepo(
       const ext = path.extname(d.name).toLowerCase();
       const language = CODE_EXT[ext];
       const textKind = TEXT_EXT[ext];
+
+      console.log("[SCAN]", rel, "=>", language ?? textKind, ext);  // <-- TEMP LOG
+
       if (!language && !textKind) continue;
+
+      console.log("[SCAN]", rel, language ?? textKind);
 
       const stat = await fs.stat(abs).catch(() => null);
       if (!stat) continue;

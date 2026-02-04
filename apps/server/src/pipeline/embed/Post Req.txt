@@ -1,0 +1,6 @@
+curl -X POST 'http://localhost:3000/debug/embedASTFiles' \
+-H 'Content-Type: application/json' \
+--data-raw '{
+  "repoId": "12840b47e88a",
+  "projectPath": "E:\\Graduation Project\\CodeAtlas\\example_files\\fzf-master"
+}'

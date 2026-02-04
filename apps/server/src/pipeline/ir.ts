@@ -281,7 +281,11 @@ export function buildIR(scan: ScanResult, facts: FactsByFile): IR {
             parentName: s.parentName ?? null,
             extendsNames: s.extendsNames ?? [],
             implementsNames: s.implementsNames ?? [],
-            range: s.range ?? null,
+            startLine: s.range?.startLine ?? null,
+            startCol: s.range?.startCol ?? null,
+            endLine: s.range?.endLine ?? null,
+            endCol: s.range?.endCol ?? null,
+            //range: s.range ?? null, //-__-
           },
         });
         edges.push({ id: edgeId(repoId, "DECLARES", fId, sid), type: "DECLARES", from: fId, to: sid, repoId });

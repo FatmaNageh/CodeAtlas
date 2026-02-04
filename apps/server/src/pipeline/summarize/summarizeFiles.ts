@@ -1,22 +1,22 @@
 import { runCypher } from "../../db/cypher";
 
 export async function summarizeFiles(repoId: string) {
-  // 1️⃣ Fetch all file nodes for this repo
+  // Fetch all file nodes for this repo
   const files = await runCypher<{ f: any }>(
-    `MATCH (f:File {repoId: $repoId}) RETURN f`,
+    `MATCH (f:CodeFile {repoId: $repoId}) RETURN f`,
     { repoId }
   );
 
   for (const { f } of files) {
     const relPath = f.properties.relPath;
 
-    // 2️⃣ Generate a fake summary
+    // Generate a fake summary
     const summary = "This is a sample summary";
 
-    // 3️⃣ Update the node with the summary
+    // Update the node with the summary
     await runCypher(
       `
-      MATCH (f:File {repoId: $repoId, relPath: $relPath})
+      MATCH (f:CodeFile {repoId: $repoId, relPath: $relPath})
       SET f.summary = $summary,
           f.summaryAt = datetime(),
           f.summaryModel = $model
