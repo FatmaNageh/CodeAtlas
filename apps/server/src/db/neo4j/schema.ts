@@ -11,6 +11,7 @@ const CONSTRAINTS: string[] = [
   "CREATE CONSTRAINT chunk_id IF NOT EXISTS FOR (n:DocChunk) REQUIRE n.id IS UNIQUE",
   "CREATE CONSTRAINT extmod_id IF NOT EXISTS FOR (n:ExternalModule) REQUIRE n.id IS UNIQUE",
   "CREATE CONSTRAINT extsym_id IF NOT EXISTS FOR (n:ExternalSymbol) REQUIRE n.id IS UNIQUE",
+  "CREATE CONSTRAINT codechunk_id IF NOT EXISTS FOR (n:CodeChunk) REQUIRE (n.repoId, n.relPath, n.symbol) IS UNIQUE",
 
   // Indexes
   "CREATE INDEX codefile_relPath IF NOT EXISTS FOR (n:CodeFile) ON (n.repoId, n.relPath)",
@@ -19,12 +20,14 @@ const CONSTRAINTS: string[] = [
   "CREATE INDEX sym_qname IF NOT EXISTS FOR (n:Symbol) ON (n.repoId, n.qname)",
   "CREATE INDEX sym_kind IF NOT EXISTS FOR (n:Symbol) ON (n.repoId, n.symbolKind)",
   "CREATE INDEX chunk_file IF NOT EXISTS FOR (n:DocChunk) ON (n.repoId, n.fileRelPath)",
+  "CREATE INDEX codechunk_repo_path IF NOT EXISTS FOR (n:CodeChunk) ON (n.repoId, n.relPath)",
 ];
 
 function getEmbedDim(): number {
+  // Local embeddings using Xenova/all-MiniLM-L6-v2 uses 384 dimensions
   const raw = process.env.OLLAMA_EMBED_DIM ?? process.env.OPENAI_EMBED_DIM ?? process.env.EMBED_DIM ?? "";
-  const dim = raw ? Number(raw) : 1536;
-  return Number.isFinite(dim) && dim > 0 ? dim : 1536;
+  const dim = raw ? Number(raw) : 384;
+  return Number.isFinite(dim) && dim > 0 ? dim : 384;
 }
 
 function vectorIndexQueries(embedDim: number): string[] {
@@ -36,6 +39,9 @@ function vectorIndexQueries(embedDim: number): string[] {
       OPTIONS { indexConfig: {\`vector.dimensions\`: ${embedDim}, \`vector.similarity_function\`: 'cosine' } }`,
     `CREATE VECTOR INDEX docchunk_embedding IF NOT EXISTS
       FOR (c:DocChunk) ON (c.embedding)
+      OPTIONS { indexConfig: {\`vector.dimensions\`: ${embedDim}, \`vector.similarity_function\`: 'cosine' } }`,
+    `CREATE VECTOR INDEX codechunk_embedding IF NOT EXISTS
+      FOR (c:CodeChunk) ON (c.embedding)
       OPTIONS { indexConfig: {\`vector.dimensions\`: ${embedDim}, \`vector.similarity_function\`: 'cosine' } }`,
   ];
 }

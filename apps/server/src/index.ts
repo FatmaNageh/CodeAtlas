@@ -13,6 +13,7 @@ import { diagnosticsRoute } from "./routes/diagnostics";
 import { debugRoute } from "./routes/debug";
 import { summarizeFilesRoute } from "./routes/summarize";
 import { embedRoute } from "./routes/embedding";
+import { graphragRoute } from "./routes/graphrag";
 
 const app = new Hono();
 
@@ -29,7 +30,7 @@ app.get("/", (c) =>
   c.json({
     ok: true,
     service: "CodeAtlas server",
-    routes: ["/health", "POST /indexRepo", "/tester", "GET /diagnostics/repos", "GET /diagnostics/check?repoId=...", "POST /graphrag/embedRepo", "POST /graphrag/ask", "/trpc/*"],
+    routes: ["/health", "POST /indexRepo", "/tester", "GET /diagnostics/repos", "GET /diagnostics/check?repoId=...", "POST /graphrag/embedRepo", "POST /graphrag/summarize", "POST /graphrag/ask", "GET /graphrag/context/:filePath", "/trpc/*"],
   }),
 );
 
@@ -51,6 +52,9 @@ app.route("/", debugRoute);
 //testing routes
 app.route("/", summarizeFilesRoute);
 app.route("/debug", embedRoute);
+
+// GraphRAG routes
+app.route("/graphrag", graphragRoute);
 
 serve(
   { fetch: app.fetch, port: Number(process.env.PORT || 3000) },

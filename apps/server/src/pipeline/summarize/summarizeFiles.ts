@@ -1,37 +1,37 @@
-import { runCypher } from "../../db/cypher";
+import { generateBatchSummaries } from '../generateSummary';
+import { runCypher } from '../../db/cypher';
 
+// Pure functional pipeline - replaces fake implementation
 export async function summarizeFiles(repoId: string) {
-  // Fetch all file nodes for this repo
-  const files = await runCypher<{ f: any }>(
-    `MATCH (f:CodeFile {repoId: $repoId}) RETURN f`,
-    { repoId }
-  );
+  console.log(`[SUMMARIZE] Starting for repo: ${repoId}`);
 
-  for (const { f } of files) {
-    const relPath = f.properties.relPath;
-
-    // Generate a fake summary
-    const summary = "This is a sample summary";
-
-    // Update the node with the summary
-    await runCypher(
-      `
-      MATCH (f:CodeFile {repoId: $repoId, relPath: $relPath})
-      SET f.summary = $summary,
-          f.summaryAt = datetime(),
-          f.summaryModel = $model
-      RETURN f
-      `,
-      {
-        repoId,
-        relPath,
-        summary,
-        model: "fake-summary",
-      }
+  try {
+    // Get files
+    const files = await runCypher(
+      `MATCH (f:CodeFile {repoId: $repoId})
+       RETURN f.relPath as filePath
+       ORDER BY f.relPath`,
+      { repoId }
     );
 
-    console.log(`Summarized ${relPath}`);
-  }
+    console.log(`[SUMMARIZE] Found ${files.length} files`);
 
-  return { ok: true, count: files.length };
+    // Generate summaries
+    const filePaths = files.map((f: any) => f.filePath);
+    const { results, errors } = await generateBatchSummaries(filePaths, repoId);
+
+    return {
+      ok: true,
+      count: results.length,
+      results,
+      errors,
+    };
+  } catch (error) {
+    console.error(`[SUMMARIZE] Failed:`, error);
+    return {
+      ok: false,
+      count: 0,
+      errors: [String(error)],
+    };
+  }
 }
