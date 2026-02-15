@@ -11,7 +11,7 @@ import { healthRoute } from "./routes/health";
 import { indexRepoRoute } from "./routes/indexRepo";
 import { diagnosticsRoute } from "./routes/diagnostics";
 import { debugRoute } from "./routes/debug";
-import { summarizeFilesRoute } from "./routes/summarize";
+// import { summarizeFilesRoute } from "./routes/summarize";
 import { embedRoute } from "./routes/embedding";
 import { graphragRoute } from "./routes/graphrag";
 
@@ -50,7 +50,7 @@ app.route("/", diagnosticsRoute);
 app.route("/", debugRoute);
 
 //testing routes
-app.route("/", summarizeFilesRoute);
+// app.route("/", summarizeFilesRoute);
 app.route("/debug", embedRoute);
 
 // GraphRAG routes

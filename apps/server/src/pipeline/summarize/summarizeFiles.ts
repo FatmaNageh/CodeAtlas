@@ -1,8 +1,15 @@
 import { generateBatchSummaries } from '../generateSummary';
 import { runCypher } from '../../db/cypher';
 
+export interface SummarizeResult {
+  ok: boolean;
+  count: number;
+  results: Array<{ filePath: string; summary: string }>;
+  errors: string[];
+}
+
 // Pure functional pipeline - replaces fake implementation
-export async function summarizeFiles(repoId: string) {
+export async function summarizeFiles(repoId: string): Promise<SummarizeResult> {
   console.log(`[SUMMARIZE] Starting for repo: ${repoId}`);
 
   try {
@@ -31,6 +38,7 @@ export async function summarizeFiles(repoId: string) {
     return {
       ok: false,
       count: 0,
+      results: [],
       errors: [String(error)],
     };
   }

@@ -35,6 +35,14 @@ export async function generateFileSummary(filePath: string, repoId: string) {
   
   const symbols = context.relatedSymbols.map((s: any) => s.symbol).filter(Boolean);
   
+  // Check if we have code available, fail if both DB and disk reads failed
+  if (!code || code.trim().length === 0) {
+    throw new Error(
+      `[SUMMARY] No code available for ${filePath} in repo ${repoId}: ` +
+      `not found in database chunks and unable to read from disk. Cannot generate summary without code.`
+    );
+  }
+  
   // Build prompt
   const prompt = buildSummaryPrompt({
     filePath,
@@ -49,14 +57,19 @@ export async function generateFileSummary(filePath: string, repoId: string) {
     maxTokens: 800,
   });
   
-  // Store in Neo4j
-  await runCypher(
-    `MATCH (f:CodeFile {repoId: $repoId, relPath: $filePath})
+  // Store in Neo4j - use MERGE to create node if it doesn't exist
+  const result = await runCypher(
+    `MERGE (f:CodeFile {repoId: $repoId, relPath: $filePath})
      SET f.summary = $summary,
          f.summaryAt = datetime(),
-         f.summaryModel = 'meta-llama/llama-3.1-8b-instruct'`,
+         f.summaryModel = 'meta-llama/llama-3.1-8b-instruct'
+     RETURN f`,
     { repoId, filePath, summary }
   );
+  
+  if (result.length === 0) {
+    throw new Error(`[SUMMARY] Failed to persist summary for ${filePath} - no node matched or created`);
+  }
 
   return { filePath, summary };
 }

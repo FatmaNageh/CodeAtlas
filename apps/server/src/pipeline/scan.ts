@@ -90,11 +90,7 @@ export async function scanRepo(
       const language = CODE_EXT[ext];
       const textKind = TEXT_EXT[ext];
 
-      console.log("[SCAN]", rel, "=>", language ?? textKind, ext);  // <-- TEMP LOG
-
       if (!language && !textKind) continue;
-
-      console.log("[SCAN]", rel, language ?? textKind);
 
       const stat = await fs.stat(abs).catch(() => null);
       if (!stat) continue;

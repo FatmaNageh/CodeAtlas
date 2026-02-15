@@ -10,7 +10,7 @@ class Neo4jClient {
   private driver: Driver;
 
   constructor(cfg: ClientConfig) {
-    this.driver = createDriver(cfg.uri, auth.basic(cfg.username, cfg.password));
+    this.driver = createDriver(cfg.uri, auth.basic(cfg.username, cfg.password),);
   }
 
   session() {

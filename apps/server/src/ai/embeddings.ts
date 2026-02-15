@@ -1,9 +1,9 @@
 import { embed } from 'ai';
-import { openai } from '@ai-sdk/openai';
+
 import { openrouter } from '@openrouter/ai-sdk-provider';
 
-// Pure function to generate embeddings for multiple texts using OpenAI (not OpenRouter)
-export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
+// Pure function to generate embeddings for multiple texts using OpenRouter
+export async function generateEmbeddings(texts: string[]): Promise<(number[] | null)[]> {
   if (texts.length === 0) return [];
   
   console.log(`[EMBEDDINGS] Generating embeddings for ${texts.length} texts...`);
@@ -23,7 +23,7 @@ export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
     } catch (error) {
       console.error(`[EMBEDDINGS] ✗ Failed to embed text ${i + 1}:`, error);
       // Push a zero vector as fallback
-      embeddings.push(new Array(1536).fill(0));
+      embeddings.push(new Array(1536).fill(null));
     }
   }
   
@@ -31,13 +31,13 @@ export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
   return embeddings;
 }
 
-// Pure function to generate single embedding using OpenAI
-export async function generateEmbedding(text: string): Promise<number[]> {
+// Pure function to generate single embedding using OpenRouter
+export async function generateSingleEmbed(text: string): Promise<number[]> {
   console.log(`[EMBEDDINGS] Generating single embedding (length: ${text.length})...`);
   
   try {
     const result = await embed({
-      model: openai.textEmbeddingModel('text-embedding-3-small'),
+      model: openrouter.textEmbeddingModel("openai/text-embedding-3-small"),
       value: text,
     });
     
@@ -45,7 +45,7 @@ export async function generateEmbedding(text: string): Promise<number[]> {
     return result.embedding;
   } catch (error) {
     console.error(`[EMBEDDINGS] ✗ Failed to generate embedding:`, error);
-    // Return a zero vector as fallback
-    return new Array(1536).fill(0);
+    // Propagate error to caller
+    throw error;
   }
 }

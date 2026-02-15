@@ -25,10 +25,29 @@ type ChunkData = {
  * Embeds AST symbols as CodeChunk nodes in Neo4j with real embeddings.
  * @param repoId - The Neo4j repo ID
  * @param repoRoot - Absolute path to the repo folder (like fzf-master)
+ * @param batchSize - Number of embeddings to process at once (default: 10)
+ * @param maxFiles - Maximum number of files to process (default: Infinity for no limit)
  */
-export async function embedASTFiles(repoId: string, repoRoot: string) {
+export async function embedASTFiles(
+  repoId: string, 
+  repoRoot: string,
+  batchSize: number = 10,
+  maxFiles: number = Infinity
+) {
+  if (batchSize < 1) {
+    throw new Error(`batchSize must be >= 1, got ${batchSize}`);
+  }
+  if (maxFiles < 1) {
+    throw new Error(`maxFiles must be >= 1, got ${maxFiles}`);
+  }
+
+  console.log(`[AST-EMBED] Starting embedding for repo: ${repoId}`);
   console.log(`[AST-EMBED] Starting embedding for repo: ${repoId}`);
   console.log(`[AST-EMBED] Repo root: ${repoRoot}`);
+  console.log(`[AST-EMBED] Batch size: ${batchSize}, Max files: ${maxFiles === Infinity ? 'unlimited' : maxFiles}`);
+  
+  // Resolve and canonicalize repo root for path traversal checks
+  const repoRootResolved = path.resolve(repoRoot);
   
   // Fetch AST symbols from Neo4j
   console.log(`[AST-EMBED] Querying Neo4j for symbols...`);
@@ -50,7 +69,7 @@ export async function embedASTFiles(repoId: string, repoRoot: string) {
 
   if (rows.length === 0) {
     console.log(`[AST-EMBED] No symbols found for repo ${repoId}`);
-    return { ok: true, files: 0, totalEmbedded: 0 };
+    return { ok: true, files: 0, totalEmbedded: 0, failedBatches: 0 };
   }
 
   // Group symbols by file
@@ -61,9 +80,9 @@ export async function embedASTFiles(repoId: string, repoRoot: string) {
   }
 
   let totalEmbedded = 0;
-  const batchSize = 10; // Smaller batch size for faster processing
-  const maxFiles = 5; // Process max 5 files for testing
   let filesProcessed = 0;
+  let failedBatches = 0;
+  const failedBatchDetails: string[] = [];
 
   console.log(`[AST-EMBED] Processing ${byFile.size} files...`);
 
@@ -76,8 +95,13 @@ export async function embedASTFiles(repoId: string, repoRoot: string) {
     
     console.log(`[AST-EMBED] Processing file ${filesProcessed + 1}/${Math.min(byFile.size, maxFiles)}: ${relPath}`);
     
-    // Use the repoRoot passed as argument
-    const absPath = path.join(repoRoot, relPath);
+    // Validate path to prevent traversal attacks
+    const absPath = path.resolve(repoRoot, relPath);
+    if (!absPath.startsWith(repoRootResolved + path.sep) && absPath !== repoRootResolved) {
+      console.warn(`[AST-EMBED] ⚠ Path traversal detected for ${relPath}, skipping...`);
+      continue;
+    }
+    
     console.log(`[AST-EMBED] Reading file: ${absPath}`);
     
     const text = await fs.readFile(absPath, "utf8").catch((err) => {
@@ -127,12 +151,17 @@ export async function embedASTFiles(repoId: string, repoRoot: string) {
         const embeddings = await generateEmbeddings(texts);
         console.log(`[AST-EMBED] Generated ${embeddings.length} embeddings`);
 
-        // Store in Neo4j with real embeddings
+        // Store in Neo4j with real embeddings, filtering out null embeddings
         for (let j = 0; j < batch.length; j++) {
           const chunk = batch[j];
           const embedding = embeddings[j];
 
-          if (!chunk || !embedding) continue;
+          if (!chunk || !embedding) {
+            if (!embedding) {
+              console.warn(`[AST-EMBED] Skipping chunk ${j} in batch due to failed embedding`);
+            }
+            continue;
+          }
 
           await runCypher(
             `
@@ -158,6 +187,10 @@ export async function embedASTFiles(repoId: string, repoRoot: string) {
         }
         console.log(`[AST-EMBED] ✓ Batch ${Math.floor(i/batchSize) + 1} stored in Neo4j`);
       } catch (err) {
+        failedBatches++;
+        const batchNum = Math.floor(i/batchSize) + 1;
+        const errorMsg = `Batch ${batchNum} in ${relPath}: ${err instanceof Error ? err.message : String(err)}`;
+        failedBatchDetails.push(errorMsg);
         console.error(
           `[AST-EMBED] Failed to embed batch in ${relPath}:`,
           err
@@ -169,6 +202,12 @@ export async function embedASTFiles(repoId: string, repoRoot: string) {
     filesProcessed++;
   }
 
-  console.log(`[AST-EMBED] Total embedded: ${totalEmbedded} symbols from ${filesProcessed} files`);
-  return { ok: true, files: filesProcessed, totalEmbedded };
+  console.log(`[AST-EMBED] Total embedded: ${totalEmbedded} symbols from ${filesProcessed} files, ${failedBatches} failed batches`);
+  return { 
+    ok: failedBatches === 0, 
+    files: filesProcessed, 
+    totalEmbedded,
+    failedBatches,
+    failedBatchDetails: failedBatches > 0 ? failedBatchDetails : undefined
+  };
 }

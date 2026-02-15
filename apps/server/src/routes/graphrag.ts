@@ -4,7 +4,7 @@ import { embedASTFiles } from '../pipeline/embed/embedASTFiles';
 import { generateBatchSummaries } from '../pipeline/generateSummary';
 import { assembleFileContext } from '../retrieval/context';
 import { generateTextWithContext } from '../ai/generation';
-import { generateEmbedding } from '../ai/embeddings';
+import { generateEmbeddings, generateSingleEmbed } from '../ai/embeddings';
 import { findSimilarChunks } from '../retrieval/vector';
 import { runCypher } from '../db/cypher';
 import { repoRoots } from '../state/repoRoots';
@@ -19,6 +19,13 @@ function normalizeToRepoPath(filePath: string, repoRoot: string): string {
   // If it's an absolute path, make it relative to repoRoot
   if (path.isAbsolute(p)) {
     p = path.relative(repoRoot, p);
+  }
+  
+  // Ensure the path doesn't escape the repo root
+  const resolvedPath = path.resolve(repoRoot, p);
+  const normalizedRoot = path.resolve(repoRoot) + path.sep;
+  if (!resolvedPath.startsWith(normalizedRoot) && resolvedPath !== path.resolve(repoRoot)) {
+    throw new Error(`Path "${filePath}" is outside the repository root`);
   }
   
   // Convert backslashes to forward slashes for cross-platform consistency
@@ -39,7 +46,7 @@ graphragRoute.post('/embedRepo', async (c) => {
     console.log(`[EMBED] Stored repoRoot for ${repoId}: ${repoRoot}`);
     
     const result = await embedASTFiles(repoId, repoRoot);
-    return c.json({ ok: true, ...result });
+    return c.json({ ...result, ok: true });
   } catch (err) {
     return c.json({ ok: false, error: String(err) }, 500);
   }
@@ -47,7 +54,8 @@ graphragRoute.post('/embedRepo', async (c) => {
 
 // POST /graphrag/summarize - Generate file summaries
 graphragRoute.post('/summarize', async (c) => {
-  const { repoId, filePaths, repoRoot: reqRepoRoot } = await c.req.json().catch(() => ({}));
+  const { repoId , filePaths, repoRoot: reqRepoRoot } : {repoId?: string, filePaths?: string[], repoRoot?: string} = await c.req.json().catch(() => ({}));
+  console.log(repoId);
   
   if (!repoId) {
     return c.json({ ok: false, error: 'Missing repoId' }, 400);
@@ -109,10 +117,14 @@ graphragRoute.post('/ask', async (c) => {
 
   try {
     // Embed question
-    const queryEmbedding = await generateEmbedding(question);
-    
+    const embeddingResult = await generateSingleEmbed(question);
+    if (!embeddingResult || embeddingResult.length === 0) {
+      throw new Error('Failed to generate embedding for the question');
+    }
+  
+
     // Find relevant chunks
-    const chunks = await findSimilarChunks(queryEmbedding, repoId, 5);
+    const chunks = await findSimilarChunks(embeddingResult, repoId, 5);
     
     // Build context
     const context = chunks.map((c: any) => c.node.text).join('\n\n');
@@ -135,13 +147,17 @@ graphragRoute.post('/ask', async (c) => {
   }
 });
 
-// GET /graphrag/context/:filePath - Retrieve assembled context
-graphragRoute.get('/context/:filePath', async (c) => {
-  const filePath = c.req.param('filePath');
+// GET /graphrag/context - Retrieve assembled context
+graphragRoute.get('/context', async (c) => {
+  const filePath = c.req.query('filePath');
   const repoId = c.req.query('repoId');
   
   if (!repoId) {
     return c.json({ ok: false, error: 'Missing repoId' }, 400);
+  }
+  
+  if (!filePath) {
+    return c.json({ ok: false, error: 'Missing filePath' }, 400);
   }
 
   try {
@@ -157,7 +173,7 @@ graphragRoute.get('/test-embedding', async (c) => {
   try {
     console.log('[TEST] Testing embedding generation...');
     const testText = 'function hello() { return "world"; }';
-    const embedding = await generateEmbedding(testText);
+    const embedding = await generateEmbeddings([testText]);
     
     return c.json({
       ok: true,
@@ -169,8 +185,7 @@ graphragRoute.get('/test-embedding', async (c) => {
     console.error('[TEST] Embedding test failed:', err);
     return c.json({ 
       ok: false, 
-      error: String(err),
-      stack: err instanceof Error ? err.stack : undefined 
+      error: 'Embedding test failed'
     }, 500);
   }
 });
