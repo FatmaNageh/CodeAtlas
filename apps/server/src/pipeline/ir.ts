@@ -242,7 +242,10 @@ export function buildIR(scan: ScanResult, facts: FactsByFile): IR {
             normalized: normalizeImportRaw(cf.language, imp.raw),
             fileRelPath: rel,
             kind: imp.kind ?? "static",
-            range: imp.range ?? null,
+            startLine: imp.range?.startLine ?? null,
+            startCol: imp.range?.startCol ?? null,
+            endLine: imp.range?.endLine ?? null,
+            endCol: imp.range?.endCol ?? null,
           },
         });
         edges.push({ id: edgeId(repoId, "IMPORTS_RAW", fId, impId), type: "IMPORTS_RAW", from: fId, to: impId, repoId });
@@ -255,7 +258,16 @@ export function buildIR(scan: ScanResult, facts: FactsByFile): IR {
           id: csId,
           kind: "CallSite",
           repoId,
-          props: { repoId, fileRelPath: rel, calleeText: cs.calleeText, enclosingSymbolQname: cs.enclosingSymbolQname ?? null, range: cs.range ?? null },
+          props: { 
+            repoId, 
+            fileRelPath: rel, 
+            calleeText: cs.calleeText, 
+            enclosingSymbolQname: cs.enclosingSymbolQname ?? null,
+            startLine: cs.range?.startLine ?? null,
+            startCol: cs.range?.startCol ?? null,
+            endLine: cs.range?.endLine ?? null,
+            endCol: cs.range?.endCol ?? null,
+          },
         });
         edges.push({ id: edgeId(repoId, "CONTAINS", fId, csId), type: "CONTAINS", from: fId, to: csId, repoId });
       }
@@ -281,7 +293,11 @@ export function buildIR(scan: ScanResult, facts: FactsByFile): IR {
             parentName: s.parentName ?? null,
             extendsNames: s.extendsNames ?? [],
             implementsNames: s.implementsNames ?? [],
-            range: s.range ?? null,
+            startLine: s.range?.startLine ?? null,
+            startCol: s.range?.startCol ?? null,
+            endLine: s.range?.endLine ?? null,
+            endCol: s.range?.endCol ?? null,
+            //range: s.range ?? null, //-__-
           },
         });
         edges.push({ id: edgeId(repoId, "DECLARES", fId, sid), type: "DECLARES", from: fId, to: sid, repoId });
