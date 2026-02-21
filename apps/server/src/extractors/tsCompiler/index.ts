@@ -1,0 +1,1 @@
+export { extractTsJsWithTsCompiler } from "./extract";

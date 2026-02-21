@@ -5,7 +5,7 @@ export type IRStats = {
   importsRaw: number;
 };
 
-import { FileIndexEntry } from "./scan";
+import type { FileIndexEntry } from "./scan";
 
 export type IndexRepoReturn = {
   repoId: string;
