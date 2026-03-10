@@ -5,8 +5,10 @@ import { generateBatchSummaries } from '../pipeline/generateSummary';
 import { assembleFileContext } from '../retrieval/context';
 import { generateTextWithContext } from '../ai/generation';
 import { generateEmbeddings, generateSingleEmbed } from '../ai/embeddings';
+import { isValidEmbeddingVector } from '../utils/embedding';
 import { findSimilarChunks } from '../retrieval/vector';
 import { runCypher } from '../db/cypher';
+import fs from 'fs/promises';
 import { repoRoots } from '../state/repoRoots';
 
 export const graphragRoute = new Hono();
@@ -118,17 +120,76 @@ graphragRoute.post('/ask', async (c) => {
   try {
     // Embed question
     const embeddingResult = await generateSingleEmbed(question);
-    if (!embeddingResult || embeddingResult.length === 0) {
-      throw new Error('Failed to generate embedding for the question');
+    if (!isValidEmbeddingVector(embeddingResult, 1536)) {
+      throw new Error('Invalid embedding vector generated for the question');
     }
   
 
     // Find relevant chunks
     const chunks = await findSimilarChunks(embeddingResult, repoId, 5);
-    
-    // Build context
-    const context = chunks.map((c: any) => c.node.text).join('\n\n');
-    const prompt = `Context:\n${context}\n\nQuestion: ${question}\n\nAnswer concisely:`;
+
+    // Build code context if any chunks exist
+    let codeContext = (chunks && chunks.length > 0)
+      ? chunks.map((c: any) => c.node?.text ?? c.chunkText ?? '').join('\n\n')
+      : '';
+    // Trim excessively long code context to avoid huge prompts
+    const MAX_CODE_CONTEXT = 8000; // characters
+    if (codeContext && codeContext.length > MAX_CODE_CONTEXT) {
+      codeContext = codeContext.slice(-MAX_CODE_CONTEXT);
+    }
+    // Fallback: if code context is empty, try reading from disk (for a best-effort context)
+    if (!codeContext && chunks && chunks.length > 0) {
+      const repoRoot = repoRoots.get(repoId);
+      if (repoRoot) {
+        try {
+          const texts = await Promise.all(
+            chunks.slice(0, 5).map(async (c: any) => {
+              const rel = c.node?.relPath;
+              if (!rel) return '';
+              const absPath = path.resolve(repoRoot, rel);
+              const t = await fs.readFile(absPath, 'utf8');
+              return t;
+            })
+          );
+          const stacked = texts.filter((t) => typeof t === 'string' && t.length > 0).join('\n\n');
+          if (stacked) {
+            codeContext = stacked.length > MAX_CODE_CONTEXT ? stacked.slice(-MAX_CODE_CONTEXT) : stacked;
+          }
+        } catch {
+          // ignore disk read errors; keep codeContext as empty to fall back to summaries
+        }
+      }
+    }
+
+    // Fallback: gather file summaries if no code context
+    let summaryContext = '';
+    if (!codeContext) {
+      const sums = await runCypher(
+        'MATCH (f:CodeFile {repoId: $repoId}) WHERE f.summary IS NOT NULL RETURN f.relPath AS path, f.summary AS summary',
+        { repoId }
+      );
+      if (Array.isArray(sums) && sums.length > 0) {
+        summaryContext = sums.map((s: any) => `File: ${s.path}\nSummary:\n${s.summary}`).join('\n\n');
+        // Cap length to avoid overly long prompts
+        const MAX_SUMMARY_CONTEXT = 2000;
+        if (summaryContext.length > MAX_SUMMARY_CONTEXT) {
+          summaryContext = summaryContext.slice(0, MAX_SUMMARY_CONTEXT) + '...';
+        }
+      }
+    }
+
+    if (!codeContext && !summaryContext) {
+      return c.json({ ok: false, error: 'No relevant code chunks or file summaries found for this repository.' }, 400);
+    }
+
+    const combinedContext = [codeContext, summaryContext].filter(Boolean).join('\n\n');
+    console.log('[GRAPHRAG] Context lengths -> code:', codeContext ? codeContext.length : 0, 'summary:', summaryContext ? summaryContext.length : 0, 'combined:', combinedContext.length);
+    const prompt = `Context:\n${combinedContext}\n\nQuestion: ${question}\n\nAnswer concisely:`;
+    console.log('[GRAPHRAG] Prompt prepared. length:', prompt.length, 'codeCtx', codeContext ? codeContext.length : 0, 'sumCtx', summaryContext ? summaryContext.length : 0, 'chunks', chunks ? chunks.length : 0);
+    if (codeContext) {
+      const preview = codeContext.substring(0, 120).replace(/\n/g, ' ');
+      console.log('[GRAPHRAG] CodeContext preview:', preview);
+    }
     
     // Generate answer
     const answer = await generateTextWithContext(prompt, { maxTokens: 1000 });
@@ -137,9 +198,9 @@ graphragRoute.post('/ask', async (c) => {
       ok: true,
       answer,
       sources: chunks.map((c: any) => ({
-        file: c.node.relPath,
-        symbol: c.node.symbol,
-        score: c.score,
+        file: c.filePath ?? 'unknown',
+        symbol: c.node?.symbol ?? '',
+        score: c.score ?? 0,
       })),
     });
   } catch (err) {
@@ -187,6 +248,35 @@ graphragRoute.get('/test-embedding', async (c) => {
       ok: false, 
       error: 'Embedding test failed'
     }, 500);
+  }
+});
+
+// GET /graphrag/status - Repo health check (counts of files, summaries, chunks, embeddings)
+graphragRoute.get('/status', async (c) => {
+  const repoId = c.req.query('repoId');
+  if (!repoId) {
+    return c.json({ ok: false, error: 'Missing repoId' }, 400);
+  }
+  try {
+    const totalFiles = (await runCypher('MATCH (f:CodeFile {repoId: $repoId}) RETURN count(f) AS n', { repoId }))?.[0]?.n ?? 0;
+    // Neo4j 5+ deprecated exists(property); use IS NOT NULL instead
+    const summarizedFiles = (await runCypher('MATCH (f:CodeFile {repoId: $repoId}) WHERE f.summary IS NOT NULL RETURN count(f) AS n', { repoId }))?.[0]?.n ?? 0;
+    const totalChunks = (await runCypher('MATCH (c:CodeChunk {repoId: $repoId}) RETURN count(c) AS n', { repoId }))?.[0]?.n ?? 0;
+    const embeddedChunks = (await runCypher('MATCH (c:CodeChunk {repoId: $repoId}) WHERE c.embedding IS NOT NULL RETURN count(c) AS n', { repoId }))?.[0]?.n ?? 0;
+
+    const perFile = await runCypher(
+      `MATCH (c:CodeChunk {repoId: $repoId})
+       WITH c.relPath AS path, count(*) AS chunks,
+            sum(CASE WHEN c.embedding IS NOT NULL THEN 1 ELSE 0 END) AS embeddedChunks
+       RETURN path, chunks, embeddedChunks`,
+      { repoId }
+    );
+
+    return c.json({ ok: true, repoId, totalFiles, summarizedFiles, totalChunks, embeddedChunks, perFile });
+  } catch (err) {
+    // AI call failures should not crash the API; respond with a friendly message
+    console.error('[GRAPHRAG] Error during /ask processing:', err);
+    return c.json({ ok: false, error: 'Internal AI service error. Please try again later.' }, 500);
   }
 });
 

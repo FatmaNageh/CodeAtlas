@@ -9,15 +9,16 @@ export async function findSimilarChunks(
   // Over-fetch to account for repo ID filtering that happens in the WHERE clause
   // The db.index.vector.queryNodes returns results before filtering by repoId,
   // so we fetch more and let the WHERE clause filter them down
-  const fetchLimit = Math.max(limit * 3, limit + 10);
+  // Ensure we always pass integer values to Cypher (LIMIT expects an integer)
+  const fetchLimit = Math.max(Math.floor(limit) * 3, Math.floor(limit) + 10);
   
   const results = await runCypher(
-    `CALL db.index.vector.queryNodes('codechunk_embedding', $fetchLimit, $queryEmbedding)
-     YIELD node, score
-     WHERE node.repoId = $repoId
-     RETURN node, score
-     ORDER BY score DESC
-     LIMIT $limit`,
+    `CALL db.index.vector.queryNodes('codechunk_embedding', toInteger($fetchLimit), $queryEmbedding)
+      YIELD node, score
+      WHERE node.repoId = $repoId
+      RETURN node, score, node.relPath AS filePath, node.text AS chunkText
+      ORDER BY score DESC
+      LIMIT toInteger($limit)`,
     { queryEmbedding, repoId, fetchLimit, limit }
   );
   
