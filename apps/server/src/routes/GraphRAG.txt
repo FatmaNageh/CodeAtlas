@@ -1,0 +1,55 @@
+POST request for embedding files creating CodeChunk node
+
+curl -X POST 'http://localhost:3000/debug/embed' \
+  -H 'Content-Type: application/json' \
+  --data-raw '{
+    "repoId": "12840b47e88a",
+    "projectPath": "E:\\Graduation Project\\CodeAtlas\\example_files\\fzf-master"
+  }'
+
+-------------------------------------------------------------------------
+
+Post Request To Summarize
+
+curl -X POST http://localhost:3000/graphrag/summarize \
+  -H "Content-Type: application/json" \
+  -d '{
+    "repoId": "12840b47e88a",
+    "repoRoot": "E:/Graduation Project/CodeAtlas/example_files/fzf-master",
+    "filePaths": [
+      "E:\\Graduation Project\\CodeAtlas\\example_files\\fzf-master\\src\\algo\\normalize.go",
+      "E:\\Graduation Project\\CodeAtlas\\example_files\\fzf-master\\src\\algo\\algo_test.go"
+    ]
+  }'
+
+----------------------------------------------------------------------------------------------------------
+
+Post Request To Ask Question
+
+curl -X POST http://localhost:3000/graphrag/ask \
+  -H "Content-Type: application/json" \
+  -d '{
+    "repoId": "12840b47e88a",
+    "question": "What does the main function do?"
+  }'
+
+----------------------------------------------------------------------------------------------------------
+
+Testing the embedding
+
+curl -s http://localhost:3000/graphrag/test-embedding
+
+----------------------------------------------------------------------------------------------------------
+
+Check if summaries exist in neo4j
+
+MATCH (f:CodeFile {repoId: '12840b47e88a'})
+WHERE f.summary IS NOT NULL
+RETURN f.relPath as filePath, f.summary, f.summaryAt, f.summaryModel
+ORDER BY f.summaryAt
+
+----------------------------------------------------------------------------------------------------------
+
+GraphRAG Status
+
+curl -s "http://localhost:3000/graphrag/status?repoId=12840b47e88a"
