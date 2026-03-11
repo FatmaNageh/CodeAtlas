@@ -10,6 +10,7 @@ import { findSimilarChunks } from '../retrieval/vector';
 import { runCypher } from '../db/cypher';
 import fs from 'fs/promises';
 import { repoRoots } from '../state/repoRoots';
+import { embedDimensions } from '@/config/openrouter';
 
 export const graphragRoute = new Hono();
 
@@ -120,7 +121,7 @@ graphragRoute.post('/ask', async (c) => {
   try {
     // Embed question
     const embeddingResult = await generateSingleEmbed(question);
-    if (!isValidEmbeddingVector(embeddingResult, 1536)) {
+    if (!isValidEmbeddingVector(embeddingResult, embedDimensions)) {
       throw new Error('Invalid embedding vector generated for the question');
     }
   
