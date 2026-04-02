@@ -14,6 +14,7 @@ import { Route as IndexingRouteImport } from './routes/indexing'
 import { Route as GraphRouteImport } from './routes/graph'
 import { Route as AnalyticsRouteImport } from './routes/analytics'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as OnboardingRouteImport } from './routes/onboarding'
 
 const IrRoute = IrRouteImport.update({
   id: '/ir',
@@ -40,6 +41,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OnboardingRoute = OnboardingRouteImport.update({
+  id: '/onboarding',
+  path: '/onboarding',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -47,6 +53,7 @@ export interface FileRoutesByFullPath {
   '/graph': typeof GraphRoute
   '/indexing': typeof IndexingRoute
   '/ir': typeof IrRoute
+  '/onboarding': typeof OnboardingRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -54,6 +61,7 @@ export interface FileRoutesByTo {
   '/graph': typeof GraphRoute
   '/indexing': typeof IndexingRoute
   '/ir': typeof IrRoute
+  '/onboarding': typeof OnboardingRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -62,13 +70,14 @@ export interface FileRoutesById {
   '/graph': typeof GraphRoute
   '/indexing': typeof IndexingRoute
   '/ir': typeof IrRoute
+  '/onboarding': typeof OnboardingRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/analytics' | '/graph' | '/indexing' | '/ir'
+  fullPaths: '/' | '/analytics' | '/graph' | '/indexing' | '/ir' | '/onboarding'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/analytics' | '/graph' | '/indexing' | '/ir'
-  id: '__root__' | '/' | '/analytics' | '/graph' | '/indexing' | '/ir'
+  to: '/' | '/analytics' | '/graph' | '/indexing' | '/ir' | '/onboarding'
+  id: '__root__' | '/' | '/analytics' | '/graph' | '/indexing' | '/ir' | '/onboarding'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -77,6 +86,7 @@ export interface RootRouteChildren {
   GraphRoute: typeof GraphRoute
   IndexingRoute: typeof IndexingRoute
   IrRoute: typeof IrRoute
+  OnboardingRoute: typeof OnboardingRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -116,6 +126,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/onboarding': {
+      id: '/onboarding'
+      path: '/onboarding'
+      fullPath: '/onboarding'
+      preLoaderRoute: typeof OnboardingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -125,6 +142,7 @@ const rootRouteChildren: RootRouteChildren = {
   GraphRoute: GraphRoute,
   IndexingRoute: IndexingRoute,
   IrRoute: IrRoute,
+  OnboardingRoute: OnboardingRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
