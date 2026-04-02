@@ -4,13 +4,10 @@ import { Toaster } from "@/components/ui/sonner";
 import type { trpc } from "@/utils/trpc";
 import type { QueryClient } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
-import {
-  HeadContent,
-  Outlet,
-  createRootRouteWithContext,
-} from "@tanstack/react-router";
+import { HeadContent, Outlet, createRootRouteWithContext, useRouterState } from "@tanstack/react-router";
 import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
 import "../index.css";
+import "../styles/codeatlas-theme.css";
 
 export interface RouterAppContext {
   trpc: typeof trpc;
@@ -21,29 +18,26 @@ export const Route = createRootRouteWithContext<RouterAppContext>()({
   component: RootComponent,
   head: () => ({
     meta: [
-      { title: "CodeAtlas — Pipeline Showcase" },
+      { title: "CodeAtlas — React Frontend" },
       {
         name: "description",
         content:
-          "A frontend to showcase CodeAtlas indexing pipeline steps (Phase 1 + Phase 2) without GraphRAG/Tour.",
+          "CodeAtlas frontend with landing page, onboarding flow, graph exploration, indexing tools, and analytics.",
       },
     ],
   }),
 });
 
 function RootComponent() {
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const hideGlobalHeader = pathname === "/graph";
   return (
     <>
       <HeadContent />
-      <ThemeProvider
-        attribute="class"
-        defaultTheme="dark"
-        disableTransitionOnChange
-        storageKey="vite-ui-theme"
-      >
-        <div className="grid grid-rows-[auto_1fr] h-svh">
-          <Header />
-          <main className="min-h-0 overflow-auto">
+      <ThemeProvider attribute="class" defaultTheme="dark" disableTransitionOnChange storageKey="vite-ui-theme">
+        <div className="codeatlas-shell min-h-screen">
+          {!hideGlobalHeader && <Header />}
+          <main className={hideGlobalHeader ? "min-h-screen overflow-auto" : "min-h-[calc(100vh-50px)] overflow-auto"}>
             <Outlet />
           </main>
         </div>

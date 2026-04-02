@@ -1,0 +1,122 @@
+:root {
+  --bg: #f7f7f5;
+  --s0: #ffffff;
+  --s1: #f2f2f0;
+  --s2: #e8e8e6;
+  --s3: #dddddb;
+  --b0: rgba(0, 0, 0, 0.055);
+  --b1: rgba(0, 0, 0, 0.1);
+  --b2: rgba(0, 0, 0, 0.17);
+  --t0: #111110;
+  --t1: #484845;
+  --t2: #8a8a86;
+  --t3: #c0c0bc;
+  --blue: #185fa5;
+  --blue-l: #e6f1fb;
+  --blue-b: #b5d4f4;
+  --purple: #534ab7;
+  --purple-l: #eeedfe;
+  --purple-b: #cecbf6;
+  --teal: #0f6e56;
+  --teal-l: #e1f5ee;
+  --teal-b: #9fe1cb;
+  --amber: #854f0b;
+  --amber-l: #faeeda;
+  --amber-b: #fac775;
+  --red: #a32d2d;
+  --red-l: #fcebeb;
+  --red-b: #f7c1c1;
+  --green: #3b6d11;
+  --green-l: #eaf3de;
+  --green-b: #c0dd97;
+  --coral: #993c1d;
+  --coral-l: #faece7;
+  --coral-b: #f0997b;
+  --surface: var(--s0);
+  --surface2: var(--s1);
+  --border: var(--b1);
+  --border2: var(--b2);
+  --text: var(--t0);
+  --text2: var(--t1);
+  --text3: var(--t2);
+  --node-folder: var(--purple);
+  --node-folder-bg: var(--purple-l);
+  --node-file: var(--blue);
+  --node-file-bg: var(--blue-l);
+  --node-fn: var(--green);
+  --node-fn-bg: var(--green-l);
+  --node-class: var(--amber);
+  --node-class-bg: var(--amber-l);
+}
+
+.dark {
+  --bg: #0d0d0c;
+  --s0: #171716;
+  --s1: #1f1f1e;
+  --s2: #282827;
+  --s3: #313130;
+  --b0: rgba(255, 255, 255, 0.05);
+  --b1: rgba(255, 255, 255, 0.09);
+  --b2: rgba(255, 255, 255, 0.15);
+  --t0: #eeeee9;
+  --t1: #9a9a95;
+  --t2: #5c5c59;
+  --t3: #3a3a38;
+  --blue: #85b7eb;
+  --blue-l: #042c53;
+  --blue-b: #0c447c;
+  --purple: #afa9ec;
+  --purple-l: #26215c;
+  --purple-b: #3c3489;
+  --teal: #5dcaa5;
+  --teal-l: #04342c;
+  --teal-b: #085041;
+  --amber: #ef9f27;
+  --amber-l: #412402;
+  --amber-b: #633806;
+  --red: #f09595;
+  --red-l: #501313;
+  --red-b: #791f1f;
+  --green: #97c459;
+  --green-l: #173404;
+  --green-b: #27500a;
+  --coral: #f0997b;
+  --coral-l: #4a1b0c;
+  --coral-b: #712b13;
+}
+
+.codeatlas-shell {
+  background: var(--bg);
+  color: var(--t0);
+}
+
+.codeatlas-card {
+  background: var(--surface);
+  border: 0.5px solid var(--border2);
+}
+
+.codeatlas-muted {
+  color: var(--text2);
+}
+
+.codeatlas-subtle {
+  color: var(--text3);
+}
+
+.codeatlas-dashed {
+  border: 1.5px dashed var(--border2);
+}
+
+.codeatlas-progress-pulse {
+  animation: codeatlasPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes codeatlasPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
