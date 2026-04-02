@@ -39,7 +39,21 @@ function normalizeEdgeType(type: string): EdgeCategory {
 
 function getNodePath(node: Neo4jNode): string {
   const props = node.properties ?? {};
-  return String(props.path ?? props.filePath ?? props.relativePath ?? props.name ?? node.id);
+  return String(props.path ?? props.filePath ?? props.relativePath ?? props.relPath ?? props.name ?? node.id);
+}
+
+function findParentFile(node: Neo4jNode, edges: Neo4jEdge[], allNodes: Neo4jNode[]): Neo4jNode | null {
+  const incoming = edges.filter((e) => String(e.to) === String(node.id));
+  for (const edge of incoming) {
+    const parent = allNodes.find((n) => String(n.id) === String(edge.from));
+    if (!parent) continue;
+    const kind = classifyNode(parent);
+    if (kind === "file") return parent;
+    if (kind === "folder") continue;
+    const grandparent = findParentFile(parent, edges, allNodes);
+    if (grandparent) return grandparent;
+  }
+  return null;
 }
 
 function getNodeLanguage(node: Neo4jNode): string {
@@ -206,6 +220,56 @@ function GraphExplorerPage() {
   const [embedLoading, setEmbedLoading] = useState(false);
   const [pathFromId, setPathFromId] = useState<string>("");
   const [pathToId, setPathToId] = useState<string>("");
+  const [summaryText, setSummaryText] = useState<string>("");
+  const [summarizing, setSummarizing] = useState(false);
+
+  const handleSummarize = async () => {
+    if (!selectedNode) return;
+    const kind = classifyNode(selectedNode);
+    let filepath: string;
+    if (kind === "file" || kind === "folder") {
+      filepath = getNodePath(selectedNode);
+    } else {
+      const parentFile = findParentFile(selectedNode, filteredEdges, filteredNodes);
+      if (!parentFile) {
+        setSummaryText("Error: Could not find parent file for this node.");
+        return;
+      }
+      filepath = getNodePath(parentFile);
+    }
+    setSummarizing(true);
+    setSummaryText("Generating summary...");
+    try {
+      const res = await fetch(`${baseUrl}/graphrag/summarize`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repoId, repoRoot, filePaths: [filepath] }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        setSummaryText(`Error: ${res.status} ${errData?.error ?? res.statusText}`);
+      } else {
+        const data = await res.json();
+        if (data?.results && data.results.length > 0) {
+          const summaryText = data.results.map((r: any) => r.summary ?? r.text ?? JSON.stringify(r)).join("\n\n");
+          setSummaryText(summaryText);
+        } else if (data?.errors && data.errors.length > 0) {
+          setSummaryText(`Errors: ${data.errors.map((e: any) => (typeof e === "string" ? e : JSON.stringify(e))).join("; ")}`);
+        } else {
+          setSummaryText("Summary generated but no results returned.");
+        }
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setSummaryText(`Error: ${msg}`);
+    } finally {
+      setSummarizing(false);
+    }
+  };
+
+  useEffect(() => {
+    setSummaryText("");
+  }, [selectedNodeId]);
 
   const { complete, isLoading: chatLoading } = useCompletion({
     api: `${baseUrl}/graphrag/ask`,
@@ -674,6 +738,22 @@ function GraphExplorerPage() {
                           <span className="font-mono text-[var(--t0)]">{value}</span>
                         </div>
                       ))}
+                    </div>
+
+                    <div className="mt-5">
+                      <div className="mb-2 flex items-center justify-between">
+                        <div className="text-[10px] font-medium uppercase tracking-[0.07em] text-[var(--t3)]">Summary</div>
+                        <button
+                          className="rounded-[4px] bg-[var(--blue)] px-2 py-0.5 text-[10px] font-medium text-white hover:bg-[var(--blue-h)] disabled:opacity-50"
+                          onClick={handleSummarize}
+                          disabled={summarizing}
+                        >
+                          {summarizing ? "Generating..." : "Summarize"}
+                        </button>
+                      </div>
+                      <div className="rounded-[8px] bg-[var(--s1)] p-3 text-[11px] leading-5 text-[var(--t1)]">
+                        {summaryText || "No summary generated yet."}
+                      </div>
                     </div>
 
                     <div className="mt-5">
