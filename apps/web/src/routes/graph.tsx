@@ -14,6 +14,13 @@ export const Route = createFileRoute("/graph")({
 type EdgeCategory = "CONTAINS" | "IMPORTS" | "CALLS";
 type Mode = "select" | "neighbour" | "path" | "insight";
 type RightTab = "detail" | "insights" | "ai";
+type ChatRole = "user" | "assistant";
+
+type ChatMessage = {
+  id: string;
+  role: ChatRole;
+  text: string;
+};
 
 type TreeItem = {
   key: string;
@@ -184,6 +191,7 @@ function GraphExplorerPage() {
   const session = loadSession();
   const [baseUrl] = useState(session.baseUrl ?? "");
   const [repoId] = useState(session.lastRepoId ?? "");
+  const [repoRoot] = useState(session.lastProjectPath ?? "");
   const [graph, setGraph] = useState<{ nodes: Neo4jNode[]; edges: Neo4jEdge[] }>({ nodes: [], edges: [] });
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<Mode>("select");
@@ -192,11 +200,10 @@ function GraphExplorerPage() {
   const [search, setSearch] = useState("");
   const [visibleEdgeTypes, setVisibleEdgeTypes] = useState<Record<EdgeCategory, boolean>>({ CONTAINS: true, IMPORTS: true, CALLS: true });
   const [visibleKinds, setVisibleKinds] = useState<Record<ExplorerNodeKind, boolean>>({ folder: true, file: true, class: true, fn: true });
-  const [aiMessages, setAiMessages] = useState<Array<{ role: "user" | "assistant"; text: string }>>([
-    { role: "user", text: "How does this repository connect the selected node to its neighbours?" },
-    { role: "assistant", text: "Once you select a node, CodeAtlas uses the graph data already loaded from Neo4j to show direct relationships and graph-grounded structure in this panel." },
-  ]);
-  const [aiInput, setAiInput] = useState("");
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  const [embedLoading, setEmbedLoading] = useState(false);
   const [pathFromId, setPathFromId] = useState<string>("");
   const [pathToId, setPathToId] = useState<string>("");
 
@@ -337,21 +344,84 @@ function GraphExplorerPage() {
     return repoId;
   }, [repoId]);
 
-  const sendAi = () => {
-    const text = aiInput.trim();
+  const layoutOptions: Array<{ label: string; icon: any }> = [
+    { label: "Force layout", icon: Sparkles },
+    { label: "Hierarchical", icon: Upload },
+    { label: "Radial", icon: BrainCircuit },
+    { label: "Fit", icon: Square },
+  ];
+
+  const makeMessageId = () => {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID();
+    }
+    return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  };
+
+  const sendAi = async (rawText?: string) => {
+    const text = (rawText ?? chatInput).trim();
     if (!text) return;
-    setAiMessages((cur) => [
-      ...cur,
-      { role: "user", text },
-      {
-        role: "assistant",
-        text: selectedNode
-          ? `Using the currently loaded graph context around ${selectedNode.displayLabel}, CodeAtlas can inspect ${relationships.length} visible relationships in this filtered view.`
-          : "Load a graph and select a node to get graph-grounded context.",
-      },
-    ]);
-    setAiInput("");
+    if (!repoId.trim()) {
+      toast.error("No repository loaded. Index a repo first.");
+      return;
+    }
+
     setTab("ai");
+    const userMessage: ChatMessage = { id: makeMessageId(), role: "user", text };
+    setChatMessages((current) => [...current, userMessage]);
+    setChatInput("");
+    setChatLoading(true);
+
+    try {
+      const res = await fetch(`${baseUrl}/graphrag/ask`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repoId: repoId.trim(), question: text }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || data?.ok === false) {
+        throw new Error(data?.error ?? `AI request failed (${res.status})`);
+      }
+
+      const answer = typeof data?.answer === "string" && data.answer.trim() ? data.answer : "No answer returned.";
+      setChatMessages((current) => [...current, { id: makeMessageId(), role: "assistant", text: answer }]);
+    } catch (err: any) {
+      const message = err?.message ?? "Failed to get AI response";
+      toast.error(message);
+      setChatMessages((current) => [...current, { id: makeMessageId(), role: "assistant", text: `Error: ${message}` }]);
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
+  const embedNodes = async () => {
+    if (!repoId.trim()) {
+      toast.error("No repository loaded. Index a repo first.");
+      return;
+    }
+    if (!repoRoot.trim()) {
+      toast.error("Missing project path. Re-index the repo so embed can locate files.");
+      return;
+    }
+
+    setEmbedLoading(true);
+    try {
+      const res = await fetch(`${baseUrl}/graphrag/embedRepo`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repoId: repoId.trim(), repoRoot: repoRoot.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.ok === false) {
+        throw new Error(data?.error ?? `Embedding failed (${res.status})`);
+      }
+      toast.success("Embedding completed for current repository.");
+    } catch (err: any) {
+      toast.error(err?.message ?? "Failed to embed repository nodes");
+    } finally {
+      setEmbedLoading(false);
+    }
   };
 
   return (
@@ -364,6 +434,9 @@ function GraphExplorerPage() {
             <span className="font-mono text-[11px] text-[var(--t2)]">{repoName}</span>
           </div>
           <div className="ml-auto flex items-center gap-3">
+            <button className="inline-flex h-8 items-center gap-2 rounded-[6px] border border-[var(--b2)] px-3 text-[12px] text-[var(--t1)] hover:bg-[var(--s1)] disabled:cursor-not-allowed disabled:opacity-60" onClick={embedNodes} disabled={embedLoading}>
+              <Upload className="h-3.5 w-3.5" /> {embedLoading ? "Embedding..." : "Embed Nodes"}
+            </button>
             <button className="inline-flex h-8 items-center gap-2 rounded-[6px] border border-[var(--b2)] px-3 text-[12px] text-[var(--t1)] hover:bg-[var(--s1)]" onClick={() => window.location.reload()}>
               <RefreshCw className="h-3.5 w-3.5" /> Sync
             </button>
@@ -456,13 +529,7 @@ function GraphExplorerPage() {
 
           <div className="relative overflow-hidden bg-[var(--bg)]">
             <div className="absolute left-1/2 top-3 z-10 flex -translate-x-1/2 overflow-hidden rounded-[10px] border border-[var(--b1)] bg-[var(--s0)] shadow-sm">
-              {[
-                ["Force layout", Sparkles],
-                ["Hierarchical", Upload],
-                ["Radial", BrainCircuit],
-                ["Fit", Square],
-              ].map(([label, Icon], index) => {
-                const Comp = Icon as any;
+              {layoutOptions.map(({ label, icon: Comp }, index) => {
                 return (
                   <button key={label} className={`inline-flex h-8 items-center gap-1 border-r border-[var(--b0)] px-3 text-[11px] ${index === 0 ? "bg-[var(--t0)] text-[var(--s0)]" : "text-[var(--t2)] hover:bg-[var(--s1)] hover:text-[var(--t0)]"}`}>
                     <Comp className="h-3.5 w-3.5" /> {label}
@@ -650,29 +717,43 @@ function GraphExplorerPage() {
                 <div className="border-b border-[var(--b0)] bg-[var(--s1)] px-3 py-2 text-[10px] uppercase tracking-[0.07em] text-[var(--t3)]">
                   Context {selectedNode ? `· ${selectedNode.displayLabel}` : ""}
                 </div>
-                <div className="flex-1 overflow-y-auto p-3">
-                  <div className="space-y-3">
-                    {aiMessages.map((message, index) => (
-                      <div key={`${message.role}-${index}`} className={`max-w-[92%] rounded-[8px] px-3 py-2 text-[11px] leading-6 ${message.role === "user" ? "ml-auto bg-[var(--s2)]" : "border border-[var(--teal-b)] bg-[var(--teal-l)]"}`}>
-                        {message.text}
-                      </div>
-                    ))}
+                 <div className="flex-1 overflow-y-auto p-3">
+                   <div className="space-y-3">
+                     {chatMessages.map((message) => (
+                       <div key={message.id} className={`max-w-[92%] rounded-[8px] px-3 py-2 text-[11px] leading-6 ${message.role === "user" ? "ml-auto bg-[var(--s2)]" : "border border-[var(--teal-b)] bg-[var(--teal-l)]"}`}>
+                         {message.text}
+                       </div>
+                     ))}
+                    </div>
                   </div>
-                </div>
                 <div className="border-t border-[var(--b0)] p-3">
                   <div className="mb-2 flex flex-wrap gap-2">
                     {[
-                      "Why is this node highly connected?",
-                      "Show the shortest dependency path.",
-                      "Suggest a safer refactor.",
-                    ].map((prompt) => (
-                      <button key={prompt} className="rounded-full border border-[var(--b1)] px-3 py-1 text-[10px] text-[var(--t2)] hover:bg-[var(--s1)] hover:text-[var(--t0)]" onClick={() => setAiInput(prompt)}>{prompt}</button>
-                    ))}
+                        "Why is this node highly connected?",
+                        "Show the shortest dependency path.",
+                        "Suggest a safer refactor.",
+                      ].map((prompt) => (
+                        <button key={prompt} className="rounded-full border border-[var(--b1)] px-3 py-1 text-[10px] text-[var(--t2)] hover:bg-[var(--s1)] hover:text-[var(--t0)]" onClick={() => setChatInput(prompt)}>{prompt}</button>
+                      ))}
                   </div>
-                  <div className="flex gap-2">
-                    <input className="flex-1 rounded-[6px] border border-[var(--b1)] bg-[var(--s1)] px-3 py-2 text-[11px] outline-none" value={aiInput} onChange={(e) => setAiInput(e.target.value)} placeholder="Ask about selected context..." onKeyDown={(e) => e.key === "Enter" && sendAi()} />
-                    <button className="rounded-[6px] bg-[var(--t0)] px-3 text-[11px] text-[var(--s0)]" onClick={sendAi}>Send</button>
-                  </div>
+                    <div className="flex gap-2">
+                      <input
+                        className="flex-1 rounded-[6px] border border-[var(--b1)] bg-[var(--s1)] px-3 py-2 text-[11px] outline-none"
+                        value={chatInput}
+                        onChange={(e) => setChatInput(e.target.value)}
+                        placeholder="Ask about selected context..."
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            void sendAi();
+                          }
+                        }}
+                        disabled={chatLoading}
+                      />
+                      <button className="rounded-[6px] bg-[var(--t0)] px-3 text-[11px] text-[var(--s0)] disabled:cursor-not-allowed disabled:opacity-60" onClick={() => void sendAi()} disabled={chatLoading}>
+                        {chatLoading ? "Sending..." : "Send"}
+                      </button>
+                    </div>
                 </div>
               </div>
             )}

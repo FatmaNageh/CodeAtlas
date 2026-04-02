@@ -9,13 +9,18 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as IrRouteImport } from './routes/ir'
 import { Route as IndexingRouteImport } from './routes/indexing'
 import { Route as GraphRouteImport } from './routes/graph'
 import { Route as AnalyticsRouteImport } from './routes/analytics'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as OnboardingRouteImport } from './routes/onboarding'
 
+const OnboardingRoute = OnboardingRouteImport.update({
+  id: '/onboarding',
+  path: '/onboarding',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IrRoute = IrRouteImport.update({
   id: '/ir',
   path: '/ir',
@@ -39,11 +44,6 @@ const AnalyticsRoute = AnalyticsRouteImport.update({
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const OnboardingRoute = OnboardingRouteImport.update({
-  id: '/onboarding',
-  path: '/onboarding',
   getParentRoute: () => rootRouteImport,
 } as any)
 
@@ -77,7 +77,14 @@ export interface FileRouteTypes {
   fullPaths: '/' | '/analytics' | '/graph' | '/indexing' | '/ir' | '/onboarding'
   fileRoutesByTo: FileRoutesByTo
   to: '/' | '/analytics' | '/graph' | '/indexing' | '/ir' | '/onboarding'
-  id: '__root__' | '/' | '/analytics' | '/graph' | '/indexing' | '/ir' | '/onboarding'
+  id:
+    | '__root__'
+    | '/'
+    | '/analytics'
+    | '/graph'
+    | '/indexing'
+    | '/ir'
+    | '/onboarding'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -91,6 +98,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/onboarding': {
+      id: '/onboarding'
+      path: '/onboarding'
+      fullPath: '/onboarding'
+      preLoaderRoute: typeof OnboardingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/ir': {
       id: '/ir'
       path: '/ir'
@@ -124,13 +138,6 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/onboarding': {
-      id: '/onboarding'
-      path: '/onboarding'
-      fullPath: '/onboarding'
-      preLoaderRoute: typeof OnboardingRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
