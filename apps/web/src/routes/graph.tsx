@@ -4,6 +4,7 @@ import { ArrowRight, BrainCircuit, Minus, Plus, RefreshCw, Search, Sparkles, Squ
 import { fetchNeo4jSubgraph } from "@/lib/api";
 import { loadSession, saveSession } from "@/lib/session";
 import { toast } from "sonner";
+import { useCompletion } from "@ai-sdk/react";
 import type { Neo4jEdge, Neo4jNode } from "@/components/Neo4jGraph";
 import { ExplorerGraphCanvas, classifyNode, nodeDisplayLabel, type ExplorerNode, type ExplorerNodeKind } from "@/components/explorer-graph-canvas";
 
@@ -202,10 +203,45 @@ function GraphExplorerPage() {
   const [visibleKinds, setVisibleKinds] = useState<Record<ExplorerNodeKind, boolean>>({ folder: true, file: true, class: true, fn: true });
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
-  const [chatLoading, setChatLoading] = useState(false);
   const [embedLoading, setEmbedLoading] = useState(false);
   const [pathFromId, setPathFromId] = useState<string>("");
   const [pathToId, setPathToId] = useState<string>("");
+
+  const { complete, isLoading: chatLoading } = useCompletion({
+    api: `${baseUrl}/graphrag/ask`,
+    streamProtocol: "text",
+    fetch: async (input, init) => {
+      const reqBody = typeof init?.body === "string" ? JSON.parse(init.body) : {};
+      const question = String(reqBody?.question ?? reqBody?.prompt ?? "");
+      const requestRepoId = String(reqBody?.repoId ?? repoId ?? "").trim();
+
+      const response = await fetch(input, {
+        ...init,
+        method: "POST",
+        headers: {
+          ...(init?.headers ?? {}),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ repoId: requestRepoId, question }),
+      });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || data?.ok === false) {
+        throw new Error(data?.error ?? `AI request failed (${response.status})`);
+      }
+
+      const answer = typeof data?.answer === "string" ? data.answer : "";
+      return new Response(answer, {
+        status: 200,
+        headers: {
+          "Content-Type": "text/plain; charset=utf-8",
+        },
+      });
+    },
+    onError: (err) => {
+      toast.error(err.message ?? "Failed to get AI response");
+    },
+  });
 
   useEffect(() => {
     const run = async () => {
@@ -367,31 +403,20 @@ function GraphExplorerPage() {
     }
 
     setTab("ai");
-    const userMessage: ChatMessage = { id: makeMessageId(), role: "user", text };
-    setChatMessages((current) => [...current, userMessage]);
+    setChatMessages((current) => [...current, { id: makeMessageId(), role: "user", text }]);
     setChatInput("");
-    setChatLoading(true);
-
     try {
-      const res = await fetch(`${baseUrl}/graphrag/ask`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repoId: repoId.trim(), question: text }),
-      });
-      const data = await res.json().catch(() => ({}));
-
-      if (!res.ok || data?.ok === false) {
-        throw new Error(data?.error ?? `AI request failed (${res.status})`);
-      }
-
-      const answer = typeof data?.answer === "string" && data.answer.trim() ? data.answer : "No answer returned.";
-      setChatMessages((current) => [...current, { id: makeMessageId(), role: "assistant", text: answer }]);
-    } catch (err: any) {
-      const message = err?.message ?? "Failed to get AI response";
-      toast.error(message);
-      setChatMessages((current) => [...current, { id: makeMessageId(), role: "assistant", text: `Error: ${message}` }]);
-    } finally {
-      setChatLoading(false);
+      const answer = await complete(text, { body: { repoId: repoId.trim(), question: text } } as any);
+      setChatMessages((current) => [
+        ...current,
+        {
+          id: makeMessageId(),
+          role: "assistant",
+          text: typeof answer === "string" && answer.trim() ? answer : "No answer returned.",
+        },
+      ]);
+    } catch {
+      setChatMessages((current) => [...current, { id: makeMessageId(), role: "assistant", text: "Error: failed to get AI response." }]);
     }
   };
 
@@ -718,12 +743,12 @@ function GraphExplorerPage() {
                   Context {selectedNode ? `· ${selectedNode.displayLabel}` : ""}
                 </div>
                  <div className="flex-1 overflow-y-auto p-3">
-                   <div className="space-y-3">
-                     {chatMessages.map((message) => (
-                       <div key={message.id} className={`max-w-[92%] rounded-[8px] px-3 py-2 text-[11px] leading-6 ${message.role === "user" ? "ml-auto bg-[var(--s2)]" : "border border-[var(--teal-b)] bg-[var(--teal-l)]"}`}>
-                         {message.text}
-                       </div>
-                     ))}
+                    <div className="space-y-3">
+                      {chatMessages.map((message) => (
+                        <div key={message.id} className={`max-w-[92%] rounded-[8px] px-3 py-2 text-[11px] leading-6 ${message.role === "user" ? "ml-auto bg-[var(--s2)]" : "border border-[var(--teal-b)] bg-[var(--teal-l)]"}`}>
+                          {message.text}
+                        </div>
+                      ))}
                     </div>
                   </div>
                 <div className="border-t border-[var(--b0)] p-3">
