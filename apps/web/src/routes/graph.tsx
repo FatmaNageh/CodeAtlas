@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, BrainCircuit, FileText, Minus, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw, Search, Sparkles, Square, Upload } from "lucide-react";
 import { fetchNeo4jSubgraph, fetchTour, type TourResponse } from "@/lib/api";
 import { loadSession, saveSession } from "@/lib/session";
@@ -16,13 +16,60 @@ type EdgeCategory = "CONTAINS" | "IMPORTS" | "CALLS";
 type Mode = "select" | "neighbour" | "path" | "insight";
 type RightTab = "detail" | "insights" | "ai";
 type TopView = "explorer" | "tour";
-type ChatRole = "user" | "assistant";
-
-type ChatMessage = {
+type ChatMessageBase = {
   id: string;
-  role: ChatRole;
   text: string;
 };
+
+type UserChatMessage = ChatMessageBase & {
+  role: "user";
+};
+
+type AssistantChatMessage = ChatMessageBase & {
+  role: "assistant";
+  contextFiles?: string[];
+};
+
+type ChatMessage = UserChatMessage | AssistantChatMessage;
+
+type AskSource = {
+  file?: string;
+  symbol?: string;
+  score?: number;
+};
+
+type AskSuccessResponse = {
+  ok: true;
+  answer: string;
+  sources?: AskSource[];
+};
+
+type AskErrorResponse = {
+  ok: false;
+  error?: string;
+};
+
+function isAskSuccessResponse(value: object | null): value is AskSuccessResponse {
+  if (!value || !("ok" in value) || !("answer" in value)) return false;
+  const candidate = value as { ok?: boolean; answer?: string; sources?: AskSource[] };
+  return candidate.ok === true && typeof candidate.answer === "string" && (candidate.sources === undefined || Array.isArray(candidate.sources));
+}
+
+function isAskErrorResponse(value: object | null): value is AskErrorResponse {
+  if (!value || !("ok" in value)) return false;
+  const candidate = value as { ok?: boolean; error?: string };
+  return candidate.ok === false && (candidate.error === undefined || typeof candidate.error === "string");
+}
+
+function extractContextFiles(sources: AskSource[] | undefined): string[] {
+  if (!sources || sources.length === 0) return [];
+  const files = new Set<string>();
+  sources.forEach((source) => {
+    const file = typeof source.file === "string" ? source.file.trim() : "";
+    if (file) files.add(file);
+  });
+  return Array.from(files);
+}
 
 type TreeItem = {
   key: string;
@@ -235,6 +282,7 @@ function GraphExplorerPage() {
   const [tourIndex, setTourIndex] = useState(0);
   const [tourLoading, setTourLoading] = useState(false);
   const [tourError, setTourError] = useState<string>("");
+  const pendingContextFilesRef = useRef<string[]>([]);
 
   const loadTour = async () => {
     if (!repoId.trim()) {
@@ -315,6 +363,7 @@ function GraphExplorerPage() {
     api: `${baseUrl}/graphrag/ask`,
     streamProtocol: "text",
     fetch: async (input, init) => {
+      pendingContextFilesRef.current = [];
       const reqBody = typeof init?.body === "string" ? JSON.parse(init.body) : {};
       const question = String(reqBody?.question ?? reqBody?.prompt ?? "");
       const requestRepoId = String(reqBody?.repoId ?? repoId ?? "").trim();
@@ -328,13 +377,19 @@ function GraphExplorerPage() {
         },
         body: JSON.stringify({ repoId: requestRepoId, question }),
       });
-      const data = await response.json().catch(() => ({}));
+      const data: object | null = await response.json().catch(() => null);
 
-      if (!response.ok || data?.ok === false) {
-        throw new Error(data?.error ?? `AI request failed (${response.status})`);
+      if (!response.ok || isAskErrorResponse(data)) {
+        throw new Error((isAskErrorResponse(data) ? data.error : undefined) ?? `AI request failed (${response.status})`);
       }
 
-      const answer = typeof data?.answer === "string" ? data.answer : "";
+      if (!isAskSuccessResponse(data)) {
+        throw new Error(`AI response format invalid (${response.status})`);
+      }
+
+      const answer = data.answer;
+      pendingContextFilesRef.current = extractContextFiles(data.sources);
+
       return new Response(answer, {
         status: 200,
         headers: {
@@ -608,6 +663,7 @@ function GraphExplorerPage() {
     setTab("ai");
     setChatMessages((current) => [...current, { id: makeMessageId(), role: "user", text }]);
     setChatInput("");
+    pendingContextFilesRef.current = [];
     try {
       const { text: cleanedText, mentionedNodes } = parseMentions(text);
       const body: { repoId: string; question: string; mentionedNodes?: { id: string; name: string; path: string }[] } = {
@@ -621,16 +677,21 @@ function GraphExplorerPage() {
           path: getNodePath(node),
         }));
       }
-      const answer = await complete(text, { body } as any);
+      // const answer = await complete(text, { body } as any);
+      const answer = await complete(text, { body: { repoId: repoId.trim(), question: text } });
+      const contextFiles = pendingContextFilesRef.current;
+      pendingContextFilesRef.current = [];
       setChatMessages((current) => [
         ...current,
         {
           id: makeMessageId(),
           role: "assistant",
           text: typeof answer === "string" && answer.trim() ? answer : "No answer returned.",
+          contextFiles: contextFiles.length > 0 ? contextFiles : undefined,
         },
       ]);
     } catch {
+      pendingContextFilesRef.current = [];
       setChatMessages((current) => [...current, { id: makeMessageId(), role: "assistant", text: "Error: failed to get AI response." }]);
     }
   };
@@ -1131,6 +1192,18 @@ function GraphExplorerPage() {
                       {chatMessages.map((message) => (
                         <div key={message.id} className={`max-w-[92%] rounded-[8px] px-3 py-2 text-[11px] leading-6 ${message.role === "user" ? "ml-auto bg-[var(--s2)]" : "border border-[var(--teal-b)] bg-[var(--teal-l)]"}`}>
                           {message.text}
+                          {message.role === "assistant" && message.contextFiles && message.contextFiles.length > 0 && (
+                            <div className="mt-2 border-t border-[var(--teal-b)] pt-2">
+                              <div className="mb-1 text-[10px] uppercase tracking-[0.06em] text-[var(--t2)]">Context files</div>
+                              <div className="space-y-1">
+                                {message.contextFiles.map((filePath) => (
+                                  <div key={`${message.id}-${filePath}`} className="font-mono text-[10px] leading-4 text-[var(--t1)]">
+                                    {filePath}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
