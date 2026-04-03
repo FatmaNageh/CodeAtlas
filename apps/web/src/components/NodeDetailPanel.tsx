@@ -1,3 +1,4 @@
+import React, { useState, useEffect } from "react";
 import {
   FolderIcon,
   DocumentIcon,
@@ -111,6 +112,37 @@ export const NodeDetailPanel: React.FC<NodeDetailPanelProps> = ({
   node,
   onClose,
 }) => {
+  // Summary generation state
+  const [summary, setSummary] = useState<string>("");
+  const [generating, setGenerating] = useState<boolean>(false);
+
+  const nodePathForSummary = node?.path ?? "";
+
+  const generateSummary = async () => {
+    if (!node) return;
+    setGenerating(true);
+    setSummary("Generating summary...");
+    try {
+      const res = await fetch("/graphrag/summarize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: nodePathForSummary }),
+      });
+      if (!res.ok) {
+        setSummary(`Error: ${res.status} ${res.statusText}`);
+      } else {
+        const data = await res.json();
+        // Expecting { summary: "..." } or fallback to raw data
+        const text = data?.summary ?? (typeof data === "string" ? data : JSON.stringify(data));
+        setSummary(text);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setSummary(`Error: ${msg}`);
+    } finally {
+      setGenerating(false);
+    }
+  };
   const isOpen = node !== null;
 
   const isJsonFile =
@@ -175,6 +207,26 @@ export const NodeDetailPanel: React.FC<NodeDetailPanelProps> = ({
             <p className="text-xs font-mono text-gray-400 break-all">
               {node.path}
             </p>
+
+            {/* Summary section */}
+            <div className="mt-4">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <DocumentIcon className="w-5 h-5" />
+                  <span className="text-lg font-semibold text-gray-100">Summary</span>
+                </div>
+                <button
+                  onClick={generateSummary}
+                  className="px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50"
+                  disabled={generating}
+                >
+                  {generating ? "Generating..." : "Generate"}
+                </button>
+              </div>
+              <div className="p-2 bg-gray-700 rounded text-sm text-gray-200 min-h-[64px]">
+                {summary || "No summary generated yet."}
+              </div>
+            </div>
 
             <hr className="my-4 border-gray-600" />
 
