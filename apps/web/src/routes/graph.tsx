@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, BrainCircuit, Minus, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw, Search, Sparkles, Square, Upload } from "lucide-react";
+import { ArrowLeft, ArrowRight, BrainCircuit, FileText, Minus, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw, Search, Sparkles, Square, Upload } from "lucide-react";
 import { fetchNeo4jSubgraph, fetchTour, type TourResponse } from "@/lib/api";
 import { loadSession, saveSession } from "@/lib/session";
 import { toast } from "sonner";
@@ -498,6 +498,14 @@ function GraphExplorerPage() {
     }
   }, [tourIndex, tourSteps.length]);
 
+  const tourHighlightNodeIds = useMemo(() => {
+    if (!tourData) return [] as string[];
+    const filePaths = new Set(tourData.steps.map((step) => normalizePathForMatch(step.filePath)));
+    return explorerNodes
+      .filter((node) => node.kind === "file" && filePaths.has(normalizePathForMatch(getNodePath(node))))
+      .map((node) => String(node.id));
+  }, [tourData, explorerNodes]);
+
   const activeTourFileNode = useMemo(() => {
     if (!activeTourStep) return null;
     const targetPath = normalizePathForMatch(activeTourStep.filePath);
@@ -749,14 +757,22 @@ function GraphExplorerPage() {
             <div className="absolute bottom-3 left-3 z-10 rounded-[10px] border border-[var(--b1)] bg-[var(--s0)] p-3 text-[11px] text-[var(--t2)]">
               <div className="mb-2 text-[9px] font-medium uppercase tracking-[0.07em] text-[var(--t3)]">Node types</div>
               <div className="space-y-1">
-                {[
-                  ["Folder", "var(--purple)"],
-                  ["File", "var(--blue)"],
-                  ["Class", "var(--amber)"],
-                  ["Function", "var(--green)"],
-                ].map(([label, color]) => (
-                  <div key={label} className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ background: color as string }} />{label}</div>
-                ))}
+                {topView === "tour" ? (
+                  <>
+                    <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ background: "var(--purple)" }} />Folder</div>
+                    <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ background: "var(--blue)" }} />File</div>
+                    <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ background: "#ef4444" }} />Tour File</div>
+                  </>
+                ) : (
+                  [
+                    ["Folder", "var(--purple)"],
+                    ["File", "var(--blue)"],
+                    ["Class", "var(--amber)"],
+                    ["Function", "var(--green)"],
+                  ].map(([label, color]) => (
+                    <div key={label} className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ background: color as string }} />{label}</div>
+                  ))
+                )}
               </div>
             </div>
 
@@ -781,8 +797,12 @@ function GraphExplorerPage() {
               </div>
             ) : (
               <ExplorerGraphCanvas
-                nodes={filteredNodes}
-                edges={filteredEdges}
+                nodes={topView === "tour" ? filteredNodes.filter((n) => n.kind === "file" || n.kind === "folder") : filteredNodes}
+                edges={topView === "tour" ? filteredEdges.filter((e) => {
+                  const fromNode = filteredNodes.find((n) => String(n.id) === String(e.from));
+                  const toNode = filteredNodes.find((n) => String(n.id) === String(e.to));
+                  return (fromNode?.kind === "file" || fromNode?.kind === "folder") && (toNode?.kind === "file" || toNode?.kind === "folder");
+                }) : filteredEdges}
                 selectedNodeId={selectedNode ? String(selectedNode.id) : null}
                 onNodeClick={(node) => {
                   setSelectedNodeId(String(node.id));
@@ -791,6 +811,7 @@ function GraphExplorerPage() {
                 mode={mode}
                 pathNodeIds={currentPath}
                 highlightNodeIds={highlightNodeIds}
+                tourHighlightNodeIds={topView === "tour" ? tourHighlightNodeIds : undefined}
               />
             )}
           </div>
@@ -798,81 +819,121 @@ function GraphExplorerPage() {
           <aside className="flex flex-col overflow-hidden border-l border-[var(--b1)] bg-[var(--s0)]">
             {topView === "tour" ? (
               <div className="flex flex-1 flex-col overflow-hidden">
-                <div className="flex items-center justify-between border-b border-[var(--b1)] px-4 py-3">
-                  <div className="text-[11px] font-medium uppercase tracking-[0.07em] text-[var(--t2)]">Tour</div>
-                  <button
-                    className="rounded-[6px] border border-[var(--b1)] px-2 py-1 text-[10px] text-[var(--t1)] hover:bg-[var(--s1)]"
-                    onClick={() => void loadTour()}
-                    disabled={tourLoading}
-                  >
-                    {tourLoading ? "Loading..." : "Refresh"}
-                  </button>
-                </div>
+                {tourData && tourSteps.length > 0 && !tourLoading ? (
+                  <>
+                    <div className="flex items-center justify-between border-b border-[var(--b1)] px-4 py-3">
+                      <div className="text-[11px] font-medium uppercase tracking-[0.07em] text-[var(--t2)]">Tour</div>
+                      <button
+                        className="rounded-[6px] border border-[var(--b1)] px-2 py-1 text-[10px] text-[var(--t1)] hover:bg-[var(--s1)]"
+                        onClick={() => {
+                          setTourData(null);
+                          setTourIndex(0);
+                        }}
+                      >
+                        Back
+                      </button>
+                    </div>
 
-                <div className="flex-1 overflow-y-auto p-4 text-[11px]">
-                  {tourError ? (
-                    <div className="rounded-[8px] border border-red-500/30 bg-red-500/10 p-3 text-red-200">{tourError}</div>
-                  ) : tourLoading ? (
-                    <div className="text-[var(--t2)]">Loading tour...</div>
-                  ) : activeTourStep ? (
-                    <>
-                      <div className="rounded-[10px] bg-[var(--s1)] p-3">
-                        <div className="mb-2 text-[10px] uppercase tracking-[0.07em] text-[var(--t3)]">
-                          Step {activeTourStep.rank} of {tourSteps.length}
-                        </div>
-                        <div className="font-mono text-[12px] text-[var(--t0)]">{activeTourStep.filePath}</div>
-                        <div className="mt-2 text-[10px] text-[var(--t2)]">
-                          Score {activeTourStep.score.toFixed(2)} · Degree {activeTourStep.metrics.totalDegree} · Depth {activeTourStep.metrics.depth}
-                        </div>
-                      </div>
+                    <div className="flex-1 overflow-y-auto p-4 text-[11px]">
+                      {tourError ? (
+                        <div className="rounded-[8px] border border-red-500/30 bg-red-500/10 p-3 text-red-200">{tourError}</div>
+                      ) : activeTourStep ? (
+                        <>
+                          <div className="rounded-[10px] bg-[var(--s1)] p-3">
+                            <div className="mb-2 text-[10px] uppercase tracking-[0.07em] text-[var(--t3)]">
+                              Step {activeTourStep.rank} of {tourSteps.length}
+                            </div>
+                            <div className="font-mono text-[12px] text-[var(--t0)]">{activeTourStep.filePath}</div>
+                            <div className="mt-2 flex gap-4 text-[10px] text-[var(--t2)]">
+                              <span>Score: {activeTourStep.score.toFixed(2)}</span>
+                              <span>Degree: {activeTourStep.metrics.totalDegree}</span>
+                              <span>Depth: {activeTourStep.metrics.depth}</span>
+                            </div>
+                          </div>
 
-                      <div className="mt-3 flex gap-2">
-                        <button
-                          className="flex-1 rounded-[6px] border border-[var(--b1)] px-3 py-2 text-[11px] text-[var(--t1)] hover:bg-[var(--s1)] disabled:cursor-not-allowed disabled:opacity-50"
-                          onClick={() => setTourIndex((current) => Math.max(0, current - 1))}
-                          disabled={tourIndex <= 0}
-                        >
-                          Previous
-                        </button>
-                        <button
-                          className="flex-1 rounded-[6px] border border-[var(--b1)] px-3 py-2 text-[11px] text-[var(--t1)] hover:bg-[var(--s1)] disabled:cursor-not-allowed disabled:opacity-50"
-                          onClick={() => setTourIndex((current) => Math.min(tourSteps.length - 1, current + 1))}
-                          disabled={tourIndex >= tourSteps.length - 1}
-                        >
-                          Next
-                        </button>
-                      </div>
-
-                      <div className="mt-4">
-                        <div className="mb-2 text-[10px] font-medium uppercase tracking-[0.07em] text-[var(--t3)]">Summary</div>
-                        <div className="rounded-[8px] bg-[var(--s1)] p-3 text-[11px] leading-5 whitespace-pre-wrap text-[var(--t1)]">
-                          {activeTourStep.summary}
-                        </div>
-                      </div>
-
-                      <div className="mt-4">
-                        <div className="mb-2 text-[10px] font-medium uppercase tracking-[0.07em] text-[var(--t3)]">All steps</div>
-                        <div className="space-y-2">
-                          {tourSteps.map((step, index) => (
+                          <div className="mt-3 flex items-center gap-2">
                             <button
-                              key={step.filePath}
-                              onClick={() => setTourIndex(index)}
-                              className={`w-full rounded-[6px] border px-3 py-2 text-left ${index === tourIndex ? "border-[var(--blue)] bg-[var(--blue-l)]" : "border-[var(--b1)] bg-[var(--s1)] hover:bg-[var(--s2)]"}`}
+                              className="flex h-8 w-8 items-center justify-center rounded-[6px] border border-[var(--b1)] text-[var(--t1)] hover:bg-[var(--s1)] disabled:cursor-not-allowed disabled:opacity-50"
+                              onClick={() => setTourIndex((current) => Math.max(0, current - 1))}
+                              disabled={tourIndex <= 0}
                             >
-                              <div className="mb-1 flex items-center justify-between gap-3">
-                                <span className="text-[10px] text-[var(--t2)]">#{step.rank}</span>
-                                <span className="font-mono text-[10px] text-[var(--t2)]">score {step.score.toFixed(2)}</span>
-                              </div>
-                              <div className="truncate font-mono text-[11px] text-[var(--t0)]">{step.filePath}</div>
+                              <ArrowLeft className="h-4 w-4" />
                             </button>
-                          ))}
-                        </div>
+                            <div className="flex-1 text-center text-[10px] text-[var(--t3)]">
+                              {tourIndex + 1} / {tourSteps.length}
+                            </div>
+                            <button
+                              className="flex h-8 w-8 items-center justify-center rounded-[6px] border border-[var(--b1)] text-[var(--t1)] hover:bg-[var(--s1)] disabled:cursor-not-allowed disabled:opacity-50"
+                              onClick={() => setTourIndex((current) => Math.min(tourSteps.length - 1, current + 1))}
+                              disabled={tourIndex >= tourSteps.length - 1}
+                            >
+                              <ArrowRight className="h-4 w-4" />
+                            </button>
+                          </div>
+
+                          <div className="mt-4">
+                            <div className="mb-2 text-[10px] font-medium uppercase tracking-[0.07em] text-[var(--t3)]">Summary</div>
+                            <div className="rounded-[8px] bg-[var(--s1)] p-3 text-[11px] leading-5 whitespace-pre-wrap text-[var(--t1)]">
+                              {activeTourStep.summary}
+                            </div>
+                          </div>
+
+                          <div className="mt-4">
+                            <div className="mb-2 text-[10px] font-medium uppercase tracking-[0.07em] text-[var(--t3)]">All steps</div>
+                            <div className="space-y-2">
+                              {tourSteps.map((step, index) => (
+                                <button
+                                  key={step.filePath}
+                                  onClick={() => setTourIndex(index)}
+                                  className={`w-full rounded-[6px] border px-3 py-2 text-left ${index === tourIndex ? "border-[var(--blue)] bg-[var(--blue-l)]" : "border-[var(--b1)] bg-[var(--s1)] hover:bg-[var(--s2)]"}`}
+                                >
+                                  <div className="mb-1 flex items-center justify-between gap-3">
+                                    <span className="text-[10px] text-[var(--t2)]">#{step.rank}</span>
+                                    <span className="font-mono text-[10px] text-[var(--t2)]">score {step.score.toFixed(2)}</span>
+                                  </div>
+                                  <div className="truncate font-mono text-[11px] text-[var(--t0)]">{step.filePath}</div>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="text-[var(--t2)]">No tour steps yet.</div>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6">
+                    <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[var(--blue-l)]">
+                      <FileText className="h-8 w-8 text-[var(--blue)]" />
+                    </div>
+                    <button
+                      className="inline-flex h-10 items-center gap-2 rounded-[8px] bg-[var(--t0)] px-6 text-[13px] font-medium text-[var(--s0)] hover:bg-[var(--t0)]/90 disabled:cursor-not-allowed disabled:opacity-50"
+                      onClick={() => void loadTour()}
+                      disabled={tourLoading}
+                    >
+                      {tourLoading ? (
+                        <>
+                          <RefreshCw className="h-4 w-4 animate-spin" />
+                          Generating Tour...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="h-4 w-4" />
+                          Generate Tour
+                        </>
+                      )}
+                    </button>
+                    <p className="max-w-[240px] text-center text-[11px] leading-5 text-[var(--t2)]">
+                      Feature: The CodeAtlas tour feature gives you info for the top 12 important files
+                    </p>
+                    {tourError && (
+                      <div className="mt-2 rounded-[8px] border border-red-500/30 bg-red-500/10 p-3 text-[10px] text-red-200">
+                        {tourError}
                       </div>
-                    </>
-                  ) : (
-                    <div className="text-[var(--t2)]">No tour steps yet.</div>
-                  )}
-                </div>
+                    )}
+                  </div>
+                )}
               </div>
             ) : (
             <>
