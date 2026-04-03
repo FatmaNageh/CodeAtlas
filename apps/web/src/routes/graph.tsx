@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, BrainCircuit, Minus, Plus, RefreshCw, Search, Sparkles, Square, Upload } from "lucide-react";
-import { fetchNeo4jSubgraph } from "@/lib/api";
+import { ArrowLeft, ArrowRight, BrainCircuit, FileText, Minus, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw, Search, Sparkles, Square, Upload } from "lucide-react";
+import { fetchNeo4jSubgraph, fetchTour, type TourResponse } from "@/lib/api";
 import { loadSession, saveSession } from "@/lib/session";
 import { toast } from "sonner";
 import { useCompletion } from "@ai-sdk/react";
@@ -15,6 +15,7 @@ export const Route = createFileRoute("/graph")({
 type EdgeCategory = "CONTAINS" | "IMPORTS" | "CALLS";
 type Mode = "select" | "neighbour" | "path" | "insight";
 type RightTab = "detail" | "insights" | "ai";
+type TopView = "explorer" | "tour";
 type ChatRole = "user" | "assistant";
 
 type ChatMessage = {
@@ -40,6 +41,10 @@ function normalizeEdgeType(type: string): EdgeCategory {
 function getNodePath(node: Neo4jNode): string {
   const props = node.properties ?? {};
   return String(props.path ?? props.filePath ?? props.relativePath ?? props.relPath ?? props.name ?? node.id);
+}
+
+function normalizePathForMatch(filePath: string): string {
+  return filePath.replace(/\\/g, "/").replace(/^\.\//, "").replace(/^\/+/, "");
 }
 
 function findParentFile(node: Neo4jNode, edges: Neo4jEdge[], allNodes: Neo4jNode[]): Neo4jNode | null {
@@ -209,6 +214,7 @@ function GraphExplorerPage() {
   const [repoRoot] = useState(session.lastProjectPath ?? "");
   const [graph, setGraph] = useState<{ nodes: Neo4jNode[]; edges: Neo4jEdge[] }>({ nodes: [], edges: [] });
   const [loading, setLoading] = useState(false);
+  const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(true);
   const [mode, setMode] = useState<Mode>("select");
   const [tab, setTab] = useState<RightTab>("detail");
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -222,6 +228,31 @@ function GraphExplorerPage() {
   const [pathToId, setPathToId] = useState<string>("");
   const [summaryText, setSummaryText] = useState<string>("");
   const [summarizing, setSummarizing] = useState(false);
+  const [topView, setTopView] = useState<TopView>("explorer");
+  const [tourData, setTourData] = useState<TourResponse | null>(null);
+  const [tourIndex, setTourIndex] = useState(0);
+  const [tourLoading, setTourLoading] = useState(false);
+  const [tourError, setTourError] = useState<string>("");
+
+  const loadTour = async () => {
+    if (!repoId.trim()) {
+      setTourError("No repository loaded. Index a repo first.");
+      return;
+    }
+    setTourLoading(true);
+    setTourError("");
+    try {
+      const data = await fetchTour(repoId.trim(), baseUrl, 12);
+      setTourData(data);
+      setTourIndex(0);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setTourError(message);
+      setTourData(null);
+    } finally {
+      setTourLoading(false);
+    }
+  };
 
   const handleSummarize = async () => {
     if (!selectedNode) return;
@@ -270,6 +301,13 @@ function GraphExplorerPage() {
   useEffect(() => {
     setSummaryText("");
   }, [selectedNodeId]);
+
+  useEffect(() => {
+    if (topView !== "tour") return;
+    if (search) setSearch("");
+    setVisibleKinds((current) => (current.file ? current : { ...current, file: true }));
+    void loadTour();
+  }, [topView, repoId, baseUrl]);
 
   const { complete, isLoading: chatLoading } = useCompletion({
     api: `${baseUrl}/graphrag/ask`,
@@ -392,6 +430,9 @@ function GraphExplorerPage() {
   }, [mode, pathFromId, pathToId, visibleNodeIds, filteredEdges]);
 
   const highlightNodeIds = useMemo(() => {
+    if (topView === "tour") {
+      return selectedNode ? [String(selectedNode.id)] : [] as string[];
+    }
     if (!selectedNode) return [] as string[];
     if (mode === "neighbour") {
       const ids = new Set<string>([String(selectedNode.id)]);
@@ -409,7 +450,7 @@ function GraphExplorerPage() {
         .map((item) => String(item.node.id));
     }
     return selectedNode ? [String(selectedNode.id)] : [];
-  }, [selectedNode, mode, filteredEdges, filteredNodes, degreeMap]);
+  }, [selectedNode, mode, filteredEdges, filteredNodes, degreeMap, topView]);
 
   const hotspotNodes = useMemo(() => {
     return filteredNodes
@@ -443,6 +484,45 @@ function GraphExplorerPage() {
     if (!repoId) return "No repository loaded";
     return repoId;
   }, [repoId]);
+
+  const tourSteps = tourData?.steps ?? [];
+  const activeTourStep = tourSteps[tourIndex] ?? null;
+
+  useEffect(() => {
+    if (tourSteps.length === 0) {
+      if (tourIndex !== 0) setTourIndex(0);
+      return;
+    }
+    if (tourIndex >= tourSteps.length) {
+      setTourIndex(tourSteps.length - 1);
+    }
+  }, [tourIndex, tourSteps.length]);
+
+  const tourHighlightNodeIds = useMemo(() => {
+    if (!tourData) return [] as string[];
+    const filePaths = new Set(tourData.steps.map((step) => normalizePathForMatch(step.filePath)));
+    return explorerNodes
+      .filter((node) => node.kind === "file" && filePaths.has(normalizePathForMatch(getNodePath(node))))
+      .map((node) => String(node.id));
+  }, [tourData, explorerNodes]);
+
+  const activeTourFileNode = useMemo(() => {
+    if (!activeTourStep) return null;
+    const targetPath = normalizePathForMatch(activeTourStep.filePath);
+    return (
+      explorerNodes.find(
+        (node) =>
+          node.kind === "file" &&
+          normalizePathForMatch(getNodePath(node)) === targetPath,
+      ) ?? null
+    );
+  }, [activeTourStep, explorerNodes]);
+
+  useEffect(() => {
+    if (topView !== "tour") return;
+    if (!activeTourFileNode) return;
+    setSelectedNodeId(String(activeTourFileNode.id));
+  }, [topView, activeTourFileNode]);
 
   const layoutOptions: Array<{ label: string; icon: any }> = [
     { label: "Force layout", icon: Sparkles },
@@ -517,9 +597,22 @@ function GraphExplorerPage() {
     <section className="min-h-[calc(100vh-50px)] bg-[var(--bg)]">
       <div className="flex h-[calc(100vh-50px)] flex-col overflow-hidden">
         <div className="flex h-12 items-center border-b border-[var(--b1)] bg-[var(--s0)] px-5 text-[13px]">
+          <button className="mr-4 text-[var(--t2)] hover:text-[var(--t0)]" onClick={() => setIsLeftSidebarOpen(!isLeftSidebarOpen)}>
+            {isLeftSidebarOpen ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
+          </button>
           <div className="flex items-center gap-8">
-            <span className="border-b-2 border-[var(--t0)] pb-[14px] pt-4 font-medium text-[var(--t0)]">Explorer</span>
-            <span className="text-[var(--t2)]">Summary</span>
+            <button
+              className={topView === "explorer" ? "border-b-2 border-[var(--t0)] pb-[14px] pt-4 font-medium text-[var(--t0)]" : "pb-[14px] pt-4 text-[var(--t2)] hover:text-[var(--t0)]"}
+              onClick={() => setTopView("explorer")}
+            >
+              Explorer
+            </button>
+            <button
+              className={topView === "tour" ? "border-b-2 border-[var(--t0)] pb-[14px] pt-4 font-medium text-[var(--t0)]" : "pb-[14px] pt-4 text-[var(--t2)] hover:text-[var(--t0)]"}
+              onClick={() => setTopView("tour")}
+            >
+              Tour
+            </button>
             <span className="font-mono text-[11px] text-[var(--t2)]">{repoName}</span>
           </div>
           <div className="ml-auto flex items-center gap-3">
@@ -535,7 +628,7 @@ function GraphExplorerPage() {
           </div>
         </div>
 
-        <div className="grid flex-1 overflow-hidden" style={{ gridTemplateColumns: "300px 1fr 360px" }}>
+        <div className="grid flex-1 overflow-hidden" style={{ gridTemplateColumns: isLeftSidebarOpen ? "300px 1fr 360px" : "0px 1fr 360px" }}>
           <aside className="flex flex-col overflow-hidden border-r border-[var(--b1)] bg-[var(--s0)]">
             <div className="border-b border-[var(--b0)] p-2.5">
               <div className="relative">
@@ -628,8 +721,15 @@ function GraphExplorerPage() {
             </div>
 
             <div className="absolute left-3 top-3 z-10 rounded-[10px] border border-[var(--b1)] bg-[var(--s0)] p-3 text-[11px] text-[var(--t2)]">
-              <div className="mb-2 text-[9px] font-medium uppercase tracking-[0.07em] text-[var(--t3)]">{mode === "insight" ? "Insight mode" : mode === "path" ? "Path trace" : "Graph state"}</div>
-              {mode === "path" ? (
+              <div className="mb-2 text-[9px] font-medium uppercase tracking-[0.07em] text-[var(--t3)]">
+                {topView === "tour" ? "Tour state" : mode === "insight" ? "Insight mode" : mode === "path" ? "Path trace" : "Graph state"}
+              </div>
+              {topView === "tour" ? (
+                <div className="space-y-1">
+                  <div>{tourLoading ? "Loading tour..." : `Tour steps: ${tourSteps.length}`}</div>
+                  <div>Current: {activeTourStep ? `${activeTourStep.rank}/${tourSteps.length}` : "—"}</div>
+                </div>
+              ) : mode === "path" ? (
                 <div className="min-w-[220px] space-y-2">
                   <select className="w-full rounded-[6px] border border-[var(--b1)] bg-[var(--s1)] px-2 py-1.5 font-mono text-[11px]" value={pathFromId} onChange={(e) => setPathFromId(e.target.value)}>
                     {pathCandidates.map((node) => <option key={node.id} value={String(node.id)}>{node.displayLabel}</option>)}
@@ -657,14 +757,22 @@ function GraphExplorerPage() {
             <div className="absolute bottom-3 left-3 z-10 rounded-[10px] border border-[var(--b1)] bg-[var(--s0)] p-3 text-[11px] text-[var(--t2)]">
               <div className="mb-2 text-[9px] font-medium uppercase tracking-[0.07em] text-[var(--t3)]">Node types</div>
               <div className="space-y-1">
-                {[
-                  ["Folder", "var(--purple)"],
-                  ["File", "var(--blue)"],
-                  ["Class", "var(--amber)"],
-                  ["Function", "var(--green)"],
-                ].map(([label, color]) => (
-                  <div key={label} className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ background: color as string }} />{label}</div>
-                ))}
+                {topView === "tour" ? (
+                  <>
+                    <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ background: "var(--purple)" }} />Folder</div>
+                    <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ background: "var(--blue)" }} />File</div>
+                    <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ background: "#ef4444" }} />Tour File</div>
+                  </>
+                ) : (
+                  [
+                    ["Folder", "var(--purple)"],
+                    ["File", "var(--blue)"],
+                    ["Class", "var(--amber)"],
+                    ["Function", "var(--green)"],
+                  ].map(([label, color]) => (
+                    <div key={label} className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ background: color as string }} />{label}</div>
+                  ))
+                )}
               </div>
             </div>
 
@@ -678,7 +786,7 @@ function GraphExplorerPage() {
               <div className="flex justify-between gap-6"><span>Nodes visible</span><span className="font-mono text-[var(--t0)]">{filteredNodes.length}</span></div>
               <div className="flex justify-between gap-6"><span>Edges visible</span><span className="font-mono text-[var(--t0)]">{filteredEdges.length}</span></div>
               <div className="flex justify-between gap-6"><span>Selected</span><span className="font-mono text-[var(--t0)]">{selectedNode ? selectedNode.displayLabel : "—"}</span></div>
-              <div className="flex justify-between gap-6"><span>Mode</span><span className="font-mono text-[var(--t0)]">{mode}</span></div>
+              <div className="flex justify-between gap-6"><span>Mode</span><span className="font-mono text-[var(--t0)]">{topView === "tour" ? "tour" : mode}</span></div>
             </div>
 
             {loading ? (
@@ -689,8 +797,12 @@ function GraphExplorerPage() {
               </div>
             ) : (
               <ExplorerGraphCanvas
-                nodes={filteredNodes}
-                edges={filteredEdges}
+                nodes={topView === "tour" ? filteredNodes.filter((n) => n.kind === "file" || n.kind === "folder") : filteredNodes}
+                edges={topView === "tour" ? filteredEdges.filter((e) => {
+                  const fromNode = filteredNodes.find((n) => String(n.id) === String(e.from));
+                  const toNode = filteredNodes.find((n) => String(n.id) === String(e.to));
+                  return (fromNode?.kind === "file" || fromNode?.kind === "folder") && (toNode?.kind === "file" || toNode?.kind === "folder");
+                }) : filteredEdges}
                 selectedNodeId={selectedNode ? String(selectedNode.id) : null}
                 onNodeClick={(node) => {
                   setSelectedNodeId(String(node.id));
@@ -699,11 +811,132 @@ function GraphExplorerPage() {
                 mode={mode}
                 pathNodeIds={currentPath}
                 highlightNodeIds={highlightNodeIds}
+                tourHighlightNodeIds={topView === "tour" ? tourHighlightNodeIds : undefined}
               />
             )}
           </div>
 
           <aside className="flex flex-col overflow-hidden border-l border-[var(--b1)] bg-[var(--s0)]">
+            {topView === "tour" ? (
+              <div className="flex flex-1 flex-col overflow-hidden">
+                {tourData && tourSteps.length > 0 && !tourLoading ? (
+                  <>
+                    <div className="flex items-center justify-between border-b border-[var(--b1)] px-4 py-3">
+                      <div className="text-[11px] font-medium uppercase tracking-[0.07em] text-[var(--t2)]">Tour</div>
+                      <button
+                        className="rounded-[6px] border border-[var(--b1)] px-2 py-1 text-[10px] text-[var(--t1)] hover:bg-[var(--s1)]"
+                        onClick={() => {
+                          setTourData(null);
+                          setTourIndex(0);
+                        }}
+                      >
+                        Back
+                      </button>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto p-4 text-[11px]">
+                      {tourError ? (
+                        <div className="rounded-[8px] border border-red-500/30 bg-red-500/10 p-3 text-red-200">{tourError}</div>
+                      ) : activeTourStep ? (
+                        <>
+                          <div className="rounded-[10px] bg-[var(--s1)] p-3">
+                            <div className="mb-2 text-[10px] uppercase tracking-[0.07em] text-[var(--t3)]">
+                              Step {activeTourStep.rank} of {tourSteps.length}
+                            </div>
+                            <div className="font-mono text-[12px] text-[var(--t0)]">{activeTourStep.filePath}</div>
+                            <div className="mt-2 flex gap-4 text-[10px] text-[var(--t2)]">
+                              <span>Score: {activeTourStep.score.toFixed(2)}</span>
+                              <span>Degree: {activeTourStep.metrics.totalDegree}</span>
+                              <span>Depth: {activeTourStep.metrics.depth}</span>
+                            </div>
+                          </div>
+
+                          <div className="mt-3 flex items-center gap-2">
+                            <button
+                              className="flex h-8 w-8 items-center justify-center rounded-[6px] border border-[var(--b1)] text-[var(--t1)] hover:bg-[var(--s1)] disabled:cursor-not-allowed disabled:opacity-50"
+                              onClick={() => setTourIndex((current) => Math.max(0, current - 1))}
+                              disabled={tourIndex <= 0}
+                            >
+                              <ArrowLeft className="h-4 w-4" />
+                            </button>
+                            <div className="flex-1 text-center text-[10px] text-[var(--t3)]">
+                              {tourIndex + 1} / {tourSteps.length}
+                            </div>
+                            <button
+                              className="flex h-8 w-8 items-center justify-center rounded-[6px] border border-[var(--b1)] text-[var(--t1)] hover:bg-[var(--s1)] disabled:cursor-not-allowed disabled:opacity-50"
+                              onClick={() => setTourIndex((current) => Math.min(tourSteps.length - 1, current + 1))}
+                              disabled={tourIndex >= tourSteps.length - 1}
+                            >
+                              <ArrowRight className="h-4 w-4" />
+                            </button>
+                          </div>
+
+                          <div className="mt-4">
+                            <div className="mb-2 text-[10px] font-medium uppercase tracking-[0.07em] text-[var(--t3)]">Summary</div>
+                            <div className="rounded-[8px] bg-[var(--s1)] p-3 text-[11px] leading-5 whitespace-pre-wrap text-[var(--t1)]">
+                              {activeTourStep.summary}
+                            </div>
+                          </div>
+
+                          <div className="mt-4">
+                            <div className="mb-2 text-[10px] font-medium uppercase tracking-[0.07em] text-[var(--t3)]">All steps</div>
+                            <div className="space-y-2">
+                              {tourSteps.map((step, index) => (
+                                <button
+                                  key={step.filePath}
+                                  onClick={() => setTourIndex(index)}
+                                  className={`w-full rounded-[6px] border px-3 py-2 text-left ${index === tourIndex ? "border-[var(--blue)] bg-[var(--blue-l)]" : "border-[var(--b1)] bg-[var(--s1)] hover:bg-[var(--s2)]"}`}
+                                >
+                                  <div className="mb-1 flex items-center justify-between gap-3">
+                                    <span className="text-[10px] text-[var(--t2)]">#{step.rank}</span>
+                                    <span className="font-mono text-[10px] text-[var(--t2)]">score {step.score.toFixed(2)}</span>
+                                  </div>
+                                  <div className="truncate font-mono text-[11px] text-[var(--t0)]">{step.filePath}</div>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="text-[var(--t2)]">No tour steps yet.</div>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6">
+                    <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[var(--blue-l)]">
+                      <FileText className="h-8 w-8 text-[var(--blue)]" />
+                    </div>
+                    <button
+                      className="inline-flex h-10 items-center gap-2 rounded-[8px] bg-[var(--t0)] px-6 text-[13px] font-medium text-[var(--s0)] hover:bg-[var(--t0)]/90 disabled:cursor-not-allowed disabled:opacity-50"
+                      onClick={() => void loadTour()}
+                      disabled={tourLoading}
+                    >
+                      {tourLoading ? (
+                        <>
+                          <RefreshCw className="h-4 w-4 animate-spin" />
+                          Generating Tour...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="h-4 w-4" />
+                          Generate Tour
+                        </>
+                      )}
+                    </button>
+                    <p className="max-w-[240px] text-center text-[11px] leading-5 text-[var(--t2)]">
+                      Feature: The CodeAtlas tour feature gives you info for the top 12 important files
+                    </p>
+                    {tourError && (
+                      <div className="mt-2 rounded-[8px] border border-red-500/30 bg-red-500/10 p-3 text-[10px] text-red-200">
+                        {tourError}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : (
+            <>
             <div className="flex border-b border-[var(--b1)] text-[12px]">
               {(["detail", "insights", "ai"] as RightTab[]).map((item) => (
                 <button key={item} className={`flex-1 px-4 py-3 capitalize ${tab === item ? "border-b-2 border-[var(--t0)] text-[var(--t0)]" : "text-[var(--t2)] hover:text-[var(--t0)]"}`} onClick={() => setTab(item)}>
@@ -861,6 +1094,8 @@ function GraphExplorerPage() {
                     </div>
                 </div>
               </div>
+            )}
+            </>
             )}
           </aside>
         </div>

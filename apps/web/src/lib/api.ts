@@ -1,5 +1,31 @@
 export type IndexMode = "full" | "incremental";
 
+export type TourMode = "graph";
+
+export type TourStep = {
+  rank: number;
+  filePath: string;
+  score: number;
+  scoreBreakdown: {
+    graphScore: number;
+  };
+  metrics: {
+    inDegree: number;
+    outDegree: number;
+    totalDegree: number;
+    depth: number;
+  };
+  summary: string;
+};
+
+export type TourResponse = {
+  ok: true;
+  repoId: string;
+  mode: TourMode;
+  generatedAt: string;
+  steps: TourStep[];
+};
+
 export type IndexRepoRequest = {
   projectPath: string;
   mode: IndexMode;
@@ -49,4 +75,18 @@ export async function fetchNeo4jSubgraph(repoId: string, baseUrl = "", limit = 5
     throw new Error(`Fetch subgraph failed: ${res.status} ${res.statusText}${text ? `\n${text}` : ""}`);
   }
   return res.json();
+}
+
+export async function fetchTour(repoId: string, baseUrl = "", limit = 12): Promise<TourResponse> {
+  const safeLimit = Math.max(0, Math.floor(Number(limit) || 0)) || 12;
+  const res = await fetch(
+    `${baseUrl}/graphrag/tour?repoId=${encodeURIComponent(repoId)}&limit=${encodeURIComponent(String(safeLimit))}`,
+  );
+  const data = (await res.json().catch(() => ({}))) as Partial<TourResponse> & { error?: string; ok?: boolean };
+
+  if (!res.ok || data.ok !== true) {
+    throw new Error(data.error ?? `Fetch tour failed: ${res.status} ${res.statusText}`);
+  }
+
+  return data as TourResponse;
 }
