@@ -53,3 +53,6 @@ lerna-debug.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+#testing
+/src/__tests__/fixtures
