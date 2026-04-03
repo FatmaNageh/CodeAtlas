@@ -11,6 +11,7 @@ import { runCypher } from '../db/cypher';
 import fs from 'fs/promises';
 import { repoRoots } from '../state/repoRoots';
 import { embedDimensions } from '@/config/openrouter';
+import { buildGraphTour } from '@/tour/buildGraphTour';
 
 export const graphragRoute = new Hono();
 
@@ -105,6 +106,25 @@ graphragRoute.post('/summarize', async (c) => {
     
     const { results, errors } = await generateBatchSummaries(files, repoId);
     return c.json({ ok: true, results, errors });
+  } catch (err) {
+    return c.json({ ok: false, error: String(err) }, 500);
+  }
+});
+
+// GET /graphrag/tour - Graph-only ranked onboarding tour
+graphragRoute.get('/tour', async (c) => {
+  const repoId = c.req.query('repoId')?.trim();
+  const limitRaw = c.req.query('limit');
+  const parsedLimit = limitRaw == null ? undefined : Number.parseInt(limitRaw, 10);
+  const requestedLimit = Number.isFinite(parsedLimit) ? parsedLimit : undefined;
+
+  if (!repoId) {
+    return c.json({ ok: false, error: 'Missing repoId' }, 400);
+  }
+
+  try {
+    const result = await buildGraphTour(repoId, requestedLimit);
+    return c.json(result);
   } catch (err) {
     return c.json({ ok: false, error: String(err) }, 500);
   }
