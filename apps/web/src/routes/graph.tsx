@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, BrainCircuit, FileText, Minus, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw, Search, Sparkles, Square, Upload } from "lucide-react";
 import { fetchNeo4jSubgraph, fetchTour, type TourResponse } from "@/lib/api";
 import { loadSession, saveSession } from "@/lib/session";
@@ -16,13 +16,60 @@ type EdgeCategory = "CONTAINS" | "IMPORTS" | "CALLS";
 type Mode = "select" | "neighbour" | "path" | "insight";
 type RightTab = "detail" | "insights" | "ai";
 type TopView = "explorer" | "tour";
-type ChatRole = "user" | "assistant";
-
-type ChatMessage = {
+type ChatMessageBase = {
   id: string;
-  role: ChatRole;
   text: string;
 };
+
+type UserChatMessage = ChatMessageBase & {
+  role: "user";
+};
+
+type AssistantChatMessage = ChatMessageBase & {
+  role: "assistant";
+  contextFiles?: string[];
+};
+
+type ChatMessage = UserChatMessage | AssistantChatMessage;
+
+type AskSource = {
+  file?: string;
+  symbol?: string;
+  score?: number;
+};
+
+type AskSuccessResponse = {
+  ok: true;
+  answer: string;
+  sources?: AskSource[];
+};
+
+type AskErrorResponse = {
+  ok: false;
+  error?: string;
+};
+
+function isAskSuccessResponse(value: object | null): value is AskSuccessResponse {
+  if (!value || !("ok" in value) || !("answer" in value)) return false;
+  const candidate = value as { ok?: boolean; answer?: string; sources?: AskSource[] };
+  return candidate.ok === true && typeof candidate.answer === "string" && (candidate.sources === undefined || Array.isArray(candidate.sources));
+}
+
+function isAskErrorResponse(value: object | null): value is AskErrorResponse {
+  if (!value || !("ok" in value)) return false;
+  const candidate = value as { ok?: boolean; error?: string };
+  return candidate.ok === false && (candidate.error === undefined || typeof candidate.error === "string");
+}
+
+function extractContextFiles(sources: AskSource[] | undefined): string[] {
+  if (!sources || sources.length === 0) return [];
+  const files = new Set<string>();
+  sources.forEach((source) => {
+    const file = typeof source.file === "string" ? source.file.trim() : "";
+    if (file) files.add(file);
+  });
+  return Array.from(files);
+}
 
 type TreeItem = {
   key: string;
@@ -223,6 +270,8 @@ function GraphExplorerPage() {
   const [visibleKinds, setVisibleKinds] = useState<Record<ExplorerNodeKind, boolean>>({ folder: true, file: true, class: true, fn: true });
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
+  const [mentionSearch, setMentionSearch] = useState<string | null>(null);
+  const [mentionSelected, setMentionSelected] = useState(0);
   const [embedLoading, setEmbedLoading] = useState(false);
   const [pathFromId, setPathFromId] = useState<string>("");
   const [pathToId, setPathToId] = useState<string>("");
@@ -233,6 +282,7 @@ function GraphExplorerPage() {
   const [tourIndex, setTourIndex] = useState(0);
   const [tourLoading, setTourLoading] = useState(false);
   const [tourError, setTourError] = useState<string>("");
+  const pendingContextFilesRef = useRef<string[]>([]);
 
   const loadTour = async () => {
     if (!repoId.trim()) {
@@ -313,6 +363,7 @@ function GraphExplorerPage() {
     api: `${baseUrl}/graphrag/ask`,
     streamProtocol: "text",
     fetch: async (input, init) => {
+      pendingContextFilesRef.current = [];
       const reqBody = typeof init?.body === "string" ? JSON.parse(init.body) : {};
       const question = String(reqBody?.question ?? reqBody?.prompt ?? "");
       const requestRepoId = String(reqBody?.repoId ?? repoId ?? "").trim();
@@ -326,13 +377,19 @@ function GraphExplorerPage() {
         },
         body: JSON.stringify({ repoId: requestRepoId, question }),
       });
-      const data = await response.json().catch(() => ({}));
+      const data: object | null = await response.json().catch(() => null);
 
-      if (!response.ok || data?.ok === false) {
-        throw new Error(data?.error ?? `AI request failed (${response.status})`);
+      if (!response.ok || isAskErrorResponse(data)) {
+        throw new Error((isAskErrorResponse(data) ? data.error : undefined) ?? `AI request failed (${response.status})`);
       }
 
-      const answer = typeof data?.answer === "string" ? data.answer : "";
+      if (!isAskSuccessResponse(data)) {
+        throw new Error(`AI response format invalid (${response.status})`);
+      }
+
+      const answer = data.answer;
+      pendingContextFilesRef.current = extractContextFiles(data.sources);
+
       return new Response(answer, {
         status: 200,
         headers: {
@@ -538,6 +595,63 @@ function GraphExplorerPage() {
     return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   };
 
+  const mentionMatches = useMemo(() => {
+    if (!mentionSearch) return [];
+    const lower = mentionSearch.toLowerCase();
+    return explorerNodes.filter((node) => {
+      const label = nodeDisplayLabel(node).toLowerCase();
+      const path = getNodePath(node).toLowerCase();
+      return label.includes(lower) || path.includes(lower);
+    }).slice(0, 8);
+  }, [mentionSearch, explorerNodes]);
+
+  const handleInputChange = (value: string) => {
+    setChatInput(value);
+    const cursorPos = value.length;
+    const textBeforeCursor = value.slice(0, cursorPos);
+    const mentionMatch = textBeforeCursor.match(/@(\w*)$/);
+    if (mentionMatch) {
+      setMentionSearch(mentionMatch[1] ?? "");
+      setMentionSelected(0);
+    } else {
+      setMentionSearch(null);
+      setMentionSelected(0);
+    }
+  };
+
+  const insertMention = (node: ExplorerNode) => {
+    const mentionText = `@${nodeDisplayLabel(node).replace(/\s+/g, "_")}`;
+    const textBeforeCursor = chatInput.slice(0, chatInput.length - (mentionSearch?.length ?? 0));
+    const newText = textBeforeCursor + mentionText + " ";
+    setChatInput(newText);
+    setMentionSearch(null);
+    setMentionSelected(0);
+  };
+
+  const parseMentions = (text: string): { text: string; mentionedNodes: ExplorerNode[] } => {
+    const mentionRegex = /@(\w+)/g;
+    const mentionedNodes: ExplorerNode[] = [];
+    let match;
+    while ((match = mentionRegex.exec(text)) !== null) {
+      const mentionName = match[1];
+      if (mentionName) {
+        const found = explorerNodes.find((node) =>
+          nodeDisplayLabel(node).replace(/\s+/g, "_") === mentionName ||
+          getNodePath(node).includes(mentionName)
+        );
+        if (found) mentionedNodes.push(found);
+      }
+    }
+    const cleanText = text.replace(/@(\w+)/g, (fullMatch, name) => {
+      const found = explorerNodes.find((node) =>
+        nodeDisplayLabel(node).replace(/\s+/g, "_") === name ||
+        getNodePath(node).includes(name)
+      );
+      return found ? `[Node: ${nodeDisplayLabel(found)}]` : fullMatch;
+    });
+    return { text: cleanText, mentionedNodes };
+  };
+
   const sendAi = async (rawText?: string) => {
     const text = (rawText ?? chatInput).trim();
     if (!text) return;
@@ -549,17 +663,35 @@ function GraphExplorerPage() {
     setTab("ai");
     setChatMessages((current) => [...current, { id: makeMessageId(), role: "user", text }]);
     setChatInput("");
+    pendingContextFilesRef.current = [];
     try {
-      const answer = await complete(text, { body: { repoId: repoId.trim(), question: text } } as any);
+      const { text: cleanedText, mentionedNodes } = parseMentions(text);
+      const body: { repoId: string; question: string; mentionedNodes?: { id: string; name: string; path: string }[] } = {
+        repoId: repoId.trim(),
+        question: cleanedText,
+      };
+      if (mentionedNodes.length > 0) {
+        body.mentionedNodes = mentionedNodes.map((node) => ({
+          id: String(node.id),
+          name: nodeDisplayLabel(node),
+          path: getNodePath(node),
+        }));
+      }
+      // const answer = await complete(text, { body } as any);
+      const answer = await complete(text, { body: { repoId: repoId.trim(), question: text } });
+      const contextFiles = pendingContextFilesRef.current;
+      pendingContextFilesRef.current = [];
       setChatMessages((current) => [
         ...current,
         {
           id: makeMessageId(),
           role: "assistant",
           text: typeof answer === "string" && answer.trim() ? answer : "No answer returned.",
+          contextFiles: contextFiles.length > 0 ? contextFiles : undefined,
         },
       ]);
     } catch {
+      pendingContextFilesRef.current = [];
       setChatMessages((current) => [...current, { id: makeMessageId(), role: "assistant", text: "Error: failed to get AI response." }]);
     }
   };
@@ -1060,11 +1192,39 @@ function GraphExplorerPage() {
                       {chatMessages.map((message) => (
                         <div key={message.id} className={`max-w-[92%] rounded-[8px] px-3 py-2 text-[11px] leading-6 ${message.role === "user" ? "ml-auto bg-[var(--s2)]" : "border border-[var(--teal-b)] bg-[var(--teal-l)]"}`}>
                           {message.text}
+                          {message.role === "assistant" && message.contextFiles && message.contextFiles.length > 0 && (
+                            <div className="mt-2 border-t border-[var(--teal-b)] pt-2">
+                              <div className="mb-1 text-[10px] uppercase tracking-[0.06em] text-[var(--t2)]">Context files</div>
+                              <div className="space-y-1">
+                                {message.contextFiles.map((filePath) => (
+                                  <div key={`${message.id}-${filePath}`} className="font-mono text-[10px] leading-4 text-[var(--t1)]">
+                                    {filePath}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
                   </div>
-                <div className="border-t border-[var(--b0)] p-3">
+                <div className="relative border-t border-[var(--b0)] p-3">
+                  {mentionSearch !== null && mentionMatches.length > 0 && (
+                    <div className="absolute bottom-full left-3 right-3 mb-2 max-h-48 overflow-y-auto rounded-[8px] border border-[var(--b1)] bg-[var(--s0)] shadow-lg">
+                      {mentionMatches.map((node, index) => (
+                        <button
+                          key={node.id}
+                          className={`flex w-full items-center gap-2 px-3 py-2 text-left text-[11px] ${index === mentionSelected ? "bg-[var(--s2)]" : "hover:bg-[var(--s1)]"}`}
+                          onClick={() => insertMention(node)}
+                          onMouseEnter={() => setMentionSelected(index)}
+                        >
+                          <span className="h-2 w-2 rounded-full" style={{ background: node.kind === "folder" ? "var(--purple)" : node.kind === "file" ? "var(--blue)" : node.kind === "class" ? "var(--amber)" : "var(--green)" }} />
+                          <span className="flex-1 font-mono text-[var(--t0)]">{nodeDisplayLabel(node)}</span>
+                          <span className="text-[10px] text-[var(--t2)]">{getNodePath(node)}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <div className="mb-2 flex flex-wrap gap-2">
                     {[
                         "Why is this node highly connected?",
@@ -1078,9 +1238,32 @@ function GraphExplorerPage() {
                       <input
                         className="flex-1 rounded-[6px] border border-[var(--b1)] bg-[var(--s1)] px-3 py-2 text-[11px] outline-none"
                         value={chatInput}
-                        onChange={(e) => setChatInput(e.target.value)}
-                        placeholder="Ask about selected context..."
+                        onChange={(e) => handleInputChange(e.target.value)}
+                        placeholder="Ask about selected context... (use @ to mention nodes)"
                         onKeyDown={(e) => {
+                          if (mentionSearch !== null && mentionMatches.length > 0) {
+                            if (e.key === "ArrowDown") {
+                              e.preventDefault();
+                              setMentionSelected((current) => Math.min(current + 1, mentionMatches.length - 1));
+                              return;
+                            }
+                            if (e.key === "ArrowUp") {
+                              e.preventDefault();
+                              setMentionSelected((current) => Math.max(0, current - 1));
+                              return;
+                            }
+                            if (e.key === "Enter" || e.key === "Tab") {
+                              e.preventDefault();
+                              const selected = mentionMatches[mentionSelected];
+                              if (selected) insertMention(selected);
+                              return;
+                            }
+                            if (e.key === "Escape") {
+                              e.preventDefault();
+                              setMentionSearch(null);
+                              return;
+                            }
+                          }
                           if (e.key === "Enter") {
                             e.preventDefault();
                             void sendAi();
