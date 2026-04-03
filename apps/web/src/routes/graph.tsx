@@ -223,6 +223,8 @@ function GraphExplorerPage() {
   const [visibleKinds, setVisibleKinds] = useState<Record<ExplorerNodeKind, boolean>>({ folder: true, file: true, class: true, fn: true });
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
+  const [mentionSearch, setMentionSearch] = useState<string | null>(null);
+  const [mentionSelected, setMentionSelected] = useState(0);
   const [embedLoading, setEmbedLoading] = useState(false);
   const [pathFromId, setPathFromId] = useState<string>("");
   const [pathToId, setPathToId] = useState<string>("");
@@ -538,6 +540,63 @@ function GraphExplorerPage() {
     return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   };
 
+  const mentionMatches = useMemo(() => {
+    if (!mentionSearch) return [];
+    const lower = mentionSearch.toLowerCase();
+    return explorerNodes.filter((node) => {
+      const label = nodeDisplayLabel(node).toLowerCase();
+      const path = getNodePath(node).toLowerCase();
+      return label.includes(lower) || path.includes(lower);
+    }).slice(0, 8);
+  }, [mentionSearch, explorerNodes]);
+
+  const handleInputChange = (value: string) => {
+    setChatInput(value);
+    const cursorPos = value.length;
+    const textBeforeCursor = value.slice(0, cursorPos);
+    const mentionMatch = textBeforeCursor.match(/@(\w*)$/);
+    if (mentionMatch) {
+      setMentionSearch(mentionMatch[1] ?? "");
+      setMentionSelected(0);
+    } else {
+      setMentionSearch(null);
+      setMentionSelected(0);
+    }
+  };
+
+  const insertMention = (node: ExplorerNode) => {
+    const mentionText = `@${nodeDisplayLabel(node).replace(/\s+/g, "_")}`;
+    const textBeforeCursor = chatInput.slice(0, chatInput.length - (mentionSearch?.length ?? 0));
+    const newText = textBeforeCursor + mentionText + " ";
+    setChatInput(newText);
+    setMentionSearch(null);
+    setMentionSelected(0);
+  };
+
+  const parseMentions = (text: string): { text: string; mentionedNodes: ExplorerNode[] } => {
+    const mentionRegex = /@(\w+)/g;
+    const mentionedNodes: ExplorerNode[] = [];
+    let match;
+    while ((match = mentionRegex.exec(text)) !== null) {
+      const mentionName = match[1];
+      if (mentionName) {
+        const found = explorerNodes.find((node) =>
+          nodeDisplayLabel(node).replace(/\s+/g, "_") === mentionName ||
+          getNodePath(node).includes(mentionName)
+        );
+        if (found) mentionedNodes.push(found);
+      }
+    }
+    const cleanText = text.replace(/@(\w+)/g, (fullMatch, name) => {
+      const found = explorerNodes.find((node) =>
+        nodeDisplayLabel(node).replace(/\s+/g, "_") === name ||
+        getNodePath(node).includes(name)
+      );
+      return found ? `[Node: ${nodeDisplayLabel(found)}]` : fullMatch;
+    });
+    return { text: cleanText, mentionedNodes };
+  };
+
   const sendAi = async (rawText?: string) => {
     const text = (rawText ?? chatInput).trim();
     if (!text) return;
@@ -550,7 +609,19 @@ function GraphExplorerPage() {
     setChatMessages((current) => [...current, { id: makeMessageId(), role: "user", text }]);
     setChatInput("");
     try {
-      const answer = await complete(text, { body: { repoId: repoId.trim(), question: text } } as any);
+      const { text: cleanedText, mentionedNodes } = parseMentions(text);
+      const body: { repoId: string; question: string; mentionedNodes?: { id: string; name: string; path: string }[] } = {
+        repoId: repoId.trim(),
+        question: cleanedText,
+      };
+      if (mentionedNodes.length > 0) {
+        body.mentionedNodes = mentionedNodes.map((node) => ({
+          id: String(node.id),
+          name: nodeDisplayLabel(node),
+          path: getNodePath(node),
+        }));
+      }
+      const answer = await complete(text, { body } as any);
       setChatMessages((current) => [
         ...current,
         {
@@ -1064,7 +1135,23 @@ function GraphExplorerPage() {
                       ))}
                     </div>
                   </div>
-                <div className="border-t border-[var(--b0)] p-3">
+                <div className="relative border-t border-[var(--b0)] p-3">
+                  {mentionSearch !== null && mentionMatches.length > 0 && (
+                    <div className="absolute bottom-full left-3 right-3 mb-2 max-h-48 overflow-y-auto rounded-[8px] border border-[var(--b1)] bg-[var(--s0)] shadow-lg">
+                      {mentionMatches.map((node, index) => (
+                        <button
+                          key={node.id}
+                          className={`flex w-full items-center gap-2 px-3 py-2 text-left text-[11px] ${index === mentionSelected ? "bg-[var(--s2)]" : "hover:bg-[var(--s1)]"}`}
+                          onClick={() => insertMention(node)}
+                          onMouseEnter={() => setMentionSelected(index)}
+                        >
+                          <span className="h-2 w-2 rounded-full" style={{ background: node.kind === "folder" ? "var(--purple)" : node.kind === "file" ? "var(--blue)" : node.kind === "class" ? "var(--amber)" : "var(--green)" }} />
+                          <span className="flex-1 font-mono text-[var(--t0)]">{nodeDisplayLabel(node)}</span>
+                          <span className="text-[10px] text-[var(--t2)]">{getNodePath(node)}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <div className="mb-2 flex flex-wrap gap-2">
                     {[
                         "Why is this node highly connected?",
@@ -1078,9 +1165,32 @@ function GraphExplorerPage() {
                       <input
                         className="flex-1 rounded-[6px] border border-[var(--b1)] bg-[var(--s1)] px-3 py-2 text-[11px] outline-none"
                         value={chatInput}
-                        onChange={(e) => setChatInput(e.target.value)}
-                        placeholder="Ask about selected context..."
+                        onChange={(e) => handleInputChange(e.target.value)}
+                        placeholder="Ask about selected context... (use @ to mention nodes)"
                         onKeyDown={(e) => {
+                          if (mentionSearch !== null && mentionMatches.length > 0) {
+                            if (e.key === "ArrowDown") {
+                              e.preventDefault();
+                              setMentionSelected((current) => Math.min(current + 1, mentionMatches.length - 1));
+                              return;
+                            }
+                            if (e.key === "ArrowUp") {
+                              e.preventDefault();
+                              setMentionSelected((current) => Math.max(0, current - 1));
+                              return;
+                            }
+                            if (e.key === "Enter" || e.key === "Tab") {
+                              e.preventDefault();
+                              const selected = mentionMatches[mentionSelected];
+                              if (selected) insertMention(selected);
+                              return;
+                            }
+                            if (e.key === "Escape") {
+                              e.preventDefault();
+                              setMentionSearch(null);
+                              return;
+                            }
+                          }
                           if (e.key === "Enter") {
                             e.preventDefault();
                             void sendAi();
