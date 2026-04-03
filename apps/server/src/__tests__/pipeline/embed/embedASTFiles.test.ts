@@ -18,16 +18,17 @@ const mockedRunCypher = vi.mocked(runCypher);
 const mockedGenerateEmbeddings = vi.mocked(generateEmbeddings);
 
 const fixturesDir = path.join(process.cwd(), 'src/__tests__/fixtures');
-const simpleProject = path.join(fixturesDir, 'simple-js-project');
+const embedTestDir = path.join(fixturesDir, 'temp-embed');
 
 describe('embedASTFiles', () => {
   beforeEach(async () => {
     mockedRunCypher.mockReset();
     mockedGenerateEmbeddings.mockReset();
 
-    await fs.mkdir(simpleProject, { recursive: true });
+    await fs.rm(embedTestDir, { recursive: true, force: true });
+    await fs.mkdir(path.join(embedTestDir, 'src'), { recursive: true });
     await fs.writeFile(
-      path.join(simpleProject, 'src', 'math.ts'),
+      path.join(embedTestDir, 'src', 'math.ts'),
       'export function add(a: number, b: number): number {\n  return a + b;\n}\n\nexport function subtract(a: number, b: number): number {\n  return a - b;\n}',
       'utf-8',
     );
@@ -40,7 +41,7 @@ describe('embedASTFiles', () => {
   it('returns early with zero counts when no symbols found', async () => {
     mockedRunCypher.mockResolvedValue([]);
 
-    const result = await embedASTFiles('test-repo', simpleProject, 10);
+    const result = await embedASTFiles('test-repo', embedTestDir, 10);
 
     expect(result).toEqual({ ok: true, files: 0, totalEmbedded: 0, failedBatches: 0 });
     expect(mockedGenerateEmbeddings).not.toHaveBeenCalled();
@@ -59,7 +60,7 @@ describe('embedASTFiles', () => {
     const mockEmbedding = new Array(1536).fill(0.01);
     mockedGenerateEmbeddings.mockResolvedValue([mockEmbedding, mockEmbedding]);
 
-    const result = await embedASTFiles('test-repo', simpleProject, 10);
+    const result = await embedASTFiles('test-repo', embedTestDir, 10);
 
     expect(result.ok).toBe(true);
     expect(result.files).toBe(1);
@@ -84,7 +85,7 @@ describe('embedASTFiles', () => {
     const mockEmbedding = new Array(1536).fill(0.01);
     mockedGenerateEmbeddings.mockResolvedValue([mockEmbedding, mockEmbedding]);
 
-    await embedASTFiles('test-repo', simpleProject, 2);
+    await embedASTFiles('test-repo', embedTestDir, 2);
 
     expect(mockedGenerateEmbeddings).toHaveBeenCalledTimes(2);
   });
@@ -100,7 +101,7 @@ describe('embedASTFiles', () => {
     const mockEmbedding = new Array(1536).fill(0.01);
     mockedGenerateEmbeddings.mockResolvedValue([mockEmbedding]);
 
-    await embedASTFiles('test-repo', simpleProject, 10, 1);
+    await embedASTFiles('test-repo', embedTestDir, 10, 1);
 
     expect(mockedGenerateEmbeddings).toHaveBeenCalledTimes(1);
   });
@@ -114,7 +115,7 @@ describe('embedASTFiles', () => {
 
     mockedGenerateEmbeddings.mockRejectedValue(new Error('API timeout'));
 
-    const result = await embedASTFiles('test-repo', simpleProject, 10);
+    const result = await embedASTFiles('test-repo', embedTestDir, 10);
 
     expect(result.ok).toBe(false);
     expect(result.failedBatches).toBe(1);
@@ -135,20 +136,20 @@ describe('embedASTFiles', () => {
     const mockEmbedding = new Array(1536).fill(0.01);
     mockedGenerateEmbeddings.mockResolvedValue([mockEmbedding, null]);
 
-    const result = await embedASTFiles('test-repo', simpleProject, 10);
+    const result = await embedASTFiles('test-repo', embedTestDir, 10);
 
     expect(result.totalEmbedded).toBe(1);
     expect(result.ok).toBe(true);
   });
 
   it('throws on invalid batchSize', async () => {
-    await expect(embedASTFiles('test-repo', simpleProject, 0)).rejects.toThrow(
+    await expect(embedASTFiles('test-repo', embedTestDir, 0)).rejects.toThrow(
       'batchSize must be >= 1',
     );
   });
 
   it('throws on invalid maxFiles', async () => {
-    await expect(embedASTFiles('test-repo', simpleProject, 10, 0)).rejects.toThrow(
+    await expect(embedASTFiles('test-repo', embedTestDir, 10, 0)).rejects.toThrow(
       'maxFiles must be >= 1',
     );
   });
@@ -160,14 +161,14 @@ describe('embedASTFiles', () => {
 
     mockedRunCypher.mockResolvedValue(mockSymbols);
 
-    const result = await embedASTFiles('test-repo', simpleProject, 10);
+    const result = await embedASTFiles('test-repo', embedTestDir, 10);
 
     expect(result.files).toBe(0);
     expect(result.totalEmbedded).toBe(0);
   });
 
   it('handles empty file gracefully', async () => {
-    const emptyFile = path.join(simpleProject, 'src', 'empty.ts');
+    const emptyFile = path.join(embedTestDir, 'src', 'empty.ts');
     await fs.writeFile(emptyFile, '', 'utf-8');
 
     const mockSymbols = [
@@ -176,7 +177,7 @@ describe('embedASTFiles', () => {
 
     mockedRunCypher.mockResolvedValue(mockSymbols);
 
-    const result = await embedASTFiles('test-repo', simpleProject, 10);
+    const result = await embedASTFiles('test-repo', embedTestDir, 10);
 
     expect(result.files).toBe(0);
     expect(result.totalEmbedded).toBe(0);
