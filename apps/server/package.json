@@ -7,7 +7,10 @@
     "check-types": "tsc -b",
     "compile": "bun build --compile --minify --sourcemap --bytecode ./src/index.ts --outfile server",
     "dev": "tsx watch src/index.ts",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@CodeAtlas/api": "workspace:*",
@@ -37,8 +40,10 @@
   "devDependencies": {
     "@CodeAtlas/config": "workspace:*",
     "@types/node": "catalog:",
+    "@vitest/coverage-v8": "^4.1.2",
     "tsdown": "catalog:",
     "tsx": "^4.19.2",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "vitest": "^4.1.2"
   }
 }
