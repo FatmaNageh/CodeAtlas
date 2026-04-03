@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, BrainCircuit, Minus, Plus, RefreshCw, Search, Sparkles, Square, Upload } from "lucide-react";
+import { ArrowRight, BrainCircuit, Minus, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw, Search, Sparkles, Square, Upload } from "lucide-react";
 import { fetchNeo4jSubgraph, fetchTour, type TourResponse } from "@/lib/api";
 import { loadSession, saveSession } from "@/lib/session";
 import { toast } from "sonner";
@@ -214,6 +214,7 @@ function GraphExplorerPage() {
   const [repoRoot] = useState(session.lastProjectPath ?? "");
   const [graph, setGraph] = useState<{ nodes: Neo4jNode[]; edges: Neo4jEdge[] }>({ nodes: [], edges: [] });
   const [loading, setLoading] = useState(false);
+  const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(true);
   const [mode, setMode] = useState<Mode>("select");
   const [tab, setTab] = useState<RightTab>("detail");
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -588,6 +589,9 @@ function GraphExplorerPage() {
     <section className="min-h-[calc(100vh-50px)] bg-[var(--bg)]">
       <div className="flex h-[calc(100vh-50px)] flex-col overflow-hidden">
         <div className="flex h-12 items-center border-b border-[var(--b1)] bg-[var(--s0)] px-5 text-[13px]">
+          <button className="mr-4 text-[var(--t2)] hover:text-[var(--t0)]" onClick={() => setIsLeftSidebarOpen(!isLeftSidebarOpen)}>
+            {isLeftSidebarOpen ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
+          </button>
           <div className="flex items-center gap-8">
             <button
               className={topView === "explorer" ? "border-b-2 border-[var(--t0)] pb-[14px] pt-4 font-medium text-[var(--t0)]" : "pb-[14px] pt-4 text-[var(--t2)] hover:text-[var(--t0)]"}
@@ -616,7 +620,7 @@ function GraphExplorerPage() {
           </div>
         </div>
 
-        <div className="grid flex-1 overflow-hidden" style={{ gridTemplateColumns: "300px 1fr 360px" }}>
+        <div className="grid flex-1 overflow-hidden" style={{ gridTemplateColumns: isLeftSidebarOpen ? "300px 1fr 360px" : "0px 1fr 360px" }}>
           <aside className="flex flex-col overflow-hidden border-r border-[var(--b1)] bg-[var(--s0)]">
             <div className="border-b border-[var(--b0)] p-2.5">
               <div className="relative">
