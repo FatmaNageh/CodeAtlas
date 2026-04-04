@@ -356,7 +356,6 @@ function GraphExplorerPage() {
     if (topView !== "tour") return;
     if (search) setSearch("");
     setVisibleKinds((current) => (current.file ? current : { ...current, file: true }));
-    void loadTour();
   }, [topView, repoId, baseUrl]);
 
   const { complete, isLoading: chatLoading } = useCompletion({
