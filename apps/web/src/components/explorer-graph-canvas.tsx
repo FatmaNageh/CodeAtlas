@@ -92,6 +92,7 @@ export function ExplorerGraphCanvas({
   pathNodeIds,
   highlightNodeIds,
   tourHighlightNodeIds,
+  activeTourNodeId,
 }: {
   nodes: ExplorerNode[];
   edges: Neo4jEdge[];
@@ -101,6 +102,7 @@ export function ExplorerGraphCanvas({
   pathNodeIds: string[];
   highlightNodeIds: string[];
   tourHighlightNodeIds?: string[];
+  activeTourNodeId?: string | null;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -147,7 +149,9 @@ export function ExplorerGraphCanvas({
 
     const pathSet = new Set(pathNodeIds);
     const highlightSet = new Set(highlightNodeIds);
-    const tourHighlightSet = new Set(tourHighlightNodeIds ?? []);
+    const tourAllSet = new Set(tourHighlightNodeIds ?? []);
+    const activeTourId = activeTourNodeId ?? null;
+
 
     const link = linkLayer
       .selectAll("line")
@@ -196,16 +200,17 @@ export function ExplorerGraphCanvas({
     node
       .append("circle")
       .attr("r", (d) => nodeRadius(d.kind))
-      .attr("fill", (d) => (tourHighlightSet.has(String(d.id)) ? "#ef4444" : nodeFill(d.kind)))
-      .attr("stroke", (d) => (tourHighlightSet.has(String(d.id)) ? "#dc2626" : nodeStroke(d.kind)))
+      .attr("fill", (d) => (String(d.id) === activeTourId ? "#ef4444" : nodeFill(d.kind)))
+      .attr("stroke", (d) => (String(d.id) === activeTourId ? "#dc2626" : nodeStroke(d.kind)))
       .attr("stroke-width", (d) => {
         if (String(d.id) === selectedNodeId) return 3;
-        if (pathSet.has(String(d.id)) || highlightSet.has(String(d.id)) || tourHighlightSet.has(String(d.id))) return 2.5;
+        if (String(d.id) === activeTourId) return 2.5;
+        if (pathSet.has(String(d.id)) || highlightSet.has(String(d.id))) return 2.5;
         return 1.4;
       })
       .attr("opacity", (d) => {
         if (pathSet.size > 0) return pathSet.has(String(d.id)) ? 1 : 0.2;
-        if (tourHighlightSet.size > 0) return tourHighlightSet.has(String(d.id)) ? 1 : 0.24;
+        if (tourAllSet.size > 0) return tourAllSet.has(String(d.id)) ? 1 : 0.24;
         if (highlightSet.size > 0) return highlightSet.has(String(d.id)) ? 1 : 0.24;
         return 1;
       });
@@ -218,11 +223,11 @@ export function ExplorerGraphCanvas({
       .attr("height", 24)
       .attr("width", (d) => trimLabel(d.displayLabel).length * 7.5 + 16)
       .attr("fill", "var(--s0)")
-      .attr("stroke", (d) => (tourHighlightSet.has(String(d.id)) ? "#dc2626" : nodeStroke(d.kind)))
+      .attr("stroke", (d) => (String(d.id) === activeTourId ? "#dc2626" : nodeStroke(d.kind)))
       .attr("stroke-width", 1)
       .attr("opacity", (d) => {
         if (pathSet.size > 0) return pathSet.has(String(d.id)) ? 0.98 : 0.15;
-        if (tourHighlightSet.size > 0) return tourHighlightSet.has(String(d.id)) ? 0.98 : 0.18;
+        if (tourAllSet.size > 0) return tourAllSet.has(String(d.id)) ? 0.98 : 0.18;
         if (highlightSet.size > 0) return highlightSet.has(String(d.id)) ? 0.98 : 0.18;
         return 0.96;
       });
@@ -232,13 +237,13 @@ export function ExplorerGraphCanvas({
       .attr("x", (d) => nodeRadius(d.kind) + 16)
       .attr("y", 5)
       .text((d) => trimLabel(d.displayLabel))
-      .attr("fill", (d) => (tourHighlightSet.has(String(d.id)) ? "#ef4444" : nodeStroke(d.kind)))
+      .attr("fill", (d) => (String(d.id) === activeTourId ? "#ef4444" : nodeStroke(d.kind)))
       .style("font-size", "11px")
       .style("font-family", "var(--mono)")
       .style("pointer-events", "none")
       .attr("opacity", (d) => {
         if (pathSet.size > 0) return pathSet.has(String(d.id)) ? 1 : 0.2;
-        if (tourHighlightSet.size > 0) return tourHighlightSet.has(String(d.id)) ? 1 : 0.22;
+        if (tourAllSet.size > 0) return tourAllSet.has(String(d.id)) ? 1 : 0.22;
         if (highlightSet.size > 0) return highlightSet.has(String(d.id)) ? 1 : 0.22;
         return 1;
       });
@@ -259,7 +264,7 @@ export function ExplorerGraphCanvas({
     );
 
     return () => simulation.stop();
-  }, [prepared, selectedNodeId, onNodeClick, mode, pathNodeIds, highlightNodeIds, tourHighlightNodeIds]);
+  }, [prepared, selectedNodeId, onNodeClick, mode, pathNodeIds, highlightNodeIds, tourHighlightNodeIds, activeTourNodeId]);
 
   return (
     <div ref={containerRef} className="h-full w-full">

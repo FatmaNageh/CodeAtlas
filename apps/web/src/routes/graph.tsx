@@ -558,9 +558,30 @@ function GraphExplorerPage() {
     if (!tourData) return [] as string[];
     const filePaths = new Set(tourData.steps.map((step) => normalizePathForMatch(step.filePath)));
     return explorerNodes
-      .filter((node) => node.kind === "file" && filePaths.has(normalizePathForMatch(getNodePath(node))))
+      .filter((node) => {
+        if (node.kind !== "file") return false;
+        const nodePath = normalizePathForMatch(getNodePath(node));
+        return filePaths.has(nodePath) || filePaths.has(nodePath.split("/").pop() || "");
+      })
       .map((node) => String(node.id));
   }, [tourData, explorerNodes]);
+
+  const activeTourNodeId = useMemo(() => {
+    if (!activeTourStep) return null;
+    const targetPath = normalizePathForMatch(activeTourStep.filePath);
+    
+    const match = explorerNodes.find(
+      (node) => {
+        if (node.kind !== "file") return false;
+        const nodePath = normalizePathForMatch(getNodePath(node));
+        if (nodePath === targetPath) return true;
+        if (nodePath.endsWith(targetPath)) return true;
+        if (targetPath.endsWith(nodePath.split("/").pop() || "")) return true;
+        return false;
+      },
+    );
+    return match ? String(match.id) : null;
+  }, [activeTourStep, explorerNodes]);
 
   const activeTourFileNode = useMemo(() => {
     if (!activeTourStep) return null;
@@ -943,6 +964,7 @@ function GraphExplorerPage() {
                 pathNodeIds={currentPath}
                 highlightNodeIds={highlightNodeIds}
                 tourHighlightNodeIds={topView === "tour" ? tourHighlightNodeIds : undefined}
+                activeTourNodeId={topView === "tour" ? activeTourNodeId : undefined}
               />
             )}
           </div>
