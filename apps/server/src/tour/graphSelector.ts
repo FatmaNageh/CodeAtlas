@@ -35,7 +35,7 @@ export function clampTourLimit(limit: number | undefined): number {
   if (normalized > MAX_LIMIT) return MAX_LIMIT;
   return normalized;
 }
-
+// TODO: handle potential NeoIntLike values in the Cypher results, ensuring we convert them to numbers safely. Also revise this formula logic 
 function scoreFile(metric: GraphTourFileMetric): number {
   const totalDegree = metric.inDegree + metric.outDegree;
   const connectivityScore = totalDegree * 2.5;
