@@ -249,6 +249,10 @@ pre.pp{background:rgba(128,128,128,.06);border-radius:3px;padding:6px;font-size:
 <div id="tip"><div id="tip-name"></div><div id="tip-kind"></div><div id="tip-deg"></div></div>
 
 <script nonce="${nonce}">
+window.onerror=function(msg,src,line,col,err){
+  var ld=document.getElementById('ldm');
+  if(ld) ld.textContent='⚠ JS Error: '+msg+' (line '+line+')';
+};
 (function(){
 'use strict';
 const vsc=acquireVsCodeApi();
@@ -844,7 +848,7 @@ window.addEventListener('message',ev=>{
 });
 
 // ── Init ──────────────────────────────────────────────────────────
-load();
+load().catch(function(e){ setLdMsg('⚠ Init error: '+e.message); });
 })();
 </script>
 </body>

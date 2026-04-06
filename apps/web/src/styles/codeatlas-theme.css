@@ -1,89 +1,175 @@
+/* ── CodeAtlas Design Tokens ─────────────────────────────── */
+
 :root {
-  --bg: #f7f7f5;
-  --s0: #ffffff;
-  --s1: #f2f2f0;
-  --s2: #e8e8e6;
-  --s3: #dddddb;
-  --b0: rgba(0, 0, 0, 0.055);
-  --b1: rgba(0, 0, 0, 0.1);
-  --b2: rgba(0, 0, 0, 0.17);
-  --t0: #111110;
-  --t1: #484845;
-  --t2: #8a8a86;
-  --t3: #c0c0bc;
-  --blue: #185fa5;
-  --blue-l: #e6f1fb;
-  --blue-b: #b5d4f4;
-  --purple: #534ab7;
-  --purple-l: #eeedfe;
-  --purple-b: #cecbf6;
-  --teal: #0f6e56;
-  --teal-l: #e1f5ee;
-  --teal-b: #9fe1cb;
-  --amber: #854f0b;
-  --amber-l: #faeeda;
-  --amber-b: #fac775;
-  --red: #a32d2d;
-  --red-l: #fcebeb;
-  --red-b: #f7c1c1;
-  --green: #3b6d11;
-  --green-l: #eaf3de;
-  --green-b: #c0dd97;
-  --coral: #993c1d;
-  --coral-l: #faece7;
-  --coral-b: #f0997b;
-  --surface: var(--s0);
+  /* Backgrounds */
+  --bg:  #f4f3f0;
+  --s0:  #ffffff;
+  --s1:  #f0efe9;
+  --s2:  #e6e5de;
+  --s3:  #d9d8d0;
+
+  /* Borders */
+  --b0: rgba(0, 0, 0, 0.045);
+  --b1: rgba(0, 0, 0, 0.09);
+  --b2: rgba(0, 0, 0, 0.16);
+
+  /* Text */
+  --t0: #0e0e0c;
+  --t1: #3d3d39;
+  --t2: #7a7a75;
+  --t3: #b5b5ae;
+
+  /* ── Semantic colors ── */
+
+  /* Purple / Folder */
+  --purple:   #6d28d9;
+  --purple-l: #ede9fe;
+  --purple-b: #c4b5fd;
+  --purple-h: #5b21b6;
+
+  /* Blue / File */
+  --blue:   #0369a1;
+  --blue-l: #e0f2fe;
+  --blue-b: #7dd3fc;
+  --blue-h: #075985;
+
+  /* Teal */
+  --teal:   #0f766e;
+  --teal-l: #ccfbf1;
+  --teal-b: #5eead4;
+  --teal-h: #0d6b62;
+
+  /* Amber / Class */
+  --amber:   #b45309;
+  --amber-l: #fef3c7;
+  --amber-b: #fcd34d;
+  --amber-h: #92400e;
+
+  /* Red */
+  --red:   #b91c1c;
+  --red-l: #fee2e2;
+  --red-b: #fca5a5;
+
+  /* Green / Function */
+  --green:   #047857;
+  --green-l: #d1fae5;
+  --green-b: #6ee7b7;
+  --green-h: #065f46;
+
+  /* Coral */
+  --coral:   #be4b15;
+  --coral-l: #ffedd5;
+  --coral-b: #fb923c;
+
+  /* ── Aliases ── */
+  --surface:  var(--s0);
   --surface2: var(--s1);
-  --border: var(--b1);
-  --border2: var(--b2);
-  --text: var(--t0);
-  --text2: var(--t1);
-  --text3: var(--t2);
-  --node-folder: var(--purple);
+  --border:   var(--b1);
+  --border2:  var(--b2);
+  --text:     var(--t0);
+  --text2:    var(--t1);
+  --text3:    var(--t2);
+
+  /* ── Graph node tokens ── */
+  --node-folder:    var(--purple);
   --node-folder-bg: var(--purple-l);
-  --node-file: var(--blue);
+  --node-folder-b:  var(--purple-b);
+
+  --node-file:    var(--blue);
   --node-file-bg: var(--blue-l);
-  --node-fn: var(--green);
+  --node-file-b:  var(--blue-b);
+
+  --node-fn:    var(--green);
   --node-fn-bg: var(--green-l);
-  --node-class: var(--amber);
+  --node-fn-b:  var(--green-b);
+
+  --node-class:    var(--amber);
   --node-class-bg: var(--amber-l);
+  --node-class-b:  var(--amber-b);
+
+  /* ── Graph canvas ── */
+  --graph-bg:        #f0efe9;
+  --graph-dot-color: rgba(0, 0, 0, 0.07);
+  --graph-grid-size: 28px;
+
+  /* ── Edge colors ── */
+  --edge-contains: #7c3aed;
+  --edge-imports:  #0369a1;
+  --edge-calls:    #047857;
 }
 
+/* ─────────────────────────────────────────────────────────── */
+/*  Dark mode                                                   */
+/* ─────────────────────────────────────────────────────────── */
 .dark {
-  --bg: #0d0d0c;
-  --s0: #171716;
-  --s1: #1f1f1e;
-  --s2: #282827;
-  --s3: #313130;
-  --b0: rgba(255, 255, 255, 0.05);
-  --b1: rgba(255, 255, 255, 0.09);
-  --b2: rgba(255, 255, 255, 0.15);
-  --t0: #eeeee9;
-  --t1: #9a9a95;
-  --t2: #5c5c59;
-  --t3: #3a3a38;
-  --blue: #85b7eb;
-  --blue-l: #042c53;
-  --blue-b: #0c447c;
-  --purple: #afa9ec;
-  --purple-l: #26215c;
-  --purple-b: #3c3489;
-  --teal: #5dcaa5;
-  --teal-l: #04342c;
-  --teal-b: #085041;
-  --amber: #ef9f27;
-  --amber-l: #412402;
-  --amber-b: #633806;
-  --red: #f09595;
-  --red-l: #501313;
-  --red-b: #791f1f;
-  --green: #97c459;
-  --green-l: #173404;
-  --green-b: #27500a;
-  --coral: #f0997b;
-  --coral-l: #4a1b0c;
-  --coral-b: #712b13;
+  --bg:  #0b0b0a;
+  --s0:  #131312;
+  --s1:  #1a1a18;
+  --s2:  #222220;
+  --s3:  #2b2b28;
+
+  --b0: rgba(255,255,255,0.04);
+  --b1: rgba(255,255,255,0.08);
+  --b2: rgba(255,255,255,0.13);
+
+  --t0: #f0f0ea;
+  --t1: #8f8f89;
+  --t2: #555550;
+  --t3: #333330;
+
+  /* Purple */
+  --purple:   #a78bfa;
+  --purple-l: #1e1143;
+  --purple-b: #4c1d95;
+  --purple-h: #c4b5fd;
+
+  /* Blue */
+  --blue:   #38bdf8;
+  --blue-l: #072b41;
+  --blue-b: #0c4a6e;
+  --blue-h: #7dd3fc;
+
+  /* Teal */
+  --teal:   #2dd4bf;
+  --teal-l: #021e1c;
+  --teal-b: #0f3e39;
+  --teal-h: #5eead4;
+
+  /* Amber */
+  --amber:   #fbbf24;
+  --amber-l: #2d1a02;
+  --amber-b: #78350f;
+  --amber-h: #fcd34d;
+
+  /* Red */
+  --red:   #f87171;
+  --red-l: #3b0f0f;
+  --red-b: #7f1d1d;
+
+  /* Green */
+  --green:   #34d399;
+  --green-l: #01231a;
+  --green-b: #064e3b;
+  --green-h: #6ee7b7;
+
+  /* Coral */
+  --coral:   #fb923c;
+  --coral-l: #2c1400;
+  --coral-b: #7c2d12;
+
+  /* Graph canvas */
+  --graph-bg:        #0b0b0a;
+  --graph-dot-color: rgba(255,255,255,0.06);
+
+  /* Edge colors */
+  --edge-contains: #a78bfa;
+  --edge-imports:  #38bdf8;
+  --edge-calls:    #34d399;
 }
+
+/* ─────────────────────────────────────────────────────────── */
+/*  Utility classes                                             */
+/* ─────────────────────────────────────────────────────────── */
 
 .codeatlas-shell {
   background: var(--bg);
@@ -95,28 +181,33 @@
   border: 0.5px solid var(--border2);
 }
 
-.codeatlas-muted {
-  color: var(--text2);
-}
+.codeatlas-muted   { color: var(--text2); }
+.codeatlas-subtle  { color: var(--text3); }
+.codeatlas-dashed  { border: 1.5px dashed var(--border2); }
 
-.codeatlas-subtle {
-  color: var(--text3);
-}
-
-.codeatlas-dashed {
-  border: 1.5px dashed var(--border2);
-}
-
+/* ── Progress pulse ── */
 .codeatlas-progress-pulse {
   animation: codeatlasPulse 1.5s ease-in-out infinite;
 }
-
 @keyframes codeatlasPulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.45; }
 }
+
+/* ── Graph node badge ── */
+.node-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 4px;
+  padding: 2px 7px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar        { width: 5px; height: 5px; }
+::-webkit-scrollbar-track  { background: transparent; }
+::-webkit-scrollbar-thumb  { background: var(--b2); border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: var(--t3); }

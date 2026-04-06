@@ -1,12 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, BrainCircuit, FileText, Minus, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw, Search, Sparkles, Square, Upload } from "lucide-react";
-import { fetchNeo4jSubgraph, fetchTour, type TourResponse } from "@/lib/api";
+import { fetchNeo4jSubgraph, fetchTour, indexRepo, type TourResponse } from "@/lib/api";
 import { loadSession, saveSession } from "@/lib/session";
 import { toast } from "sonner";
 import { useCompletion } from "@ai-sdk/react";
 import type { Neo4jEdge, Neo4jNode } from "@/components/Neo4jGraph";
-import { ExplorerGraphCanvas, classifyNode, nodeDisplayLabel, type ExplorerNode, type ExplorerNodeKind } from "@/components/explorer-graph-canvas";
+import { ExplorerGraphCanvas, classifyNode, nodeDisplayLabel, type ExplorerNode, type ExplorerNodeKind, type GraphCanvasHandle } from "@/components/explorer-graph-canvas";
 
 export const Route = createFileRoute("/graph")({
   component: GraphExplorerPage,
@@ -261,6 +261,13 @@ function GraphExplorerPage() {
   const [repoRoot] = useState(session.lastProjectPath ?? "");
   const [graph, setGraph] = useState<{ nodes: Neo4jNode[]; edges: Neo4jEdge[] }>({ nodes: [], edges: [] });
   const [loading, setLoading] = useState(false);
+  const [nodeLimit, setNodeLimit] = useState(2000);
+  const [truncated, setTruncated] = useState(false);
+  const [reIndexing, setReIndexing] = useState(false);
+  const [showReIndexPanel, setShowReIndexPanel] = useState(false);
+  const graphCanvasRef = useRef<GraphCanvasHandle>(null);
+  const [activeLayout, setActiveLayout] = useState<"force" | "radial" | "hierarchical">("force");
+  const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(true);
   const [mode, setMode] = useState<Mode>("select");
   const [tab, setTab] = useState<RightTab>("detail");
@@ -405,9 +412,16 @@ function GraphExplorerPage() {
     const run = async () => {
       if (!repoId.trim()) return;
       setLoading(true);
+      setTruncated(false);
       try {
-        const res = await fetchNeo4jSubgraph(repoId.trim(), baseUrl, 500);
-        setGraph({ nodes: res.nodes ?? [], edges: res.edges ?? [] });
+        const res = await fetchNeo4jSubgraph(repoId.trim(), baseUrl, nodeLimit);
+        const nodes: Neo4jNode[] = res.nodes ?? [];
+        const edges: Neo4jEdge[] = res.edges ?? [];
+        setGraph({ nodes, edges });
+        if (nodes.length > 0 && nodes.length >= nodeLimit) {
+          setTruncated(true);
+          toast.warning(`Graph capped at ${nodeLimit} nodes — increase the limit to see more.`);
+        }
         saveSession({ baseUrl, lastRepoId: repoId.trim() });
       } catch (error: any) {
         toast.error(error?.message ?? "Failed to load graph");
@@ -416,14 +430,23 @@ function GraphExplorerPage() {
       }
     };
     run();
-  }, [repoId, baseUrl]);
+  }, [repoId, baseUrl, nodeLimit]);
 
   const explorerNodes = useMemo<ExplorerNode[]>(() => {
-    return graph.nodes.map((node) => ({
-      ...node,
-      kind: classifyNode(node),
-      displayLabel: nodeDisplayLabel(node),
-    }));
+    return graph.nodes
+      .filter((node) => {
+        const label = nodeDisplayLabel(node);
+        // Remove internal import/chunk artifact nodes — they are not real code entities
+        if (/^(imp|chunk|call|callsite|ref|sym):/i.test(label)) return false;
+        if (/[a-f0-9]{8,}/i.test(label)) return false;
+        if (/^[a-f0-9-]{20,}$/.test(label)) return false;
+        return true;
+      })
+      .map((node) => ({
+        ...node,
+        kind: classifyNode(node),
+        displayLabel: nodeDisplayLabel(node),
+      }));
   }, [graph.nodes]);
 
   const filteredNodes = useMemo(() => {
@@ -505,7 +528,8 @@ function GraphExplorerPage() {
         .slice(0, 5)
         .map((item) => String(item.node.id));
     }
-    return selectedNode ? [String(selectedNode.id)] : [];
+    // In plain "select" mode — return empty so ALL nodes stay fully bright
+    return [] as string[];
   }, [selectedNode, mode, filteredEdges, filteredNodes, degreeMap, topView]);
 
   const hotspotNodes = useMemo(() => {
@@ -540,6 +564,38 @@ function GraphExplorerPage() {
     if (!repoId) return "No repository loaded";
     return repoId;
   }, [repoId]);
+
+  // ── Re-index shortcut ────────────────────────────────────────────────────
+  const handleReIndex = async () => {
+    if (!repoRoot.trim()) {
+      toast.error("No project path in session. Go to the Indexing page to run a full index first.");
+      return;
+    }
+    setReIndexing(true);
+    try {
+      toast.info("Re-indexing repository… this may take a moment.");
+      const data = await indexRepo(
+        { projectPath: repoRoot, mode: "full", saveDebugJson: true, computeHash: true, dryRun: false },
+        baseUrl,
+      );
+      if (data?.repoId) {
+        saveSession({ baseUrl, lastRepoId: data.repoId, lastProjectPath: repoRoot });
+        toast.success(`Indexing complete — repoId: ${data.repoId}. Reloading graph…`);
+        // Trigger graph reload by refreshing the page (repoId may have changed)
+        setTimeout(() => window.location.reload(), 1200);
+      } else {
+        toast.success("Indexing complete. Reloading graph…");
+        setTimeout(() => window.location.reload(), 1200);
+      }
+    } catch (err: any) {
+      toast.error(err?.message ?? "Re-indexing failed");
+    } finally {
+      setReIndexing(false);
+    }
+  };
+
+  // Whether the graph looks suspiciously sparse (likely incomplete indexing)
+  const graphLooksSparse = !loading && graph.nodes.length > 0 && graph.nodes.length < 10;
 
   const tourSteps = tourData?.steps ?? [];
   const activeTourStep = tourSteps[tourIndex] ?? null;
@@ -686,12 +742,20 @@ function GraphExplorerPage() {
     pendingContextFilesRef.current = [];
     try {
       const { text: cleanedText, mentionedNodes } = parseMentions(text);
+
+      // Include ALL multi-selected nodes as context, not just the single selected one
+      const contextNodes: ExplorerNode[] = mentionedNodes.length > 0
+        ? mentionedNodes
+        : selectedNodeIds.length > 0
+          ? selectedNodeIds.map(id => filteredNodes.find(n => String(n.id) === id)).filter(Boolean) as ExplorerNode[]
+          : selectedNode ? [selectedNode] : [];
+
       const body: { repoId: string; question: string; mentionedNodes?: { id: string; name: string; path: string }[] } = {
         repoId: repoId.trim(),
         question: cleanedText,
       };
-      if (mentionedNodes.length > 0) {
-        body.mentionedNodes = mentionedNodes.map((node) => ({
+      if (contextNodes.length > 0) {
+        body.mentionedNodes = contextNodes.map((node) => ({
           id: String(node.id),
           name: nodeDisplayLabel(node),
           path: getNodePath(node),
@@ -768,6 +832,32 @@ function GraphExplorerPage() {
             <span className="font-mono text-[11px] text-[var(--t2)]">{repoName}</span>
           </div>
           <div className="ml-auto flex items-center gap-3">
+            {/* Node limit selector */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] text-[var(--t3)]">Limit</span>
+              <select
+                className="h-8 rounded-[6px] border border-[var(--b2)] bg-[var(--s1)] px-2 text-[12px] text-[var(--t1)] outline-none"
+                value={nodeLimit}
+                onChange={(e) => setNodeLimit(Number(e.target.value))}
+                title="Max nodes to load from backend"
+              >
+                {[250, 500, 1000, 2000, 5000].map((n) => (
+                  <option key={n} value={n}>{n.toLocaleString()}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Truncation warning badge */}
+            {truncated && (
+              <span
+                className="inline-flex h-8 items-center gap-1.5 rounded-[6px] px-3 text-[11px] font-medium"
+                style={{ background: "var(--amber-l)", color: "var(--amber)", border: "1px solid var(--amber-b)" }}
+                title="The graph was capped at the current limit. Increase the limit to see all nodes."
+              >
+                ⚠ Capped at {nodeLimit.toLocaleString()}
+              </span>
+            )}
+
             <button className="inline-flex h-8 items-center gap-2 rounded-[6px] border border-[var(--b2)] px-3 text-[12px] text-[var(--t1)] hover:bg-[var(--s1)] disabled:cursor-not-allowed disabled:opacity-60" onClick={embedNodes} disabled={embedLoading}>
               <Upload className="h-3.5 w-3.5" /> {embedLoading ? "Embedding..." : "Embed Nodes"}
             </button>
@@ -863,14 +953,99 @@ function GraphExplorerPage() {
 
           <div className="relative overflow-hidden bg-[var(--bg)]">
             <div className="absolute left-1/2 top-3 z-10 flex -translate-x-1/2 overflow-hidden rounded-[10px] border border-[var(--b1)] bg-[var(--s0)] shadow-sm">
-              {layoutOptions.map(({ label, icon: Comp }, index) => {
+              {layoutOptions.map(({ label, icon: Comp }) => {
+                const isActive =
+                  (label === "Force layout" && activeLayout === "force") ||
+                  (label === "Hierarchical" && activeLayout === "hierarchical") ||
+                  (label === "Radial" && activeLayout === "radial");
+                const handleClick = () => {
+                  if (label === "Force layout") { setActiveLayout("force"); graphCanvasRef.current?.setLayout("force"); }
+                  else if (label === "Hierarchical") { setActiveLayout("hierarchical"); graphCanvasRef.current?.setLayout("hierarchical"); }
+                  else if (label === "Radial") { setActiveLayout("radial"); graphCanvasRef.current?.setLayout("radial"); }
+                  else if (label === "Fit") { graphCanvasRef.current?.fit(); }
+                };
                 return (
-                  <button key={label} className={`inline-flex h-8 items-center gap-1 border-r border-[var(--b0)] px-3 text-[11px] ${index === 0 ? "bg-[var(--t0)] text-[var(--s0)]" : "text-[var(--t2)] hover:bg-[var(--s1)] hover:text-[var(--t0)]"}`}>
+                  <button
+                    key={label}
+                    onClick={handleClick}
+                    className={`inline-flex h-8 items-center gap-1 border-r border-[var(--b0)] px-3 text-[11px] transition-colors last:border-r-0 ${isActive ? "bg-[var(--t0)] text-[var(--s0)]" : "text-[var(--t2)] hover:bg-[var(--s1)] hover:text-[var(--t0)]"}`}
+                  >
                     <Comp className="h-3.5 w-3.5" /> {label}
                   </button>
                 );
               })}
             </div>
+
+            {/* Sparse-data / incomplete indexing banner */}
+            {graphLooksSparse && (
+              <div
+                className="absolute left-1/2 top-14 z-10 -translate-x-1/2 w-[520px] rounded-[12px] p-4"
+                style={{ background: "var(--s0)", border: "1px solid var(--amber-b)", boxShadow: "0 4px 24px rgba(0,0,0,0.12)" }}
+              >
+                <div className="mb-3 flex items-start gap-3">
+                  <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px]" style={{ background: "var(--amber-l)" }}>
+                    <span style={{ color: "var(--amber)", fontSize: 16 }}>⚠</span>
+                  </div>
+                  <div>
+                    <div className="text-[13px] font-semibold" style={{ color: "var(--t0)" }}>
+                      Only {graph.nodes.length} nodes returned — indexing may be incomplete
+                    </div>
+                    <div className="mt-1 text-[11px] leading-5" style={{ color: "var(--t2)" }}>
+                      Neo4j has very few nodes for this repo. This usually means the indexing only stored top-level folders
+                      but didn't complete. Re-index to fix this.
+                    </div>
+                  </div>
+                </div>
+
+                {/* Diagnostics */}
+                <div className="mb-3 rounded-[8px] px-3 py-2 text-[11px]" style={{ background: "var(--s1)" }}>
+                  <div className="flex justify-between py-0.5">
+                    <span style={{ color: "var(--t2)" }}>repoId</span>
+                    <span className="font-mono" style={{ color: "var(--t0)" }}>{repoId || "—"}</span>
+                  </div>
+                  <div className="flex justify-between py-0.5">
+                    <span style={{ color: "var(--t2)" }}>project path</span>
+                    <span className="max-w-[300px] truncate font-mono" style={{ color: "var(--t0)" }}>{repoRoot || "not set"}</span>
+                  </div>
+                  <div className="flex justify-between py-0.5">
+                    <span style={{ color: "var(--t2)" }}>nodes in Neo4j</span>
+                    <span className="font-mono" style={{ color: "var(--amber)" }}>{graph.nodes.length} (expected hundreds+)</span>
+                  </div>
+                </div>
+
+                <div className="flex gap-2">
+                  {repoRoot ? (
+                    <button
+                      className="inline-flex h-9 flex-1 items-center justify-center gap-2 rounded-[8px] text-[12px] font-semibold disabled:opacity-60"
+                      style={{ background: "var(--t0)", color: "var(--s0)" }}
+                      onClick={handleReIndex}
+                      disabled={reIndexing}
+                    >
+                      {reIndexing ? (
+                        <><RefreshCw className="h-3.5 w-3.5 animate-spin" /> Re-indexing…</>
+                      ) : (
+                        <><RefreshCw className="h-3.5 w-3.5" /> Re-index &amp; reload graph</>
+                      )}
+                    </button>
+                  ) : (
+                    <a
+                      href="/indexing"
+                      className="inline-flex h-9 flex-1 items-center justify-center gap-2 rounded-[8px] text-[12px] font-semibold"
+                      style={{ background: "var(--t0)", color: "var(--s0)" }}
+                    >
+                      Go to Indexing page →
+                    </a>
+                  )}
+                  <button
+                    className="inline-flex h-9 items-center rounded-[8px] px-3 text-[12px]"
+                    style={{ border: "1px solid var(--b2)", color: "var(--t2)" }}
+                    onClick={() => setShowReIndexPanel(false)}
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div className="absolute left-3 top-3 z-10 rounded-[10px] border border-[var(--b1)] bg-[var(--s0)] p-3 text-[11px] text-[var(--t2)]">
               <div className="mb-2 text-[9px] font-medium uppercase tracking-[0.07em] text-[var(--t3)]">
@@ -929,9 +1104,9 @@ function GraphExplorerPage() {
             </div>
 
             <div className="absolute right-3 top-3 z-10 overflow-hidden rounded-[10px] border border-[var(--b1)] bg-[var(--s0)]">
-              <button className="grid h-8 w-8 place-items-center border-b border-[var(--b0)] text-[var(--t1)] hover:bg-[var(--s1)]"><Plus className="h-4 w-4" /></button>
-              <button className="grid h-8 w-8 place-items-center border-b border-[var(--b0)] text-[var(--t1)] hover:bg-[var(--s1)]"><Minus className="h-4 w-4" /></button>
-              <button className="grid h-8 w-8 place-items-center text-[var(--t1)] hover:bg-[var(--s1)]"><Square className="h-3.5 w-3.5" /></button>
+              <button onClick={() => graphCanvasRef.current?.zoomIn()}  className="grid h-8 w-8 place-items-center border-b border-[var(--b0)] text-[var(--t1)] hover:bg-[var(--s1)] active:bg-[var(--s2)]"><Plus  className="h-4 w-4" /></button>
+              <button onClick={() => graphCanvasRef.current?.zoomOut()} className="grid h-8 w-8 place-items-center border-b border-[var(--b0)] text-[var(--t1)] hover:bg-[var(--s1)] active:bg-[var(--s2)]"><Minus className="h-4 w-4" /></button>
+              <button onClick={() => graphCanvasRef.current?.fit()}     className="grid h-8 w-8 place-items-center text-[var(--t1)] hover:bg-[var(--s1)] active:bg-[var(--s2)]" title="Fit all nodes"><Square className="h-3.5 w-3.5" /></button>
             </div>
 
             <div className="absolute bottom-3 right-3 z-10 rounded-[10px] border border-[var(--b1)] bg-[var(--s0)] p-3 text-[11px] text-[var(--t2)]">
@@ -944,11 +1119,41 @@ function GraphExplorerPage() {
             {loading ? (
               <div className="grid h-full place-items-center text-[var(--t2)]">Loading graph from backend…</div>
             ) : filteredNodes.length === 0 ? (
-              <div className="grid h-full place-items-center px-10 text-center text-[var(--t2)]">
-                {repoId ? "No graph nodes matched the current filters." : "Run indexing first so the graph page can load the last repoId from session."}
+              <div className="grid h-full place-items-center px-10 text-center">
+                <div className="max-w-[340px]">
+                  <div className="mb-3 text-[var(--t2)] text-[13px]">
+                    {repoId ? "No graph nodes matched the current filters." : "Run indexing first so the graph page can load the last repoId from session."}
+                  </div>
+                  {/* Diagnostic block */}
+                  <div className="rounded-[10px] border border-[var(--b1)] bg-[var(--s0)] p-4 text-left text-[11px]">
+                    <div className="mb-2 text-[10px] font-medium uppercase tracking-[0.07em] text-[var(--t3)]">Session diagnostics</div>
+                    <div className="flex justify-between border-b border-[var(--b0)] py-1.5">
+                      <span className="text-[var(--t2)]">repoId</span>
+                      <span className="font-mono text-[var(--t0)]">{repoId || "—"}</span>
+                    </div>
+                    <div className="flex justify-between border-b border-[var(--b0)] py-1.5">
+                      <span className="text-[var(--t2)]">baseUrl</span>
+                      <span className="font-mono text-[var(--t0)]">{baseUrl || "(empty = same origin)"}</span>
+                    </div>
+                    <div className="flex justify-between border-b border-[var(--b0)] py-1.5">
+                      <span className="text-[var(--t2)]">limit</span>
+                      <span className="font-mono text-[var(--t0)]">{nodeLimit}</span>
+                    </div>
+                    <div className="flex justify-between py-1.5">
+                      <span className="text-[var(--t2)]">raw nodes returned</span>
+                      <span className="font-mono text-[var(--t0)]">{graph.nodes.length}</span>
+                    </div>
+                  </div>
+                  {graph.nodes.length > 0 && (
+                    <div className="mt-3 rounded-[8px] border border-[var(--amber-b)] bg-[var(--amber-l)] px-3 py-2 text-[11px] text-[var(--amber)]">
+                      {graph.nodes.length} node{graph.nodes.length !== 1 ? "s" : ""} loaded but all filtered out — check Edge types and Node types filters in the left sidebar.
+                    </div>
+                  )}
+                </div>
               </div>
             ) : (
               <ExplorerGraphCanvas
+                ref={graphCanvasRef}
                 nodes={topView === "tour" ? filteredNodes.filter((n) => n.kind === "file" || n.kind === "folder") : filteredNodes}
                 edges={topView === "tour" ? filteredEdges.filter((e) => {
                   const fromNode = filteredNodes.find((n) => String(n.id) === String(e.from));
@@ -956,9 +1161,22 @@ function GraphExplorerPage() {
                   return (fromNode?.kind === "file" || fromNode?.kind === "folder") && (toNode?.kind === "file" || toNode?.kind === "folder");
                 }) : filteredEdges}
                 selectedNodeId={selectedNode ? String(selectedNode.id) : null}
-                onNodeClick={(node) => {
-                  setSelectedNodeId(String(node.id));
-                  if (mode === "select") setTab("detail");
+                selectedNodeIds={selectedNodeIds}
+                onNodeClick={(node, event) => {
+                  const id = String(node.id);
+                  if (event?.ctrlKey || event?.metaKey) {
+                    // Ctrl/Cmd+click: toggle multi-select, keep primary selected
+                    setSelectedNodeIds(prev =>
+                      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+                    );
+                    // Also add to AI context
+                    setTab("ai");
+                  } else {
+                    // Normal click: single select, clear multi
+                    setSelectedNodeId(id);
+                    setSelectedNodeIds([id]);
+                    if (mode === "select") setTab("detail");
+                  }
                 }}
                 mode={mode}
                 pathNodeIds={currentPath}
@@ -1205,10 +1423,51 @@ function GraphExplorerPage() {
 
             {tab === "ai" && (
               <div className="flex flex-1 flex-col overflow-hidden">
-                <div className="border-b border-[var(--b0)] bg-[var(--s1)] px-3 py-2 text-[10px] uppercase tracking-[0.07em] text-[var(--t3)]">
-                  Context {selectedNode ? `· ${selectedNode.displayLabel}` : ""}
+                {/* Context header — shows all selected nodes as chips */}
+                <div className="border-b border-[var(--b0)] bg-[var(--s1)] px-3 py-2">
+                  <div className="mb-1.5 text-[10px] font-medium uppercase tracking-[0.07em] text-[var(--t3)]">
+                    AI Context
+                    {selectedNodeIds.length > 1 && (
+                      <span className="ml-2 rounded-full px-1.5 py-0.5 text-[9px]" style={{ background: "var(--amber-l)", color: "var(--amber)" }}>
+                        {selectedNodeIds.length} nodes
+                      </span>
+                    )}
+                  </div>
+                  {selectedNodeIds.length > 0 ? (
+                    <div className="flex flex-wrap gap-1">
+                      {selectedNodeIds.slice(0, 8).map(id => {
+                        const n = filteredNodes.find(x => String(x.id) === id);
+                        if (!n) return null;
+                        const color = n.kind === "folder" ? "var(--purple)" : n.kind === "file" ? "var(--blue)" : n.kind === "class" ? "var(--amber)" : "var(--green)";
+                        const bg = n.kind === "folder" ? "var(--purple-l)" : n.kind === "file" ? "var(--blue-l)" : n.kind === "class" ? "var(--amber-l)" : "var(--green-l)";
+                        return (
+                          <div key={id} className="inline-flex items-center gap-1 rounded-[4px] px-2 py-0.5 text-[10px] font-mono"
+                            style={{ background: bg, color, border: `1px solid ${color}` }}>
+                            <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />
+                            {n.displayLabel}
+                            <button className="ml-0.5 opacity-60 hover:opacity-100"
+                              onClick={() => setSelectedNodeIds(prev => prev.filter(x => x !== id))}>×</button>
+                          </div>
+                        );
+                      })}
+                      {selectedNodeIds.length > 8 && (
+                        <span className="text-[10px] text-[var(--t3)]">+{selectedNodeIds.length - 8} more</span>
+                      )}
+                      {selectedNodeIds.length > 1 && (
+                        <button className="ml-auto text-[10px] text-[var(--t3)] hover:text-[var(--t0)]"
+                          onClick={() => setSelectedNodeIds(selectedNode ? [String(selectedNode.id)] : [])}>
+                          Clear multi
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-[10px] text-[var(--t3)]">
+                      Click a node to add context · Ctrl+click to add multiple
+                    </div>
+                  )}
                 </div>
-                 <div className="flex-1 overflow-y-auto p-3">
+
+                <div className="flex-1 overflow-y-auto p-3">
                     <div className="space-y-3">
                       {chatMessages.map((message) => (
                         <div key={message.id} className={`max-w-[92%] rounded-[8px] px-3 py-2 text-[11px] leading-6 ${message.role === "user" ? "ml-auto bg-[var(--s2)]" : "border border-[var(--teal-b)] bg-[var(--teal-l)]"}`}>
