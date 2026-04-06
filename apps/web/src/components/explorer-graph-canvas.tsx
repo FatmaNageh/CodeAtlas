@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, forwardRef, useImperativeHandle } from "react";
+import { useEffect, useMemo, useRef, forwardRef, useImperativeHandle, forwardRef, useImperativeHandle } from "react";
 import * as d3 from "d3";
 import type { Neo4jEdge, Neo4jNode } from "@/components/Neo4jGraph";
 
