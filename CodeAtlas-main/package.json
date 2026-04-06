@@ -1,0 +1,90 @@
+{
+  "name": "codeatlas-extension",
+  "displayName": "CodeAtlas",
+  "description": "Knowledge graph explorer + AI chat for your codebase",
+  "version": "0.1.0",
+  "publisher": "codeatlas",
+  "icon": "src/media/icon.jpeg",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other",
+    "Visualization"
+  ],
+  "activationEvents": [
+    "onCommand:codeatlas.openGraph",
+    "onView:codeatlas.chatView"
+  ],
+  "main": "./dist/extension.cjs",
+  "type": "commonjs",
+  "contributes": {
+    "commands": [
+      {
+        "command": "codeatlas.openGraph",
+        "title": "CodeAtlas: Open Knowledge Graph",
+        "icon": "$(graph)"
+      },
+      {
+        "command": "codeatlas.configure",
+        "title": "CodeAtlas: Configure Server & Repo ID"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "codeatlasContainer",
+          "title": "CodeAtlas",
+          "icon": "$(graph-line)"
+        }
+      ]
+    },
+    "views": {
+      "codeatlasContainer": [
+        {
+          "id": "codeatlas.chatView",
+          "name": "AI Chat",
+          "type": "webview"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "codeatlas.openGraph",
+          "when": "view == codeatlas.chatView",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "CodeAtlas",
+      "properties": {
+        "codeatlas.serverUrl": {
+          "type": "string",
+          "default": "http://localhost:3000",
+          "description": "URL of the CodeAtlas backend server"
+        },
+        "codeatlas.repoId": {
+          "type": "string",
+          "default": "",
+          "description": "Repository ID to load (from your indexing run)"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "esbuild src/extension.ts --bundle --platform=node --format=cjs --outfile=dist/extension.cjs --external:vscode",
+    "watch": "esbuild src/extension.ts --bundle --platform=node --format=cjs --outfile=dist/extension.cjs --external:vscode --watch",
+    "package": "vsce package",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.11",
+    "@types/vscode": "^1.90.0",
+    "@vscode/vsce": "^3.0.0",
+    "esbuild": "^0.25.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.7.3"
+  }
+}

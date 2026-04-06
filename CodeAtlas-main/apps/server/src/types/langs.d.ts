@@ -1,0 +1,1 @@
+export type langs = 'javascript' | 'python' | 'java' | 'c' | 'cpp' | 'go' | 'ruby' | 'php' | 'typescript' | 'csharp' | 'swift' | 'kotlin' | 'rust' | 'scala' | 'haskell' | 'lua' | 'perl' | 'r' | 'dart' | 'elixir' | 'clojure' | 'erlang' | 'fsharp' | 'groovy' | 'objectivec' ;
