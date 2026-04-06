@@ -1,0 +1,427 @@
+{
+  "version": 1,
+  "repoRoot": "C:\\Users\\hp\\OneDrive\\Desktop\\codeAtlas\\example_files",
+  "scannedAt": "2026-01-24T12:14:16.156Z",
+  "files": {
+    "fzf-master/main.go": {
+      "mtimeMs": 1769083982223.996,
+      "size": 2078
+    },
+    "fzf-master/src/actiontype_string.go": {
+      "mtimeMs": 1763330836663.0208,
+      "size": 8796
+    },
+    "fzf-master/src/algo/algo.go": {
+      "mtimeMs": 1763330836664.5725,
+      "size": 29352
+    },
+    "fzf-master/src/algo/algo_test.go": {
+      "mtimeMs": 1763330836664.5725,
+      "size": 9368
+    },
+    "fzf-master/src/algo/normalize.go": {
+      "mtimeMs": 1763330836666.045,
+      "size": 24579
+    },
+    "fzf-master/src/ansi.go": {
+      "mtimeMs": 1763330836666.045,
+      "size": 12201
+    },
+    "fzf-master/src/ansi_test.go": {
+      "mtimeMs": 1763330836668.599,
+      "size": 12185
+    },
+    "fzf-master/src/cache.go": {
+      "mtimeMs": 1763330836668.599,
+      "size": 1967
+    },
+    "fzf-master/src/cache_test.go": {
+      "mtimeMs": 1763330836669.5957,
+      "size": 898
+    },
+    "fzf-master/src/chunklist.go": {
+      "mtimeMs": 1763330836669.5957,
+      "size": 3185
+    },
+    "fzf-master/src/chunklist_test.go": {
+      "mtimeMs": 1763330836670.9844,
+      "size": 2956
+    },
+    "fzf-master/src/constants.go": {
+      "mtimeMs": 1763330836672.4565,
+      "size": 1870
+    },
+    "fzf-master/src/core.go": {
+      "mtimeMs": 1763330836673.9666,
+      "size": 14199
+    },
+    "fzf-master/src/functions.go": {
+      "mtimeMs": 1763330836673.9666,
+      "size": 710
+    },
+    "fzf-master/src/history.go": {
+      "mtimeMs": 1763330836674.977,
+      "size": 2166
+    },
+    "fzf-master/src/history_test.go": {
+      "mtimeMs": 1763330836675.9758,
+      "size": 1574
+    },
+    "fzf-master/src/item.go": {
+      "mtimeMs": 1763330836675.9758,
+      "size": 1514
+    },
+    "fzf-master/src/item_test.go": {
+      "mtimeMs": 1763330836676.9834,
+      "size": 507
+    },
+    "fzf-master/src/matcher.go": {
+      "mtimeMs": 1763330836677.9934,
+      "size": 6632
+    },
+    "fzf-master/src/merger.go": {
+      "mtimeMs": 1763330836679.003,
+      "size": 4253
+    },
+    "fzf-master/src/merger_test.go": {
+      "mtimeMs": 1763330836680.004,
+      "size": 2140
+    },
+    "fzf-master/src/options.go": {
+      "mtimeMs": 1763330836682.7146,
+      "size": 108007
+    },
+    "fzf-master/src/options_no_pprof.go": {
+      "mtimeMs": 1763330836682.7146,
+      "size": 345
+    },
+    "fzf-master/src/options_pprof.go": {
+      "mtimeMs": 1763330836683.7185,
+      "size": 1701
+    },
+    "fzf-master/src/options_pprof_test.go": {
+      "mtimeMs": 1763330836683.7185,
+      "size": 2158
+    },
+    "fzf-master/src/options_test.go": {
+      "mtimeMs": 1763330836685.747,
+      "size": 15539
+    },
+    "fzf-master/src/pattern.go": {
+      "mtimeMs": 1763330836687.2676,
+      "size": 12355
+    },
+    "fzf-master/src/pattern_test.go": {
+      "mtimeMs": 1763330836687.2676,
+      "size": 8364
+    },
+    "fzf-master/src/protector/protector.go": {
+      "mtimeMs": 1763330836688.3428,
+      "size": 128
+    },
+    "fzf-master/src/protector/protector_openbsd.go": {
+      "mtimeMs": 1763330836689.743,
+      "size": 239
+    },
+    "fzf-master/src/proxy.go": {
+      "mtimeMs": 1763330836690.9417,
+      "size": 4317
+    },
+    "fzf-master/src/proxy_unix.go": {
+      "mtimeMs": 1763330836691.9177,
+      "size": 731
+    },
+    "fzf-master/src/proxy_windows.go": {
+      "mtimeMs": 1763330836691.9177,
+      "size": 1643
+    },
+    "fzf-master/src/reader.go": {
+      "mtimeMs": 1763330836693.9175,
+      "size": 8707
+    },
+    "fzf-master/src/reader_test.go": {
+      "mtimeMs": 1763330836694.4348,
+      "size": 1477
+    },
+    "fzf-master/src/result.go": {
+      "mtimeMs": 1763330836695.4473,
+      "size": 8427
+    },
+    "fzf-master/src/result_others.go": {
+      "mtimeMs": 1763330836695.4473,
+      "size": 354
+    },
+    "fzf-master/src/result_test.go": {
+      "mtimeMs": 1763330836696.992,
+      "size": 6684
+    },
+    "fzf-master/src/result_x86.go": {
+      "mtimeMs": 1763330836696.992,
+      "size": 380
+    },
+    "fzf-master/src/server.go": {
+      "mtimeMs": 1763330836698.5022,
+      "size": 7025
+    },
+    "fzf-master/src/terminal.go": {
+      "mtimeMs": 1763330836700.574,
+      "size": 205374
+    },
+    "fzf-master/src/terminal_test.go": {
+      "mtimeMs": 1763330836703.1487,
+      "size": 30082
+    },
+    "fzf-master/src/terminal_unix.go": {
+      "mtimeMs": 1763330836703.8328,
+      "size": 377
+    },
+    "fzf-master/src/terminal_windows.go": {
+      "mtimeMs": 1763330836703.8328,
+      "size": 173
+    },
+    "fzf-master/src/tmux.go": {
+      "mtimeMs": 1763330836706.0078,
+      "size": 2199
+    },
+    "fzf-master/src/tokenizer.go": {
+      "mtimeMs": 1763330836708.0337,
+      "size": 7469
+    },
+    "fzf-master/src/tokenizer_test.go": {
+      "mtimeMs": 1763330836709.0344,
+      "size": 3167
+    },
+    "fzf-master/src/tui/dummy.go": {
+      "mtimeMs": 1763330836710.0354,
+      "size": 1991
+    },
+    "fzf-master/src/tui/eventtype_string.go": {
+      "mtimeMs": 1763330836711.0334,
+      "size": 6060
+    },
+    "fzf-master/src/tui/light.go": {
+      "mtimeMs": 1763330836712.0327,
+      "size": 35552
+    },
+    "fzf-master/src/tui/light_test.go": {
+      "mtimeMs": 1763330836712.0327,
+      "size": 12955
+    },
+    "fzf-master/src/tui/light_unix.go": {
+      "mtimeMs": 1763330836713.5422,
+      "size": 3111
+    },
+    "fzf-master/src/tui/light_windows.go": {
+      "mtimeMs": 1763330836714.0664,
+      "size": 5444
+    },
+    "fzf-master/src/tui/tcell.go": {
+      "mtimeMs": 1763330836715.11,
+      "size": 25309
+    },
+    "fzf-master/src/tui/tcell_test.go": {
+      "mtimeMs": 1763330836716.1118,
+      "size": 24278
+    },
+    "fzf-master/src/tui/ttyname_unix.go": {
+      "mtimeMs": 1763330836717.4756,
+      "size": 1032
+    },
+    "fzf-master/src/tui/ttyname_windows.go": {
+      "mtimeMs": 1763330836717.4756,
+      "size": 325
+    },
+    "fzf-master/src/tui/tui.go": {
+      "mtimeMs": 1763330836718.4763,
+      "size": 32482
+    },
+    "fzf-master/src/tui/tui_test.go": {
+      "mtimeMs": 1763330836719.5623,
+      "size": 419
+    },
+    "fzf-master/src/util/atexit.go": {
+      "mtimeMs": 1763330836720.561,
+      "size": 582
+    },
+    "fzf-master/src/util/atexit_test.go": {
+      "mtimeMs": 1763330836720.561,
+      "size": 476
+    },
+    "fzf-master/src/util/atomicbool.go": {
+      "mtimeMs": 1763330836721.5608,
+      "size": 782
+    },
+    "fzf-master/src/util/atomicbool_test.go": {
+      "mtimeMs": 1763330836722.563,
+      "size": 318
+    },
+    "fzf-master/src/util/chars.go": {
+      "mtimeMs": 1763330836724.0725,
+      "size": 7271
+    },
+    "fzf-master/src/util/chars_test.go": {
+      "mtimeMs": 1763330836725.0872,
+      "size": 2221
+    },
+    "fzf-master/src/util/concurrent_set.go": {
+      "mtimeMs": 1763330836725.0872,
+      "size": 890
+    },
+    "fzf-master/src/util/eventbox.go": {
+      "mtimeMs": 1763330836726.085,
+      "size": 2056
+    },
+    "fzf-master/src/util/eventbox_test.go": {
+      "mtimeMs": 1763330836726.085,
+      "size": 959
+    },
+    "fzf-master/src/util/slab.go": {
+      "mtimeMs": 1763330836727.3564,
+      "size": 197
+    },
+    "fzf-master/src/util/util.go": {
+      "mtimeMs": 1763330836727.3564,
+      "size": 4489
+    },
+    "fzf-master/src/util/util_test.go": {
+      "mtimeMs": 1763330836728.5425,
+      "size": 5231
+    },
+    "fzf-master/src/util/util_unix.go": {
+      "mtimeMs": 1763330836729.5618,
+      "size": 2322
+    },
+    "fzf-master/src/util/util_windows.go": {
+      "mtimeMs": 1763330836729.5618,
+      "size": 5062
+    },
+    "fzf-master/src/winpty.go": {
+      "mtimeMs": 1763330836730.8367,
+      "size": 219
+    },
+    "fzf-master/src/winpty_windows.go": {
+      "mtimeMs": 1763330836732.033,
+      "size": 1861
+    },
+    "fzf-master/test/lib/common.rb": {
+      "mtimeMs": 1763330836733.7085,
+      "size": 5479
+    },
+    "fzf-master/test/runner.rb": {
+      "mtimeMs": 1763330836734.7693,
+      "size": 121
+    },
+    "fzf-master/test/test_core.rb": {
+      "mtimeMs": 1763330836735.7695,
+      "size": 79591
+    },
+    "fzf-master/test/test_exec.rb": {
+      "mtimeMs": 1763330836737.7808,
+      "size": 15880
+    },
+    "fzf-master/test/test_filter.rb": {
+      "mtimeMs": 1763330836739.7834,
+      "size": 9238
+    },
+    "fzf-master/test/test_layout.rb": {
+      "mtimeMs": 1763330836740.7822,
+      "size": 51722
+    },
+    "fzf-master/test/test_preview.rb": {
+      "mtimeMs": 1763330836742.1377,
+      "size": 23334
+    },
+    "fzf-master/test/test_raw.rb": {
+      "mtimeMs": 1763330836742.1377,
+      "size": 2883
+    },
+    "fzf-master/test/test_server.rb": {
+      "mtimeMs": 1763330836743.6448,
+      "size": 2252
+    },
+    "fzf-master/test/test_shell_integration.rb": {
+      "mtimeMs": 1763330836744.6536,
+      "size": 16491
+    },
+    "project/cPlusPlusFile.cpp": {
+      "mtimeMs": 1763330836747.5198,
+      "size": 421
+    },
+    "project/javaProject/Admin.java": {
+      "mtimeMs": 1763330836748.5193,
+      "size": 21081
+    },
+    "project/javaProject/Bookings.java": {
+      "mtimeMs": 1763330836750.5183,
+      "size": 8796
+    },
+    "project/javaProject/Guest.java": {
+      "mtimeMs": 1763330836755.5066,
+      "size": 4494
+    },
+    "project/javaProject/Hall.java": {
+      "mtimeMs": 1763330836758.0432,
+      "size": 727
+    },
+    "project/javaProject/Main.java": {
+      "mtimeMs": 1763330836759.0762,
+      "size": 88234
+    },
+    "project/javaProject/Movies.java": {
+      "mtimeMs": 1763330836763.8838,
+      "size": 6713
+    },
+    "project/javaProject/MySkin.java": {
+      "mtimeMs": 1763330836764.9,
+      "size": 635
+    },
+    "project/javaProject/Receptionist.java": {
+      "mtimeMs": 1763330836765.8943,
+      "size": 10306
+    },
+    "project/javaProject/Role.java": {
+      "mtimeMs": 1763330836765.8943,
+      "size": 77
+    },
+    "project/javaProject/Seat.java": {
+      "mtimeMs": 1763330836767.6396,
+      "size": 633
+    },
+    "project/javaProject/Shows.java": {
+      "mtimeMs": 1763330836769.6863,
+      "size": 4842
+    },
+    "project/javaProject/ShowsControler.java": {
+      "mtimeMs": 1763330836770.8142,
+      "size": 862
+    },
+    "project/javaProject/User.java": {
+      "mtimeMs": 1763330836775.3474,
+      "size": 2226
+    },
+    "project/javaProject/User_managment.java": {
+      "mtimeMs": 1763330836775.3474,
+      "size": 482
+    },
+    "project/main.js": {
+      "mtimeMs": 1762036614605.6924,
+      "size": 129
+    },
+    "project/pythonFile.py": {
+      "mtimeMs": 1763330836779.1123,
+      "size": 211
+    },
+    "project/utils.js": {
+      "mtimeMs": 1762036614606.7007,
+      "size": 105
+    },
+    "simple_js_project/index.js": {
+      "mtimeMs": 1769112369385.8323,
+      "size": 154
+    },
+    "simple_js_project/source.js": {
+      "mtimeMs": 1769112350365.5479,
+      "size": 105
+    }
+  }
+}

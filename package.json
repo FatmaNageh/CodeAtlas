@@ -1,0 +1,38 @@
+{
+  "name": "CodeAtlas",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "check-types": "turbo check-types",
+    "dev:native": "turbo -F native dev",
+    "dev:web": "turbo -F web dev",
+    "dev:server": "turbo -F server dev",
+    "db:push": "turbo -F @CodeAtlas/db db:push",
+    "db:studio": "turbo -F @CodeAtlas/db db:studio",
+    "db:generate": "turbo -F @CodeAtlas/db db:generate",
+    "db:migrate": "turbo -F @CodeAtlas/db db:migrate"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.90.20",
+    "@tanstack/react-query-devtools": "^5.91.2",
+    "@tanstack/react-router-devtools": "^1.157.16",
+    "@trpc/client": "catalog:",
+    "@trpc/tanstack-react-query": "^11.9.0",
+    "class-variance-authority": "^0.7.1",
+    "dotenv": "^17.2.2",
+    "tailwind-merge": "^3.4.0",
+    "zod": "^4.1.11"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.11",
+    "tsdown": "^0.15.5",
+    "turbo": "^2.5.4"
+  },
+  "packageManager": "pnpm@10.21.0"
+}
