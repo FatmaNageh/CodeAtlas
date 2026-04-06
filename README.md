@@ -62,6 +62,7 @@ CodeAtlas/
 ├── apps/
 │   ├── web/         # Frontend application (React + TanStack Router)
 │   └── server/      # Backend API (Hono, TRPC)
+│   └── extension/      
 ├── packages/
 │   ├── api/         # API layer / business logic
 │   └── db/          # Database schema & queries
