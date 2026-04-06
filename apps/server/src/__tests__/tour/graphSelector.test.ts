@@ -25,12 +25,12 @@ describe('clampTourLimit', () => {
     expect(clampTourLimit(undefined)).toBe(12);
   });
 
-  it('clamps lower values to 10', () => {
-    expect(clampTourLimit(3)).toBe(10);
+  it('clamps lower values to 5', () => {
+    expect(clampTourLimit(3)).toBe(5);
   });
 
-  it('clamps upper values to 15', () => {
-    expect(clampTourLimit(100)).toBe(15);
+  it('clamps upper values to 20', () => {
+    expect(clampTourLimit(100)).toBe(20);
   });
 });
 
@@ -69,10 +69,10 @@ describe('selectGraphTour', () => {
     );
 
     const maxResult = selectGraphTour(metrics, 100);
-    expect(maxResult).toHaveLength(15);
+    expect(maxResult).toHaveLength(20);
 
     const minResult = selectGraphTour(metrics, 1);
-    expect(minResult).toHaveLength(10);
+    expect(minResult).toHaveLength(5);
   });
 
   it('never includes more files than available', () => {
