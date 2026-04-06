@@ -289,6 +289,7 @@ function GraphExplorerPage() {
   const [tourIndex, setTourIndex] = useState(0);
   const [tourLoading, setTourLoading] = useState(false);
   const [tourError, setTourError] = useState<string>("");
+  const [topFilesCount, setTopFilesCount] = useState(12);
   const pendingContextFilesRef = useRef<string[]>([]);
 
   const loadTour = async () => {
@@ -299,7 +300,7 @@ function GraphExplorerPage() {
     setTourLoading(true);
     setTourError("");
     try {
-      const data = await fetchTour(repoId.trim(), baseUrl, 12);
+      const data = await fetchTour(repoId.trim(), baseUrl, topFilesCount);
       setTourData(data);
       setTourIndex(0);
     } catch (error) {
@@ -1295,8 +1296,41 @@ function GraphExplorerPage() {
                         </>
                       )}
                     </button>
+                    <div className="flex flex-col items-center gap-3">
+                      <div className="flex items-center justify-center gap-3">
+                        <button
+                          className="flex h-6 w-6 items-center justify-center rounded-[4px] border border-[var(--b1)] bg-[var(--s1)] text-[var(--t2)] hover:bg-[var(--s2)] disabled:cursor-not-allowed disabled:opacity-50"
+                          onClick={() => setTopFilesCount((prev) => Math.max(5, prev - 1))}
+                          disabled={topFilesCount <= 5}
+                        >
+                          <Minus className="h-3 w-3" />
+                        </button>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[12px] font-medium text-[var(--t1)]">Top</span>
+                          <span className="flex h-7 min-w-[32px] items-center justify-center rounded-[4px] bg-[var(--blue-l)] px-2 text-[13px] font-medium text-[var(--blue)]">
+                            {topFilesCount}
+                          </span>
+                          <span className="text-[12px] font-medium text-[var(--t1)]">files</span>
+                        </div>
+                        <button
+                          className="flex h-6 w-6 items-center justify-center rounded-[4px] border border-[var(--b1)] bg-[var(--s1)] text-[var(--t2)] hover:bg-[var(--s2)] disabled:cursor-not-allowed disabled:opacity-50"
+                          onClick={() => setTopFilesCount((prev) => Math.min(20, prev + 1))}
+                          disabled={topFilesCount >= 20}
+                        >
+                          <Plus className="h-3 w-3" />
+                        </button>
+                      </div>
+                      <input
+                        type="range"
+                        min={5}
+                        max={20}
+                        value={topFilesCount}
+                        onChange={(e) => setTopFilesCount(Number(e.target.value))}
+                        className="h-2 w-[140px] cursor-pointer appearance-none rounded-full bg-[var(--b1)] accent-[var(--blue)]"
+                      />
+                    </div>
                     <p className="max-w-[240px] text-center text-[11px] leading-5 text-[var(--t2)]">
-                      Feature: The CodeAtlas tour feature gives you info for the top 12 important files
+                      Feature: The CodeAtlas tour feature gives you info for the top {topFilesCount} important files
                     </p>
                     {tourError && (
                       <div className="mt-2 rounded-[8px] border border-red-500/30 bg-red-500/10 p-3 text-[10px] text-red-200">

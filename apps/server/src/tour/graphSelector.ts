@@ -22,8 +22,8 @@ export interface GraphTourStepCandidate {
 }
 
 const DEFAULT_LIMIT = 12;
-const MIN_LIMIT = 10;
-const MAX_LIMIT = 15;
+const MIN_LIMIT = 5;
+const MAX_LIMIT = 20;
 
 export function clampTourLimit(limit: number | undefined): number {
   if (typeof limit !== 'number' || Number.isNaN(limit)) {
