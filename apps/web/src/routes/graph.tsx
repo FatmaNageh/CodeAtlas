@@ -598,9 +598,23 @@ function GraphExplorerPage() {
 
   useEffect(() => {
     if (topView !== "tour") return;
-    if (!activeTourFileNode) return;
-    setSelectedNodeId(String(activeTourFileNode.id));
-  }, [topView, activeTourFileNode]);
+    if (!activeTourStep) return;
+    const targetPath = normalizePathForMatch(activeTourStep.filePath);
+    const match = explorerNodes.find(
+      (node) => {
+        if (node.kind !== "file") return false;
+        const nodePath = normalizePathForMatch(getNodePath(node));
+        if (nodePath === targetPath) return true;
+        if (nodePath.endsWith(targetPath)) return true;
+        if (targetPath.endsWith(nodePath.split("/").pop() || "")) return true;
+        return false;
+      },
+    );
+    if (match) {
+      setSelectedNodeId(String(match.id));
+      if (mode === "select") setTab("detail");
+    }
+  }, [topView, activeTourStep, explorerNodes, mode]);
 
   const layoutOptions: Array<{ label: string; icon: any }> = [
     { label: "Force layout", icon: Sparkles },
@@ -966,6 +980,7 @@ function GraphExplorerPage() {
                 highlightNodeIds={highlightNodeIds}
                 tourHighlightNodeIds={topView === "tour" ? tourHighlightNodeIds : undefined}
                 activeTourNodeId={topView === "tour" ? activeTourNodeId : undefined}
+                topView={topView}
               />
             )}
           </div>

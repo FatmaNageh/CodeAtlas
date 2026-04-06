@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useCallback } from "react";
 import * as d3 from "d3";
 import type { Neo4jEdge, Neo4jNode } from "@/components/Neo4jGraph";
 
@@ -93,6 +93,7 @@ export function ExplorerGraphCanvas({
   highlightNodeIds,
   tourHighlightNodeIds,
   activeTourNodeId,
+  topView,
 }: {
   nodes: ExplorerNode[];
   edges: Neo4jEdge[];
@@ -103,9 +104,38 @@ export function ExplorerGraphCanvas({
   highlightNodeIds: string[];
   tourHighlightNodeIds?: string[];
   activeTourNodeId?: string | null;
+  topView?: string;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+  const zoomBehaviorRef = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null);
+  const simulationRef = useRef<d3.Simulation<SimNode, SimLink> | null>(null);
+  const nodePositionsRef = useRef<Map<string, { x: number; y: number }>>(new Map());
+
+  const zoomToNode = useCallback((nodeId: string, targetScale = 1.4) => {
+    if (!svgRef.current || !zoomBehaviorRef.current) return;
+    const pos = nodePositionsRef.current.get(nodeId);
+    if (!pos) return;
+    
+    const svg = d3.select(svgRef.current);
+    const { width, height } = containerRef.current?.getBoundingClientRect() ?? { width: 800, height: 600 };
+    
+    const transform = d3.zoomIdentity
+      .translate(width / 2, height / 2)
+      .scale(targetScale)
+      .translate(-pos.x, -pos.y);
+    
+    svg
+      .transition()
+      .duration(600)
+      .call(zoomBehaviorRef.current.transform, transform);
+  }, []);
+
+  useEffect(() => {
+    if (activeTourNodeId && topView === "tour") {
+      setTimeout(() => zoomToNode(activeTourNodeId, 1.4), 100);
+    }
+  }, [activeTourNodeId, zoomToNode, topView]);
 
   const prepared = useMemo(() => {
     const nodeMap = new Map(nodes.map((n) => [String(n.id), n]));
@@ -146,6 +176,8 @@ export function ExplorerGraphCanvas({
       .force("charge", d3.forceManyBody<SimNode>().strength(-520))
       .force("center", d3.forceCenter(width / 2, height / 2))
       .force("collide", d3.forceCollide<SimNode>().radius((d) => nodeRadius(d.kind) + 28));
+
+    simulationRef.current = simulation;
 
     const pathSet = new Set(pathNodeIds);
     const highlightSet = new Set(highlightNodeIds);
@@ -204,7 +236,7 @@ export function ExplorerGraphCanvas({
       .attr("stroke", (d) => (String(d.id) === activeTourId ? "#dc2626" : nodeStroke(d.kind)))
       .attr("stroke-width", (d) => {
         if (String(d.id) === selectedNodeId) return 3;
-        if (String(d.id) === activeTourId) return 2.5;
+        if (String(d.id) === activeTourId) return 3;
         if (pathSet.has(String(d.id)) || highlightSet.has(String(d.id))) return 2.5;
         return 1.4;
       })
@@ -237,7 +269,7 @@ export function ExplorerGraphCanvas({
       .attr("x", (d) => nodeRadius(d.kind) + 16)
       .attr("y", 5)
       .text((d) => trimLabel(d.displayLabel))
-      .attr("fill", (d) => (String(d.id) === activeTourId ? "#ef4444" : nodeStroke(d.kind)))
+      .attr("fill", (d) => (String(d.id) === activeTourId ? "#dc2626" : nodeStroke(d.kind)))
       .style("font-size", "11px")
       .style("font-family", "var(--mono)")
       .style("pointer-events", "none")
@@ -254,14 +286,20 @@ export function ExplorerGraphCanvas({
         .attr("y1", (d) => (d.source as SimNode).y ?? 0)
         .attr("x2", (d) => (d.target as SimNode).x ?? 0)
         .attr("y2", (d) => (d.target as SimNode).y ?? 0);
-      node.attr("transform", (d) => `translate(${d.x ?? 0},${d.y ?? 0})`);
+      node.attr("transform", (d) => {
+        nodePositionsRef.current.set(String(d.id), { x: d.x ?? 0, y: d.y ?? 0 });
+        return `translate(${d.x ?? 0},${d.y ?? 0})`;
+      });
     });
 
-    svg.call(
-      d3.zoom<SVGSVGElement, unknown>().scaleExtent([0.3, 3]).on("zoom", (event) => {
+    const zoomBehavior = d3.zoom<SVGSVGElement, unknown>()
+      .scaleExtent([0.3, 3])
+      .on("zoom", (event) => {
         g.attr("transform", event.transform.toString());
-      }),
-    );
+      });
+    
+    zoomBehaviorRef.current = zoomBehavior;
+    svg.call(zoomBehavior);
 
     return () => simulation.stop();
   }, [prepared, selectedNodeId, onNodeClick, mode, pathNodeIds, highlightNodeIds, tourHighlightNodeIds, activeTourNodeId]);
