@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, forwardRef, useImperativeHandle, forwardRef, useImperativeHandle } from "react";
+import { useEffect, useMemo, useRef, useCallback } from "react";
 import * as d3 from "d3";
 import type { Neo4jEdge, Neo4jNode } from "@/components/Neo4jGraph";
 
@@ -295,8 +296,10 @@ export const ExplorerGraphCanvas = forwardRef<GraphCanvasHandle, {
 
     svg.append("rect").attr("width", W).attr("height", H).attr("fill", `url(#${pid})`);
     const g = svg.append("g");
-
+    //idk man
     // ── Focus/dimming (only when multi-node focus is active) ────────────
+    simulationRef.current = simulation;
+
     const pathSet = new Set(pathNodeIds);
     const hlSet   = new Set(highlightNodeIds);
     const tourSet = new Set(tourHighlightNodeIds ?? []);
