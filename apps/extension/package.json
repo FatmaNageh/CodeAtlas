@@ -1,26 +1,42 @@
 {
   "name": "codeatlas-extension",
   "displayName": "CodeAtlas",
-  "description": "Graph + Chat for CodeAtlas",
-  "version": "0.0.1",
+  "description": "Knowledge graph explorer + AI chat \u2014 with embedded backend server manager",
+  "version": "0.2.0",
   "publisher": "codeatlas",
   "engines": {
     "vscode": "^1.90.0"
   },
   "categories": [
-    "Other"
+    "Other",
+    "Visualization"
+  ],
+  "activationEvents": [
+    "onCommand:codeatlas.openGraph",
+    "onView:codeatlas.chatView",
+    "workspaceContains:apps/server/package.json"
   ],
   "main": "./dist/extension.cjs",
   "type": "commonjs",
-  "activationEvents": [
-    "onCommand:codeatlas.openGraph",
-    "onView:codeatlas.chatView"
-  ],
   "contributes": {
     "commands": [
       {
         "command": "codeatlas.openGraph",
-        "title": "CodeAtlas: Open Graph"
+        "title": "CodeAtlas: Open Knowledge Graph",
+        "icon": "$(graph-line)"
+      },
+      {
+        "command": "codeatlas.configure",
+        "title": "CodeAtlas: Set Repo ID"
+      },
+      {
+        "command": "codeatlas.indexRepo",
+        "title": "CodeAtlas: Index a Repository",
+        "icon": "$(database)"
+      },
+      {
+        "command": "codeatlas.serverMenu",
+        "title": "CodeAtlas: Server Options"
       }
     ],
     "viewsContainers": {
@@ -28,7 +44,7 @@
         {
           "id": "codeatlasContainer",
           "title": "CodeAtlas",
-          "icon": "apps/extension/src/media/icon.jpeg"
+          "icon": "$(graph-line)"
         }
       ]
     },
@@ -36,24 +52,51 @@
       "codeatlasContainer": [
         {
           "id": "codeatlas.chatView",
-          "name": "Chat"
+          "name": "AI Chat",
+          "type": "webview"
         }
       ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "codeatlas.openGraph",
+          "when": "view == codeatlas.chatView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "codeatlas.indexRepo",
+          "when": "view == codeatlas.chatView",
+          "group": "navigation@2"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "CodeAtlas",
+      "properties": {
+        "codeatlas.serverUrl": {
+          "type": "string",
+          "default": "http://localhost:3000",
+          "description": "Fallback server URL (used when extension-managed server is not running)"
+        },
+        "codeatlas.repoId": {
+          "type": "string",
+          "default": "",
+          "description": "Repository ID returned by /indexRepo (12-char hex string)"
+        }
+      }
     }
   },
   "scripts": {
     "build": "esbuild src/extension.ts --bundle --platform=node --format=cjs --outfile=dist/extension.cjs --external:vscode",
     "watch": "esbuild src/extension.ts --bundle --platform=node --format=cjs --outfile=dist/extension.cjs --external:vscode --watch",
-    "lint": "node -e \"console.log('add eslint later')\"",
-    "dev": "concurrently \"pnpm watch\" \"pnpm -C ../graph-ui dev -- --watch\"",
-    "dev:extension": "pnpm watch",
-    "dev:graph-ui": "pnpm -C ../graph-ui dev -- --watch"
+    "package": "vsce package --no-dependencies"
   },
   "devDependencies": {
     "@types/node": "^22.13.11",
     "@types/vscode": "^1.90.0",
-    "concurrently": "^9.2.1",
     "esbuild": "^0.25.0",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "@vscode/vsce": "^3.0.0"
   }
 }

@@ -49,10 +49,11 @@ export function OnboardingWizard() {
   const [buildProgress, setBuildProgress] = useState(0);
   const [building, setBuilding] = useState(false);
   const [buildDone, setBuildDone] = useState(false);
+  const [buildError, setBuildError] = useState<string | null>(null);
   const [buildStats, setBuildStats] = useState({
-    files: "1,247 files",
-    nodes: "4,328 nodes",
-    relations: "12,441 / ~18k",
+    files: "—",
+    nodes: "—",
+    relations: "—",
   });
 
   const selectedRepo = useMemo(() => {
@@ -99,6 +100,8 @@ export function OnboardingWizard() {
       setStep(3);
       setBuilding(true);
       setBuildDone(false);
+      setBuildError(null);
+      setBuildStats({ files: "—", nodes: "—", relations: "—" });
 
       saveSession({
         baseUrl,
@@ -115,7 +118,51 @@ export function OnboardingWizard() {
         baseUrl,
       );
 
+      const fileCount =
+        result?.scanned?.processedFiles ??
+        result?.scanned?.totalFiles ??
+        result?.files ??
+        null;
+
+      const nodeCount =
+        result?.graph?.nodes ??
+        result?.metrics?.nodes ??
+        result?.nodes ??
+        null;
+
+      const edgeCount =
+        result?.graph?.edges ??
+        result?.metrics?.edges ??
+        result?.edges ??
+        null;
+
+      // Detect silent failure: backend returned 0 files (path not found / no supported files)
+      if (fileCount === 0 || fileCount === "0") {
+        setBuildProgress(100);
+        setBuildDone(true);
+        setBuilding(false);
+        setBuildStats({
+          files: "0 files",
+          nodes: nodeCount != null ? String(nodeCount) : "—",
+          relations: edgeCount != null ? String(edgeCount) : "—",
+        });
+        setBuildError(
+          `The backend found 0 source files at:\n"${selectedRepo.path}"\n\nThis usually means the path doesn't exist on the server or has no supported files (.ts, .js, .py, .java, etc.).\n\nGo back and enter the real absolute path to your project on the server machine.`,
+        );
+        toast.error("0 files indexed — check your project path");
+        return;
+      }
+
       const repoId = result?.repoId ?? result?.repo?.id ?? "";
+
+      if (!repoId) {
+        setBuildError("Indexing completed but no repoId was returned. Check the backend logs.");
+        setBuildProgress(100);
+        setBuildDone(true);
+        setBuilding(false);
+        return;
+      }
+
       saveSession({
         baseUrl,
         lastRepoId: repoId,
@@ -127,16 +174,17 @@ export function OnboardingWizard() {
       setBuilding(false);
 
       setBuildStats({
-        files: `${result?.scanned?.processedFiles ?? result?.scanned?.totalFiles ?? "1,247"} files`,
-        nodes: `${result?.graph?.nodes ?? result?.metrics?.nodes ?? "4,328"} nodes`,
-        relations: `${result?.graph?.edges ?? result?.metrics?.edges ?? "18,763"} relationships`,
+        files: fileCount != null ? `${fileCount} files` : "—",
+        nodes: nodeCount != null ? `${nodeCount} nodes` : "—",
+        relations: edgeCount != null ? `${edgeCount} relationships` : "—",
       });
 
-      toast.success("Graph build complete");
+      toast.success(`Graph built — ${nodeCount ?? "?"} nodes indexed`);
     } catch (error: any) {
       setBuildDone(true);
       setBuilding(false);
       setBuildProgress(100);
+      setBuildError(error?.message ?? "Indexing failed — check the backend is running");
       toast.error(error?.message ?? "Failed to build graph");
     }
   };
@@ -335,35 +383,82 @@ export function OnboardingWizard() {
               </div>
 
               <div className="space-y-4">
-                <BuildRow done label="Validating repository" sub="Found supported source files" count={buildStats.files} />
-                <BuildRow done label="Extracting entities" sub="Folders, files, classes, functions" count={buildStats.nodes} />
+                <BuildRow
+                  done={buildDone && !buildError}
+                  failed={buildError != null && buildStats.files === "0 files"}
+                  label="Validating repository"
+                  sub="Found supported source files"
+                  count={buildStats.files !== "—" ? buildStats.files : undefined}
+                />
+                <BuildRow
+                  done={buildDone && !buildError}
+                  label="Extracting entities"
+                  sub="Folders, files, classes, functions"
+                  count={buildStats.nodes !== "—" ? buildStats.nodes : undefined}
+                />
                 <BuildRow
                   active={!buildDone}
-                  done={buildDone}
+                  done={buildDone && !buildError}
                   label="Identifying relationships"
                   sub="CONTAINS · IMPORTS · CALLS"
-                  count={buildDone ? buildStats.relations : "Building…"}
+                  count={buildDone ? (buildStats.relations !== "—" ? buildStats.relations : undefined) : "Building…"}
                 />
-                <BuildRow done={buildDone} label="Persisting graph" sub="Saving repoId into session storage" />
+                <BuildRow
+                  done={buildDone && !buildError}
+                  label="Persisting graph"
+                  sub="Saving repoId into session storage"
+                />
               </div>
+
+              {/* Error panel — shown when path is wrong / 0 files */}
+              {buildError && (
+                <div
+                  className="mt-5 rounded-[10px] p-4 text-[12px] leading-6"
+                  style={{
+                    background: "var(--red-l)",
+                    border: "1px solid var(--red-b)",
+                    color: "var(--red)",
+                  }}
+                >
+                  <div className="mb-2 font-semibold text-[13px]">⚠ Indexing did not complete</div>
+                  <pre className="whitespace-pre-wrap font-sans" style={{ color: "var(--red)" }}>
+                    {buildError}
+                  </pre>
+                </div>
+              )}
             </div>
 
             <div className="flex items-center justify-between border-t border-[var(--border)] px-7 py-5">
-              <span className="text-[12px] text-[var(--text3)]">Build progress</span>
+              <span className="text-[12px] text-[var(--text3)]">
+                {buildError ? "Fix path and retry" : "Build progress"}
+              </span>
               <div className="flex items-center gap-2">
-                <Link
-                  to="/graph"
-                  className="rounded-[6px] border border-[var(--border2)] px-3 py-2 text-[12px] hover:bg-[var(--surface2)]"
-                >
-                  Open existing graph
-                </Link>
-                <button
-                  type="button"
-                  onClick={() => navigate({ to: "/graph" })}
-                  className="inline-flex items-center gap-2 rounded-[6px] bg-[var(--text)] px-3 py-2 text-[12px] text-[var(--surface)]"
-                >
-                  Open Explorer <ArrowRight className="h-3.5 w-3.5" />
-                </button>
+                {buildError ? (
+                  <button
+                    type="button"
+                    onClick={() => { setStep(1); setBuildError(null); setBuildDone(false); setBuildProgress(0); }}
+                    className="inline-flex items-center gap-2 rounded-[6px] bg-[var(--text)] px-3 py-2 text-[12px] text-[var(--surface)]"
+                  >
+                    <ArrowLeft className="h-3.5 w-3.5" /> Fix project path
+                  </button>
+                ) : (
+                  <>
+                    <Link
+                      to="/graph"
+                      className="rounded-[6px] border border-[var(--border2)] px-3 py-2 text-[12px] hover:bg-[var(--surface2)]"
+                    >
+                      Open existing graph
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => navigate({ to: "/graph" })}
+                      disabled={!buildDone}
+                      className="inline-flex items-center gap-2 rounded-[6px] bg-[var(--text)] px-3 py-2 text-[12px] text-[var(--surface)] disabled:opacity-40"
+                    >
+                      Open Explorer <ArrowRight className="h-3.5 w-3.5" />
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </>
@@ -446,31 +541,42 @@ function BuildRow({
   count,
   done = false,
   active = false,
+  failed = false,
 }: {
   label: string;
   sub: string;
   count?: string;
   done?: boolean;
   active?: boolean;
+  failed?: boolean;
 }) {
   return (
     <div className="flex items-start gap-3 border-b border-[var(--border)] py-3 last:border-b-0">
       <div
         className={`mt-0.5 flex h-7 w-7 items-center justify-center rounded-full border-[1.5px] ${
-          done
+          failed
+            ? "border-[var(--red-b)] bg-[var(--red-l)] text-[var(--red)]"
+            : done
             ? "border-[var(--teal-b)] bg-[var(--teal-l)] text-[var(--teal)]"
             : active
               ? "codeatlas-progress-pulse border-[var(--text)] text-[var(--text)]"
               : "border-[var(--border2)] text-[var(--text3)]"
         }`}
       >
-        {done ? <Check className="h-3.5 w-3.5" /> : null}
+        {failed ? <span style={{ fontSize: 14 }}>✕</span> : done ? <Check className="h-3.5 w-3.5" /> : null}
       </div>
       <div className="flex-1">
         <div className="text-[13px] font-medium">{label}</div>
         <div className="text-[12px] text-[var(--text3)]">{sub}</div>
       </div>
-      {count ? <div className="text-[11px] text-[var(--teal)]">{count}</div> : null}
+      {count ? (
+        <div
+          className="text-[11px]"
+          style={{ color: failed ? "var(--red)" : count === "0 files" ? "var(--red)" : "var(--teal)" }}
+        >
+          {count}
+        </div>
+      ) : null}
     </div>
   );
 }

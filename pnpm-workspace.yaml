@@ -12,6 +12,10 @@ catalog:
   typescript: ^5.8.2
   zod: ^4.1.11
 
+ignoredBuiltDependencies:
+  - protobufjs
+  - sharp
+
 onlyBuiltDependencies:
   - esbuild
   - tree-sitter
@@ -23,3 +27,4 @@ onlyBuiltDependencies:
   - tree-sitter-javascript
   - tree-sitter-python
   - tree-sitter-ruby
+  - tree-sitter-typescript
