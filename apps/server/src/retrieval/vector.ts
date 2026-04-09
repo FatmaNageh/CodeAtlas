@@ -1,4 +1,4 @@
-import { runCypher } from '../db/cypher';
+import { runCypher } from '@/db/cypher';
 
 export type SimilarASTNodeRow = {
   score: number;

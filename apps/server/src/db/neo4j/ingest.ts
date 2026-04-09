@@ -1,4 +1,4 @@
-import type { IR, IRNode, IREdge, IRNodeKind } from "../../types/ir";
+import type { IR, IRNode, IREdge, IRNodeKind } from "@/types/ir";
 import { getNeo4jClient } from "./client";
 
 type Primitive = boolean | number | string | null;

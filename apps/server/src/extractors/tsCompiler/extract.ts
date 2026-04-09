@@ -1,6 +1,6 @@
-import type { RawCallSite, RawImport, RawSymbol, SymbolKind } from "../../types/facts";
-import type { Range } from "../../types/ir";
-import type { Extracted, ExtractorContext } from "../types";
+import type { RawCallSite, RawImport, RawSymbol, SymbolKind } from "@/types/facts";
+import type { Range } from "@/types/ir";
+import type { Extracted, ExtractorContext } from "@/extractors/types";
 
 type Ts = any;
 type TSNode = any;
@@ -146,7 +146,7 @@ export async function extractTsJsWithTsCompiler(ctx: ExtractorContext): Promise<
 
     if (ts.isMethodDeclaration(node)) {
       const parent = stack.length ? stack[stack.length - 1] : undefined;
-      let name = "";
+      let name: string;
       if (ts.isIdentifier(node.name)) name = node.name.text;
       else if (ts.isStringLiteral(node.name)) name = node.name.text;
       else name = textOf(sf, node.name);

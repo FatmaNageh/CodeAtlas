@@ -1,4 +1,4 @@
-import { runCypher } from "../db/cypher";
+import { runCypher } from "@/db/cypher";
 
 /**
  * Find code files that (directly OR transitively) reference the given target files
@@ -36,6 +36,6 @@ export async function findImportDependents(input: {
   // Defensive: filter null/undefined and return sorted for determinism
   return rows
     .map((r) => r.relPath)
-    .filter((p): p is string => typeof p === "string" && p.length > 0)
+    .filter((p): p is string => p.length > 0)
     .sort();
 }

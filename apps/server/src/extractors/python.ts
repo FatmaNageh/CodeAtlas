@@ -1,5 +1,5 @@
 import type { SyntaxNode } from "tree-sitter";
-import type { SymbolKind } from "../types/facts";
+import type { SymbolKind } from "@/types/facts";
 import type { ExtractorFn } from "./types";
 import { extractName, nodeRange } from "./common";
 

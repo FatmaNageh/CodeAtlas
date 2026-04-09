@@ -1,15 +1,15 @@
 import { Hono } from 'hono';
 import path from 'path';
-import { embedASTFiles } from '../pipeline/embed/embedASTFiles';
-import { generateBatchSummaries } from '../pipeline/generateSummary';
-import { assembleFileContext } from '../retrieval/context';
-import { generateTextWithContext } from '../ai/generation';
-import { generateEmbeddings, generateSingleEmbed } from '../ai/embeddings';
-import { isValidEmbeddingVector } from '../utils/embedding';
-import { findSimilarChunks, type SimilarASTNodeRow } from '../retrieval/vector';
-import { runCypher } from '../db/cypher';
+import { embedASTFiles } from '@/pipeline/embed/embedASTFiles';
+import { generateBatchSummaries } from '@/pipeline/generateSummary';
+import { assembleFileContext } from '@/retrieval/context';
+import { generateTextWithContext } from '@/ai/generation';
+import { generateEmbeddings, generateSingleEmbed } from '@/ai/embeddings';
+import { isValidEmbeddingVector } from '@/utils/embedding';
+import { findSimilarChunks, type SimilarASTNodeRow } from '@/retrieval/vector';
+import { runCypher } from '@/db/cypher';
 import fs from 'fs/promises';
-import { repoRoots } from '../state/repoRoots';
+import { repoRoots } from '@/state/repoRoots';
 import { embedDimensions } from '@/config/openrouter';
 import { buildGraphTour } from '@/tour/buildGraphTour';
 
@@ -191,7 +191,7 @@ graphragRoute.post('/ask', async (c) => {
               return t;
             })
           );
-          const stacked = texts.filter((t) => typeof t === 'string' && t.length > 0).join('\n\n');
+          const stacked = texts.filter((t) => t.length > 0).join('\n\n');
           if (stacked) {
             codeContext = stacked.length > MAX_CODE_CONTEXT ? stacked.slice(-MAX_CODE_CONTEXT) : stacked;
           }

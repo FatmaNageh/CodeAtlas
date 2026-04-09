@@ -1,5 +1,5 @@
 import { getNeo4jClient } from "./client";
-import { fileId } from "../../pipeline/id";
+import { fileId } from "@/pipeline/id";
 
 // Phase 1: delete whole repo subgraph
 export async function deleteRepo(repoId: string): Promise<void> {
@@ -41,7 +41,8 @@ export async function deleteFileDerived(repoId: string, relPath: string): Promis
     await session.run(
       `
       MATCH (f:CodeFile {id: $fileId})
-      OPTIONAL MATCH (f)-[:DECLARES|HAS_AST_ROOT]->(a:ASTNode)
+      OPTIONAL MATCH (f)-[:DECLARES|HAS_AST_ROOT]->(root:ASTNode)
+      OPTIONAL MATCH (root)-[:AST_CHILD*0..]->(a:ASTNode)
       DETACH DELETE a
       `,
       { fileId: fid },
