@@ -32,7 +32,7 @@ export async function deleteFileDerived(repoId: string, relPath: string): Promis
       `
       MATCH (f {id: $fileId})
       WHERE f:CodeFile OR f:TextFile
-      OPTIONAL MATCH (f)-[r:REFERENCES|MENTIONS|HAS_AST_ROOT|HAS_CHUNK]->()
+      OPTIONAL MATCH (f)-[r:REFERENCES|MENTIONS]->()
       DELETE r
       `,
       { fileId: fid },

@@ -3,6 +3,7 @@ import { runCypher } from "@/db/cypher";
 export type RelatedASTNodeRow = {
   symbol: string;
   kind: string;
+  qname: string;
   relatedNames: string[];
 };
 
@@ -12,11 +13,13 @@ export type FileReferenceRow = {
 
 export async function getRelatedASTNodes(filePath: string, repoId: string): Promise<RelatedASTNodeRow[]> {
   return runCypher<RelatedASTNodeRow>(
-    `MATCH (f:CodeFile {repoId: $repoId, relPath: $filePath})-[:DECLARES]->(a:ASTNode)
+    `MATCH (f:CodeFile {repoId: $repoId, relPath: $filePath})
+     MATCH (f)-[:DECLARES|HAS_AST_ROOT]->(a:ASTNode)
      OPTIONAL MATCH (a)-[:IMPORTS|EXTENDS|OVERRIDES]->(related:ASTNode)
      RETURN
        a.name AS symbol,
        a.nodeType AS kind,
+       a.qname AS qname,
        collect(DISTINCT related.name) AS relatedNames
      ORDER BY a.startLine`,
     { repoId, filePath },
