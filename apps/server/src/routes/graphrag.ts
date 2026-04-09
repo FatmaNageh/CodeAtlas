@@ -136,7 +136,7 @@ graphragRoute.post("/summarize", async (c) => {
       );
     } else {
       // Get all files from database
-      files = (await getAllFiles(repoId)).map((f: FilePathRow) => f.filePath);
+      files = (await getAllFiles(repoId)).map((f) => f.filePath);
     }
 
     const { results, errors } = await generateBatchSummaries(files, repoId);
@@ -399,12 +399,11 @@ graphragRoute.get("/status", async (c) => {
       perFile,
     });
   } catch (err) {
-    // AI call failures should not crash the API; respond with a friendly message
-    console.error("[GRAPHRAG] Error during /ask processing:", err);
+    console.error("[GRAPHRAG] Error during /status processing:", err);
     return c.json(
       {
         ok: false,
-        error: "Internal AI service error. Please try again later.",
+        error: "Failed to retrieve repository status.",
       },
       500,
     );
