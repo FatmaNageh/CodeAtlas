@@ -43,6 +43,7 @@ export async function deleteFileDerived(repoId: string, relPath: string): Promis
       MATCH (f:CodeFile {id: $fileId})
       OPTIONAL MATCH (f)-[:DECLARES|HAS_AST_ROOT]->(root:ASTNode)
       OPTIONAL MATCH (root)-[:AST_CHILD*0..]->(a:ASTNode)
+      WITH DISTINCT a
       DETACH DELETE a
       `,
       { fileId: fid },

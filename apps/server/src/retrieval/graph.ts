@@ -29,7 +29,7 @@ export async function getRelatedASTNodes(filePath: string, repoId: string): Prom
 export async function getFileReferences(filePath: string, repoId: string): Promise<FileReferenceRow[]> {
   return runCypher<FileReferenceRow>(
     `MATCH (f:CodeFile {repoId: $repoId, relPath: $filePath})-[:REFERENCES]->(ref:CodeFile)
-     RETURN ref.relPath AS reference
+     RETURN DISTINCT ref.relPath AS reference
      ORDER BY ref.relPath`,
     { repoId, filePath },
   );
