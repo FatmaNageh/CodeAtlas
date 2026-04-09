@@ -23,10 +23,21 @@ function getEmbeddingDimension(): number {
   return Number.isFinite(parsedDimension) && parsedDimension > 0 ? parsedDimension : 1536;
 }
 
-function createVectorIndexQuery(embeddingDimension: number): string {
-  return `CREATE VECTOR INDEX astnode_embedding IF NOT EXISTS
-    FOR (n:ASTNode) ON (n.embedding)
-    OPTIONS { indexConfig: {\`vector.dimensions\`: ${embeddingDimension}, \`vector.similarity_function\`: 'cosine' } }`;
+function createVectorIndexQueries(embeddingDimension: number): string[] {
+  return [
+    `CREATE VECTOR INDEX codefile_embedding IF NOT EXISTS
+      FOR (n:CodeFile) ON (n.embedding)
+      OPTIONS { indexConfig: {\`vector.dimensions\`: ${embeddingDimension}, \`vector.similarity_function\`: 'cosine' } }`,
+    `CREATE VECTOR INDEX textfile_embedding IF NOT EXISTS
+      FOR (n:TextFile) ON (n.embedding)
+      OPTIONS { indexConfig: {\`vector.dimensions\`: ${embeddingDimension}, \`vector.similarity_function\`: 'cosine' } }`,
+    `CREATE VECTOR INDEX txtchunk_embedding IF NOT EXISTS
+      FOR (n:TXTChunk) ON (n.embedding)
+      OPTIONS { indexConfig: {\`vector.dimensions\`: ${embeddingDimension}, \`vector.similarity_function\`: 'cosine' } }`,
+    `CREATE VECTOR INDEX astnode_embedding IF NOT EXISTS
+      FOR (n:ASTNode) ON (n.embedding)
+      OPTIONS { indexConfig: {\`vector.dimensions\`: ${embeddingDimension}, \`vector.similarity_function\`: 'cosine' } }`,
+  ];
 }
 
 async function checkVectorIndexDimension(indexName: string, expectedDimension: number): Promise<void> {
@@ -63,7 +74,7 @@ export async function ensureSchema(): Promise<void> {
   const embeddingDimension = getEmbeddingDimension();
 
   try {
-    for (const query of [...SCHEMA_QUERIES, createVectorIndexQuery(embeddingDimension)]) {
+    for (const query of [...SCHEMA_QUERIES, ...createVectorIndexQueries(embeddingDimension)]) {
       try {
         await session.run(query);
       } catch (error) {
@@ -72,6 +83,9 @@ export async function ensureSchema(): Promise<void> {
       }
     }
 
+    await checkVectorIndexDimension("codefile_embedding", embeddingDimension);
+    await checkVectorIndexDimension("textfile_embedding", embeddingDimension);
+    await checkVectorIndexDimension("txtchunk_embedding", embeddingDimension);
     await checkVectorIndexDimension("astnode_embedding", embeddingDimension);
     didRun = true;
   } finally {
