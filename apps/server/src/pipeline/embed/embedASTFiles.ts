@@ -1,8 +1,8 @@
 import fs from "fs/promises";
 import path from "path";
 
-import { generateEmbeddings } from "../../ai/embeddings";
-import { runCypher } from "../../db/cypher";
+import { generateEmbeddings } from "@/ai/embeddings";
+import { runCypher } from "@/db/cypher";
 
 type ASTNodeRow = {
   astNodeId: string;
@@ -36,30 +36,10 @@ export async function embedASTFiles(
 
   const repoRootResolved = path.resolve(repoRoot);
 
-  // First, get the capped list of file paths
-  const filePathRows = await runCypher<{ relPath: string }>(
-    `
-    MATCH (f:CodeFile {repoId: $repoId})-[:DECLARES]->(a:ASTNode)
-    WHERE a.startLine IS NOT NULL AND a.endLine IS NOT NULL
-    RETURN DISTINCT f.relPath AS relPath
-    ORDER BY relPath
-    LIMIT $maxFiles
-    `,
-    { repoId, maxFiles },
-  );
-
-  if (filePathRows.length === 0) {
-    return { ok: true, files: 0, totalEmbedded: 0, failedBatches: 0 };
-  }
-
-  const relPaths = filePathRows.map((row) => row.relPath);
-
-  // Now fetch AST nodes only for those capped files
   const rows = await runCypher<ASTNodeRow>(
     `
     MATCH (f:CodeFile {repoId: $repoId})-[:DECLARES]->(a:ASTNode)
-    WHERE f.relPath IN $relPaths
-      AND a.startLine IS NOT NULL AND a.endLine IS NOT NULL
+    WHERE a.startLine IS NOT NULL AND a.endLine IS NOT NULL
     RETURN
       a.id AS astNodeId,
       f.relPath AS relPath,
@@ -68,8 +48,12 @@ export async function embedASTFiles(
       a.endLine AS endLine
     ORDER BY relPath, startLine
     `,
-    { repoId, relPaths },
+    { repoId },
   );
+
+  if (rows.length === 0) {
+    return { ok: true, files: 0, totalEmbedded: 0, failedBatches: 0 };
+  }
 
   const rowsByFile = new Map<string, ASTNodeRow[]>();
   for (const row of rows) {
@@ -84,6 +68,7 @@ export async function embedASTFiles(
   const failedBatchDetails: string[] = [];
 
   for (const [relPath, astRows] of rowsByFile.entries()) {
+    if (filesProcessed >= maxFiles) break;
 
     const absPath = path.resolve(repoRootResolved, relPath);
     if (!absPath.startsWith(repoRootResolved + path.sep) && absPath !== repoRootResolved) {
