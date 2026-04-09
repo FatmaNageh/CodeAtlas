@@ -13,8 +13,7 @@
     "tanstack-router"
   ],
   "addons": [
-		"turborepo",
-		"biome"
+		"turborepo"
 	],
   "examples": [],
   "auth": "none",
