@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { getNeo4jClient } from "@/db/neo4j/client";
+import { toPlain } from "./diagnostics";
 
 export const graphRoute = new Hono();
 
@@ -9,15 +10,21 @@ graphRoute.get("/getGraph", async (c) => {
   const session = getNeo4jClient().session();
 
   try {
-    const result = await session.run(
-      `
-      MATCH (n)
-      RETURN n
-      `,
+    const result = await session.executeRead((tx) =>
+      tx.run(
+        `
+        MATCH (n)
+        RETURN n
+        `,
+      ),
     );
 
-    console.log(`The query returned ${result.records.length} records.`);
-    return c.json({ data: result.records });
+    const convertedRecords = result.records.map((record) =>
+      toPlain(record.toObject()),
+    );
+
+    console.log(`The query returned ${convertedRecords.length} records.`);
+    return c.json({ data: convertedRecords });
   } finally {
     await session.close();
   }

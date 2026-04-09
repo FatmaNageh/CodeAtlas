@@ -16,7 +16,8 @@
     "db:push": "turbo -F @CodeAtlas/db db:push",
     "db:studio": "turbo -F @CodeAtlas/db db:studio",
     "db:generate": "turbo -F @CodeAtlas/db db:generate",
-    "db:migrate": "turbo -F @CodeAtlas/db db:migrate"
+    "db:migrate": "turbo -F @CodeAtlas/db db:migrate",
+    "check": "biome check --write ."
   },
   "dependencies": {
     "@tanstack/react-query": "^5.90.20",
@@ -32,7 +33,8 @@
   "devDependencies": {
     "@types/node": "^22.13.11",
     "tsdown": "^0.15.5",
-    "turbo": "^2.5.4"
+    "turbo": "^2.5.4",
+    "@biomejs/biome": "^2.2.0"
   },
   "packageManager": "pnpm@10.21.0"
 }

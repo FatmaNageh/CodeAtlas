@@ -34,11 +34,11 @@ export async function extractTextFacts(files: TextFileIndexEntry[]): Promise<Fac
       const linesPerChunk = 24;
       for (let start = 0; start < lines.length; start += linesPerChunk) {
         const slice = lines.slice(start, start + linesPerChunk);
-        const chunkText = slice.join("\n").trim();
-        if (!chunkText) continue;
+        const chunkTextRaw = slice.join("\n");
+        if (chunkTextRaw.trim() === "") continue;
         chunks.push({
           index: chunks.length,
-          text: chunkText,
+          text: chunkTextRaw,
           startLine: start + 1,
           endLine: start + slice.length,
         });

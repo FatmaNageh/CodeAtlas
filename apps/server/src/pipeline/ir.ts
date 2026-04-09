@@ -142,6 +142,7 @@ export function buildIR(scan: ScanResult, facts: FactsByFile): IR {
   };
 
   const astNodesByFile = new Map<string, Map<string, ASTNodeRecord>>();
+  const astNodesByFileName = new Map<string, Map<string, ASTNodeRecord[]>>();
   const astNodesByName = new Map<string, ASTNodeRecord[]>();
   const astNodesByQname = new Map<string, ASTNodeRecord[]>();
   const pendingTextFiles: PendingTextFile[] = [];
@@ -262,6 +263,7 @@ export function buildIR(scan: ScanResult, facts: FactsByFile): IR {
       addEdge({ id: edgeId(repoId, "HAS_AST_ROOT", fId, fileRootId), type: "HAS_AST_ROOT", from: fId, to: fileRootId, repoId });
 
       const astMap = new Map<string, ASTNodeRecord>();
+      const nameMap = new Map<string, ASTNodeRecord[]>();
       for (const s of cf.symbols) {
         const qname = s.qname ?? s.name;
         const astId = astNodeId(repoId, rel, s.kind, qname, s.range?.startLine ?? 0, s.range?.startCol ?? 0);
@@ -277,7 +279,11 @@ export function buildIR(scan: ScanResult, facts: FactsByFile): IR {
           endCol: s.range?.endCol ?? 0,
         };
         astMap.set(qname, record);
-        if (s.name !== qname) astMap.set(s.name, record);
+
+        const recordsForName = nameMap.get(s.name) ?? [];
+        recordsForName.push(record);
+        nameMap.set(s.name, recordsForName);
+
         const byName = astNodesByName.get(s.name) ?? [];
         byName.push(record);
         astNodesByName.set(s.name, byName);
@@ -306,13 +312,29 @@ export function buildIR(scan: ScanResult, facts: FactsByFile): IR {
         addEdge({ id: edgeId(repoId, "DECLARES", fId, astId), type: "DECLARES", from: fId, to: astId, repoId });
       }
       astNodesByFile.set(rel, astMap);
+      astNodesByFileName.set(rel, nameMap);
 
       for (const s of cf.symbols) {
         const child = astMap.get(s.qname ?? s.name);
         if (!child) continue;
-        const parent = s.parentName ? astMap.get(s.parentName) : null;
-        const from = parent?.id ?? fileRootId;
-        addEdge({ id: edgeId(repoId, "AST_CHILD", from, child.id), type: "AST_CHILD", from, to: child.id, repoId });
+
+        let parents: ASTNodeRecord[] = [];
+        if (s.parentName) {
+          const pByQname = astMap.get(s.parentName);
+          if (pByQname) {
+            parents.push(pByQname);
+          } else {
+            parents = nameMap.get(s.parentName) ?? [];
+          }
+        }
+
+        if (parents.length > 0) {
+          for (const parent of parents) {
+            addEdge({ id: edgeId(repoId, "AST_CHILD", parent.id, child.id), type: "AST_CHILD", from: parent.id, to: child.id, repoId });
+          }
+        } else {
+          addEdge({ id: edgeId(repoId, "AST_CHILD", fileRootId, child.id), type: "AST_CHILD", from: fileRootId, to: child.id, repoId });
+        }
       }
     } else {
       const tf = fFacts as TextFacts;

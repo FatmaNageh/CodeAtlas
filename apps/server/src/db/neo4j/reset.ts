@@ -32,8 +32,11 @@ export async function resetGraphDatabase(): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  await resetGraphDatabase();
-  await getNeo4jClient().close();
+  try {
+    await resetGraphDatabase();
+  } finally {
+    await getNeo4jClient().close();
+  }
 }
 
 const entryUrl = process.argv[1] ? pathToFileURL(process.argv[1]).href : null;
