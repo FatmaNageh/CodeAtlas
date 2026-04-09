@@ -4,6 +4,15 @@ import { getGraphHtml } from "./panels/graphPanel";
 import { getChatHtml } from "./panels/chatProvider";
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────────────────────────
+interface IndexRepoResponse {
+  ok: boolean;
+  repoId?: string | number;
+  error?: string;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Module-level singletons
 // ─────────────────────────────────────────────────────────────────────────────
 let serverManager: ServerManager;
@@ -107,7 +116,7 @@ export async function activate(context: vscode.ExtensionContext) {
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ projectPath, mode: "full", saveDebugJson: true }),
             });
-            const data = await res.json() as any;
+            const data = (await res.json()) as IndexRepoResponse;
             if (data.ok) {
               const repoId = String(data.repoId);
               await vscode.workspace.getConfiguration("codeatlas")
