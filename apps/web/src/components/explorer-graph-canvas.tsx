@@ -35,6 +35,7 @@ export function classifyNode(node: Neo4jNode): ExplorerNodeKind {
 	if (
 		L.includes("Repository") ||
 		L.includes("Repo") ||
+		L.includes("RepoRoot") ||
 		L.includes("Folder") ||
 		L.includes("Directory")
 	)
@@ -300,8 +301,8 @@ function hierarchicalLayout(nodes: SimNode[], W: number, H: number) {
 
 // ─── Component ───────────────────────────────────────────────────────────────
 type Ctrl = {
-	zoom: d3.ZoomBehavior<SVGSVGElement, unknown>;
-	svgSel: d3.Selection<SVGSVGElement, unknown, null, undefined>;
+	zoom: d3.ZoomBehavior<SVGSVGElement, undefined>;
+	svgSel: d3.Selection<SVGSVGElement, undefined, null, undefined>;
 	simulation: d3.Simulation<SimNode, SimLink>;
 	simNodes: SimNode[];
 	W: number;
@@ -801,7 +802,7 @@ export const ExplorerGraphCanvas = forwardRef<
 
 		// Zoom
 		const zoom = d3
-			.zoom<SVGSVGElement, unknown>()
+			.zoom<SVGSVGElement, undefined>()
 			.scaleExtent([0.05, 6])
 			.on("zoom", (ev) => g.attr("transform", ev.transform.toString()));
 		svg.call(zoom);

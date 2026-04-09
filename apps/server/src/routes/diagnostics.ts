@@ -6,20 +6,44 @@ import { runCypher } from "../db/cypher";
 
 export const diagnosticsRoute = new Hono();
 
-export function toPlain(v: unknown): unknown {
+// Neo4j type definitions
+interface Neo4jInteger {
+  toNumber: () => number;
+}
+
+interface Neo4jNode {
+  identity: Neo4jInteger;
+  labels: string[];
+  properties: Record<string, Neo4jValue>;
+}
+
+interface Neo4jRelationship {
+  type: string;
+  properties: Record<string, Neo4jValue>;
+  start: Neo4jInteger;
+  end: Neo4jInteger;
+}
+
+type Neo4jValue =
+  | string
+  | number
+  | boolean
+  | null
+  | Neo4jInteger
+  | Neo4jNode
+  | Neo4jRelationship
+  | Neo4jValue[];
+
+export function toPlain(v: Neo4jValue): unknown {
   // Neo4j Integer objects support .toNumber()
   if (v && typeof v === "object") {
-    if (typeof (v as { toNumber?: () => number }).toNumber === "function") {
-      return (v as { toNumber: () => number }).toNumber();
+    if (typeof (v as Neo4jInteger).toNumber === "function") {
+      return (v as Neo4jInteger).toNumber();
     }
     if (Array.isArray(v)) return v.map(toPlain);
 
     // Neo4j Node
-    const node = v as {
-      identity?: unknown;
-      labels?: string[];
-      properties?: Record<string, unknown>;
-    };
+    const node = v as Neo4jNode;
     if (node.identity && node.labels && node.properties) {
       return {
         id: String(node.properties?.id ?? ""),
@@ -31,12 +55,7 @@ export function toPlain(v: unknown): unknown {
     }
 
     // Neo4j Relationship
-    const rel = v as {
-      type?: string;
-      properties?: Record<string, unknown>;
-      start?: unknown;
-      end?: unknown;
-    };
+    const rel = v as Neo4jRelationship;
     if (rel.type && rel.properties && rel.start && rel.end) {
       return {
         type: rel.type,
@@ -47,7 +66,7 @@ export function toPlain(v: unknown): unknown {
     }
 
     const out: Record<string, unknown> = {};
-    for (const [k, val] of Object.entries(v)) out[k] = toPlain(val);
+    for (const [k, val] of Object.entries(v as Record<string, Neo4jValue>)) out[k] = toPlain(val);
     return out;
   }
   return v;
@@ -67,7 +86,7 @@ diagnosticsRoute.get("/tester", async (c) => {
  * List repos that exist in Neo4j.
  */
 diagnosticsRoute.get("/diagnostics/repos", async (c) => {
-  const rows = await runCypher<{ r: unknown }>(
+  const rows = await runCypher<{ r: Neo4jNode }>(
     `MATCH (r:RepoRoot) RETURN r ORDER BY r.rootPath ASC LIMIT 50`,
   );
   return c.json({ ok: true, repos: rows.map((x) => toPlain(x.r)) });
@@ -81,51 +100,51 @@ diagnosticsRoute.get("/diagnostics/check", async (c) => {
   if (!repoId) return c.json({ ok: false, error: "Missing repoId" }, 400);
 
   // 1) Labels inventory
-  const labelCounts = await runCypher<{ labels: unknown; c: unknown }>(
+  const labelCounts = await runCypher<{ labels: string[]; c: Neo4jInteger | number }>(
     `MATCH (n) WHERE n.repoId=$repoId RETURN labels(n) AS labels, count(*) AS c ORDER BY c DESC`,
     { repoId },
   );
 
   // 2) File node existence checks
-  const codeFileSample = await runCypher<{ relPath: unknown; language: unknown }>(
+  const codeFileSample = await runCypher<{ relPath: string; language: string }>(
     `MATCH (f:CodeFile {repoId:$repoId}) RETURN f.relPath AS relPath, f.language AS language LIMIT 10`,
     { repoId },
   );
-  const textFileSample = await runCypher<{ relPath: unknown; textKind: unknown }>(
+  const textFileSample = await runCypher<{ relPath: string; textKind: string }>(
     `MATCH (t:TextFile {repoId:$repoId}) RETURN t.relPath AS relPath, t.textKind AS textKind LIMIT 10`,
     { repoId },
   );
 
   // 3) Relationship samples
-  const importsLocal = await runCypher<{ a: unknown; b: unknown }>(
+  const importsLocal = await runCypher<{ a: string; b: string }>(
     `MATCH (a:CodeFile {repoId:$repoId})-[:REFERENCES]->(b:CodeFile {repoId:$repoId}) RETURN a.relPath AS a, b.relPath AS b LIMIT 20`,
     { repoId },
   );
-  const importsExternal = await runCypher<{ f: unknown; m: unknown }>(
+  const importsExternal = await runCypher<{ f: string; m: string }>(
     `MATCH (f:TextFile {repoId:$repoId})-[:MENTIONS]->(m:ASTNode {repoId:$repoId}) RETURN f.relPath AS f, m.name AS m LIMIT 20`,
     { repoId },
   );
-  const parentEdges = await runCypher<{ p: unknown; c: unknown }>(
+  const parentEdges = await runCypher<{ p: string; c: string }>(
     `MATCH (p:ASTNode {repoId:$repoId})-[:AST_CHILD]->(c:ASTNode {repoId:$repoId}) RETURN p.qname AS p, c.qname AS c LIMIT 20`,
     { repoId },
   );
-  const extendsEdges = await runCypher<{ a: unknown; b: unknown; conf: unknown }>(
+  const extendsEdges = await runCypher<{ a: string; b: string; conf: number }>(
     `MATCH (a:ASTNode {repoId:$repoId})-[r:EXTENDS]->(b:ASTNode {repoId:$repoId}) RETURN a.qname AS a, coalesce(b.qname,b.name) AS b, r.confidence AS conf LIMIT 20`,
     { repoId },
   );
   const implementsEdges = await runCypher<{
-    a: unknown;
-    b: unknown;
-    conf: unknown;
+    a: string;
+    b: string;
+    conf: number;
   }>(
     `MATCH (a:ASTNode {repoId:$repoId})-[r:OVERRIDES]->(b:ASTNode {repoId:$repoId}) RETURN a.qname AS a, coalesce(b.qname,b.name) AS b, r.confidence AS conf LIMIT 20`,
     { repoId },
   );
-  const callsEdges = await runCypher<{ a: unknown; b: unknown; conf: unknown }>(
+  const callsEdges = await runCypher<{ a: string; b: string; conf: number }>(
     `MATCH (a:ASTNode {repoId:$repoId})-[r:IMPORTS]->(b:ASTNode {repoId:$repoId}) RETURN a.qname AS a, b.qname AS b, r.confidence AS conf ORDER BY conf DESC LIMIT 20`,
     { repoId },
   );
-  const docRefs = await runCypher<{ t: unknown; x: unknown; conf: unknown }>(
+  const docRefs = await runCypher<{ t: string; x: string; conf: number }>(
     `MATCH (t:TXTChunk {repoId:$repoId})-[r:DESCRIBES]->(x:ASTNode {repoId:$repoId}) RETURN t.fileRelPath AS t, coalesce(x.relPath,x.qname,x.name) AS x, r.confidence AS conf LIMIT 20`,
     { repoId },
   );
@@ -134,7 +153,7 @@ diagnosticsRoute.get("/diagnostics/check", async (c) => {
   let constraints: unknown[] = [];
   let indexes: unknown[] = [];
   try {
-    const cons = await runCypher<Record<string, unknown>>(`SHOW CONSTRAINTS`);
+    const cons = await runCypher<Record<string, Neo4jValue>>(`SHOW CONSTRAINTS`);
     constraints = cons.map(toPlain);
   } catch {
     constraints = [
@@ -145,7 +164,7 @@ diagnosticsRoute.get("/diagnostics/check", async (c) => {
     ];
   }
   try {
-    const idx = await runCypher<Record<string, unknown>>(`SHOW INDEXES`);
+    const idx = await runCypher<Record<string, Neo4jValue>>(`SHOW INDEXES`);
     indexes = idx.map(toPlain);
   } catch {
     indexes = [

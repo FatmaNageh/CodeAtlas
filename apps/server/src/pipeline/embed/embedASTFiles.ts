@@ -30,16 +30,51 @@ export async function embedASTFiles(
   if (batchSize < 1) {
     throw new Error(`batchSize must be >= 1, got ${batchSize}`);
   }
-  if (maxFiles < 1) {
+  const normalizedMaxFiles = Number.isFinite(maxFiles)
+    ? Math.floor(maxFiles)
+    : null;
+
+  if (normalizedMaxFiles !== null && normalizedMaxFiles < 1) {
     throw new Error(`maxFiles must be >= 1, got ${maxFiles}`);
   }
 
   const repoRootResolved = path.resolve(repoRoot);
 
+  // First, get the capped list of file paths
+  const filePathRows =
+    normalizedMaxFiles === null
+      ? await runCypher<{ relPath: string }>(
+          `
+    MATCH (f:CodeFile {repoId: $repoId})-[:DECLARES]->(a:ASTNode)
+    WHERE a.startLine IS NOT NULL AND a.endLine IS NOT NULL
+    RETURN DISTINCT f.relPath AS relPath
+    ORDER BY relPath
+    `,
+          { repoId },
+        )
+      : await runCypher<{ relPath: string }>(
+          `
+    MATCH (f:CodeFile {repoId: $repoId})-[:DECLARES]->(a:ASTNode)
+    WHERE a.startLine IS NOT NULL AND a.endLine IS NOT NULL
+    RETURN DISTINCT f.relPath AS relPath
+    ORDER BY relPath
+    LIMIT $maxFiles
+    `,
+          { repoId, maxFiles: normalizedMaxFiles },
+        );
+
+  if (filePathRows.length === 0) {
+    return { ok: true, files: 0, totalEmbedded: 0, failedBatches: 0 };
+  }
+
+  const relPaths = filePathRows.map((row) => row.relPath);
+
+  // Now fetch AST nodes only for those capped files
   const rows = await runCypher<ASTNodeRow>(
     `
     MATCH (f:CodeFile {repoId: $repoId})-[:DECLARES]->(a:ASTNode)
-    WHERE a.startLine IS NOT NULL AND a.endLine IS NOT NULL
+    WHERE f.relPath IN $relPaths
+      AND a.startLine IS NOT NULL AND a.endLine IS NOT NULL
     RETURN
       a.id AS astNodeId,
       f.relPath AS relPath,
@@ -48,12 +83,8 @@ export async function embedASTFiles(
       a.endLine AS endLine
     ORDER BY relPath, startLine
     `,
-    { repoId },
+    { repoId, relPaths },
   );
-
-  if (rows.length === 0) {
-    return { ok: true, files: 0, totalEmbedded: 0, failedBatches: 0 };
-  }
 
   const rowsByFile = new Map<string, ASTNodeRow[]>();
   for (const row of rows) {
@@ -68,10 +99,11 @@ export async function embedASTFiles(
   const failedBatchDetails: string[] = [];
 
   for (const [relPath, astRows] of rowsByFile.entries()) {
-    if (filesProcessed >= maxFiles) break;
-
     const absPath = path.resolve(repoRootResolved, relPath);
-    if (!absPath.startsWith(repoRootResolved + path.sep) && absPath !== repoRootResolved) {
+    if (
+      !absPath.startsWith(repoRootResolved + path.sep) &&
+      absPath !== repoRootResolved
+    ) {
       continue;
     }
 
@@ -81,7 +113,10 @@ export async function embedASTFiles(
     const lines = text.split(/\r?\n/);
     const jobs: EmbeddingJob[] = astRows
       .map((row) => {
-        const snippet = lines.slice(row.startLine - 1, row.endLine).join("\n").trim();
+        const snippet = lines
+          .slice(row.startLine - 1, row.endLine)
+          .join("\n")
+          .trim();
         if (!snippet) return null;
         return {
           astNodeId: row.astNodeId,
@@ -99,7 +134,9 @@ export async function embedASTFiles(
     for (let index = 0; index < jobs.length; index += batchSize) {
       const batch = jobs.slice(index, index + batchSize);
       try {
-        const embeddings = await generateEmbeddings(batch.map((job) => job.text));
+        const embeddings = await generateEmbeddings(
+          batch.map((job) => job.text),
+        );
         for (const [batchIndex, job] of batch.entries()) {
           const embedding = embeddings[batchIndex];
           if (!job || !embedding) continue;
@@ -143,6 +180,7 @@ export async function embedASTFiles(
     files: filesProcessed,
     totalEmbedded,
     failedBatches,
-    failedBatchDetails: failedBatchDetails.length > 0 ? failedBatchDetails : undefined,
+    failedBatchDetails:
+      failedBatchDetails.length > 0 ? failedBatchDetails : undefined,
   };
 }

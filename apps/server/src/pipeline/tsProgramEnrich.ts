@@ -141,7 +141,13 @@ export function enrichIrWithTsProgram(input: {
 
   const repoRoot = path.resolve(input.scan.repoRoot);
   const compilerOptions = buildCompilerOptions(ts, repoRoot);
-  const onlySet = new Set((input.onlyFiles ?? []).map((filePath) => normalizePath(filePath)));
+
+  // If onlyFiles is not provided, use all scanned TS/JS files
+  const filesToProcess = input.onlyFiles ?? input.scan.entries
+    .map((e) => normalizePath(e.relPath))
+    .filter((filePath) => isTsJsRel(filePath));
+
+  const onlySet = new Set(filesToProcess.map((filePath) => normalizePath(filePath)));
   const rootNames = Array.from(onlySet)
     .filter((filePath) => isTsJsRel(filePath))
     .map((filePath) => path.join(repoRoot, filePath))

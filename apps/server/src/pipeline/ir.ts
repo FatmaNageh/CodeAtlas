@@ -145,6 +145,7 @@ export function buildIR(scan: ScanResult, facts: FactsByFile): IR {
   const astNodesByFileName = new Map<string, Map<string, ASTNodeRecord[]>>();
   const astNodesByName = new Map<string, ASTNodeRecord[]>();
   const astNodesByQname = new Map<string, ASTNodeRecord[]>();
+  const filesWithAstRoot = new Set<string>();
   const pendingTextFiles: PendingTextFile[] = [];
   const repoNode: IRNode = {
     id: repoNodeId(repoId),
@@ -261,6 +262,7 @@ export function buildIR(scan: ScanResult, facts: FactsByFile): IR {
         },
       });
       addEdge({ id: edgeId(repoId, "HAS_AST_ROOT", fId, fileRootId), type: "HAS_AST_ROOT", from: fId, to: fileRootId, repoId });
+      filesWithAstRoot.add(rel);
 
       const astMap = new Map<string, ASTNodeRecord>();
       const nameMap = new Map<string, ASTNodeRecord[]>();
@@ -278,7 +280,7 @@ export function buildIR(scan: ScanResult, facts: FactsByFile): IR {
           endLine: s.range?.endLine ?? 0,
           endCol: s.range?.endCol ?? 0,
         };
-        astMap.set(qname, record);
+        astMap.set(astId, record);
 
         const recordsForName = nameMap.get(s.name) ?? [];
         recordsForName.push(record);
@@ -315,17 +317,15 @@ export function buildIR(scan: ScanResult, facts: FactsByFile): IR {
       astNodesByFileName.set(rel, nameMap);
 
       for (const s of cf.symbols) {
-        const child = astMap.get(s.qname ?? s.name);
+        const qname = s.qname ?? s.name;
+        const astId = astNodeId(repoId, rel, s.kind, qname, s.range?.startLine ?? 0, s.range?.startCol ?? 0);
+        const child = astMap.get(astId);
         if (!child) continue;
 
         let parents: ASTNodeRecord[] = [];
         if (s.parentName) {
-          const pByQname = astMap.get(s.parentName);
-          if (pByQname) {
-            parents.push(pByQname);
-          } else {
-            parents = nameMap.get(s.parentName) ?? [];
-          }
+          // Look up parent by matching qname in nameMap
+          parents = nameMap.get(s.parentName) ?? [];
         }
 
         if (parents.length > 0) {
@@ -390,14 +390,16 @@ export function buildIR(scan: ScanResult, facts: FactsByFile): IR {
       if (localTarget) {
         const toId = fileId(repoId, localTarget);
         addEdge({ id: edgeId(repoId, "REFERENCES", fId, toId), type: "REFERENCES", from: fId, to: toId, repoId, props: { raw: imp.raw, normalized, confidence: 0.9 } });
-        addEdge({
-          id: edgeId(repoId, "IMPORTS", sourceAstRootId, fileRootAstNodeId(repoId, localTarget)),
-          type: "IMPORTS",
-          from: sourceAstRootId,
-          to: fileRootAstNodeId(repoId, localTarget),
-          repoId,
-          props: { raw: imp.raw, normalized, confidence: 0.75 },
-        });
+        if (filesWithAstRoot.has(localTarget)) {
+          addEdge({
+            id: edgeId(repoId, "IMPORTS", sourceAstRootId, fileRootAstNodeId(repoId, localTarget)),
+            type: "IMPORTS",
+            from: sourceAstRootId,
+            to: fileRootAstNodeId(repoId, localTarget),
+            repoId,
+            props: { raw: imp.raw, normalized, confidence: 0.75 },
+          });
+        }
       } else {
         const tsTarget =
           (cf.language === "javascript" || cf.language === "typescript") && tsResolver
@@ -414,21 +416,25 @@ export function buildIR(scan: ScanResult, facts: FactsByFile): IR {
             repoId,
             props: { raw: imp.raw, normalized, resolver: "typescript", confidence: 0.85 },
           });
-          addEdge({
-            id: edgeId(repoId, "IMPORTS", sourceAstRootId, fileRootAstNodeId(repoId, tsTarget)),
-            type: "IMPORTS",
-            from: sourceAstRootId,
-            to: fileRootAstNodeId(repoId, tsTarget),
-            repoId,
-            props: { raw: imp.raw, normalized, resolver: "typescript", confidence: 0.75 },
-          });
+          if (filesWithAstRoot.has(tsTarget)) {
+            addEdge({
+              id: edgeId(repoId, "IMPORTS", sourceAstRootId, fileRootAstNodeId(repoId, tsTarget)),
+              type: "IMPORTS",
+              from: sourceAstRootId,
+              to: fileRootAstNodeId(repoId, tsTarget),
+              repoId,
+              props: { raw: imp.raw, normalized, resolver: "typescript", confidence: 0.75 },
+            });
+          }
         }
       }
     }
 
     if (!astMap) continue;
     for (const s of cf.symbols) {
-      const from = astMap.get(s.qname ?? s.name);
+      const qname = s.qname ?? s.name;
+      const astId = astNodeId(repoId, rel, s.kind, qname, s.range?.startLine ?? 0, s.range?.startCol ?? 0);
+      const from = astMap.get(astId);
       if (!from) continue;
       for (const base of [...(s.extendsNames ?? []), ...(s.implementsNames ?? [])]) {
         const baseName = cleanQuotes(base);
@@ -441,7 +447,9 @@ export function buildIR(scan: ScanResult, facts: FactsByFile): IR {
 
     for (const s of cf.symbols) {
       if (s.kind !== "method" || !s.parentName) continue;
-      const from = astMap.get(s.qname ?? s.name);
+      const qname = s.qname ?? s.name;
+      const astId = astNodeId(repoId, rel, s.kind, qname, s.range?.startLine ?? 0, s.range?.startCol ?? 0);
+      const from = astMap.get(astId);
       if (!from) continue;
       const parentSymbol = cf.symbols.find((candidate) => (candidate.qname ?? candidate.name) === s.parentName);
       if (!parentSymbol) continue;
