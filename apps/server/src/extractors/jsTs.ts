@@ -2,10 +2,10 @@ import type { SyntaxNode } from "tree-sitter";
 import type { ExtractorFn } from "./types";
 import { extractName, nodeRange } from "./common";
 
-export const extractJsTs: ExtractorFn = (root, ctx) => {
-  const imports = [];
-  const symbols = [];
-  const callSites = [];
+export const extractJsTs: ExtractorFn = (root) => {
+  const imports: ReturnType<ExtractorFn>["imports"] = [];
+  const symbols: ReturnType<ExtractorFn>["symbols"] = [];
+  const callSites: ReturnType<ExtractorFn>["callSites"] = [];
 
   const stack: string[] = [];
 

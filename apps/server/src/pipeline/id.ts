@@ -23,60 +23,32 @@ export function dirId(repoId: string, relPath: string): string {
 }
 
 export function repoNodeId(repoId: string): string {
-  return `repo:${repoId}`;
+  return `repo-root:${repoId}`;
 }
 
-export function symbolId(
+export function astNodeId(
   repoId: string,
   fileRelPath: string,
-  kind: string,
+  nodeType: string,
   qname: string,
   startLine = 0,
   startCol = 0,
 ): string {
-  return `sym:${sha1(`${repoId}|${normalizePath(fileRelPath)}|${kind}|${qname}|${startLine}:${startCol}`)}`;
+  return `ast:${sha1(`${repoId}|${normalizePath(fileRelPath)}|${nodeType}|${qname}|${startLine}:${startCol}`)}`;
 }
 
-/** Deterministic Import node id (stable across runs). */
-export function importId(
-  repoId: string,
-  fileRelPath: string,
-  raw: string,
-  kind: string,
-  startLine = 0,
-  startCol = 0,
-): string {
-  return `imp:${sha1(`${repoId}|${normalizePath(fileRelPath)}|${kind}|${raw}|${startLine}:${startCol}`)}`;
+export function fileRootAstNodeId(repoId: string, fileRelPath: string): string {
+  return astNodeId(repoId, fileRelPath, "file_root", normalizePath(fileRelPath), 0, 0);
 }
 
-/** Deterministic CallSite node id (stable across runs). */
-export function callsiteId(
+export function txtChunkId(
   repoId: string,
   fileRelPath: string,
-  calleeText: string,
-  startLine = 0,
-  startCol = 0,
-): string {
-  return `call:${sha1(`${repoId}|${normalizePath(fileRelPath)}|${calleeText}|${startLine}:${startCol}`)}`;
-}
-
-/** Deterministic DocChunk node id (stable across runs). */
-export function chunkId(
-  repoId: string,
-  fileRelPath: string,
-  chunkType: string,
+  chunkIndex: number,
   startLine = 1,
   endLine = 1,
 ): string {
-  return `chunk:${sha1(`${repoId}|${normalizePath(fileRelPath)}|${chunkType}|${startLine}:${endLine}`)}`;
-}
-
-export function externalModuleId(repoId: string, name: string): string {
-  return `extmod:${sha1(`${repoId}|${name}`)}`;
-}
-
-export function externalSymbolId(repoId: string, name: string): string {
-  return `extsym:${sha1(`${repoId}|${name}`)}`;
+  return `txtchunk:${sha1(`${repoId}|${normalizePath(fileRelPath)}|${chunkIndex}|${startLine}:${endLine}`)}`;
 }
 
 export function edgeId(repoId: string, type: string, from: string, to: string): string {

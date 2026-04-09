@@ -49,13 +49,13 @@ describe('embedASTFiles', () => {
 
   it('processes symbols and embeds chunks successfully', async () => {
     const mockSymbols = [
-      { relPath: 'src/math.ts', symbolName: 'add', startLine: 1, endLine: 3 },
-      { relPath: 'src/math.ts', symbolName: 'subtract', startLine: 5, endLine: 7 },
+      { astNodeId: 'ast-1', relPath: 'src/math.ts', symbolName: 'add', startLine: 1, endLine: 3 },
+      { astNodeId: 'ast-2', relPath: 'src/math.ts', symbolName: 'subtract', startLine: 5, endLine: 7 },
     ];
 
     mockedRunCypher
       .mockResolvedValueOnce(mockSymbols)
-      .mockResolvedValueOnce(undefined);
+      .mockResolvedValue([]);
 
     const mockEmbedding = new Array(1536).fill(0.01);
     mockedGenerateEmbeddings.mockResolvedValue([mockEmbedding, mockEmbedding]);
@@ -72,15 +72,15 @@ describe('embedASTFiles', () => {
 
   it('respects batchSize parameter', async () => {
     const mockSymbols = [
-      { relPath: 'src/math.ts', symbolName: 'sym1', startLine: 1, endLine: 2 },
-      { relPath: 'src/math.ts', symbolName: 'sym2', startLine: 3, endLine: 4 },
-      { relPath: 'src/math.ts', symbolName: 'sym3', startLine: 5, endLine: 6 },
-      { relPath: 'src/math.ts', symbolName: 'sym4', startLine: 7, endLine: 8 },
+      { astNodeId: 'ast-1', relPath: 'src/math.ts', symbolName: 'sym1', startLine: 1, endLine: 2 },
+      { astNodeId: 'ast-2', relPath: 'src/math.ts', symbolName: 'sym2', startLine: 3, endLine: 4 },
+      { astNodeId: 'ast-3', relPath: 'src/math.ts', symbolName: 'sym3', startLine: 5, endLine: 6 },
+      { astNodeId: 'ast-4', relPath: 'src/math.ts', symbolName: 'sym4', startLine: 7, endLine: 8 },
     ];
 
     mockedRunCypher
       .mockResolvedValueOnce(mockSymbols)
-      .mockResolvedValue(undefined);
+      .mockResolvedValue([]);
 
     const mockEmbedding = new Array(1536).fill(0.01);
     mockedGenerateEmbeddings.mockResolvedValue([mockEmbedding, mockEmbedding]);
@@ -92,8 +92,8 @@ describe('embedASTFiles', () => {
 
   it('respects maxFiles parameter', async () => {
     const mockSymbols = [
-      { relPath: 'src/math.ts', symbolName: 'add', startLine: 1, endLine: 3 },
-      { relPath: 'src/index.js', symbolName: 'hello', startLine: 1, endLine: 3 },
+      { astNodeId: 'ast-1', relPath: 'src/math.ts', symbolName: 'add', startLine: 1, endLine: 3 },
+      { astNodeId: 'ast-2', relPath: 'src/index.js', symbolName: 'hello', startLine: 1, endLine: 3 },
     ];
 
     mockedRunCypher.mockResolvedValue(mockSymbols);
@@ -108,7 +108,7 @@ describe('embedASTFiles', () => {
 
   it('handles batch embedding failure gracefully', async () => {
     const mockSymbols = [
-      { relPath: 'src/math.ts', symbolName: 'add', startLine: 1, endLine: 3 },
+      { astNodeId: 'ast-1', relPath: 'src/math.ts', symbolName: 'add', startLine: 1, endLine: 3 },
     ];
 
     mockedRunCypher.mockResolvedValueOnce(mockSymbols);
@@ -125,13 +125,13 @@ describe('embedASTFiles', () => {
 
   it('handles null embeddings from fallback', async () => {
     const mockSymbols = [
-      { relPath: 'src/math.ts', symbolName: 'add', startLine: 1, endLine: 3 },
-      { relPath: 'src/math.ts', symbolName: 'subtract', startLine: 5, endLine: 7 },
+      { astNodeId: 'ast-1', relPath: 'src/math.ts', symbolName: 'add', startLine: 1, endLine: 3 },
+      { astNodeId: 'ast-2', relPath: 'src/math.ts', symbolName: 'subtract', startLine: 5, endLine: 7 },
     ];
 
     mockedRunCypher
       .mockResolvedValueOnce(mockSymbols)
-      .mockResolvedValue(undefined);
+      .mockResolvedValue([]);
 
     const mockEmbedding = new Array(1536).fill(0.01);
     mockedGenerateEmbeddings.mockResolvedValue([mockEmbedding, null]);
@@ -156,7 +156,7 @@ describe('embedASTFiles', () => {
 
   it('handles missing file gracefully', async () => {
     const mockSymbols = [
-      { relPath: 'src/nonexistent.ts', symbolName: 'missing', startLine: 1, endLine: 5 },
+      { astNodeId: 'ast-1', relPath: 'src/nonexistent.ts', symbolName: 'missing', startLine: 1, endLine: 5 },
     ];
 
     mockedRunCypher.mockResolvedValue(mockSymbols);
@@ -172,7 +172,7 @@ describe('embedASTFiles', () => {
     await fs.writeFile(emptyFile, '', 'utf-8');
 
     const mockSymbols = [
-      { relPath: 'src/empty.ts', symbolName: 'empty', startLine: 1, endLine: 1 },
+      { astNodeId: 'ast-1', relPath: 'src/empty.ts', symbolName: 'empty', startLine: 1, endLine: 1 },
     ];
 
     mockedRunCypher.mockResolvedValue(mockSymbols);

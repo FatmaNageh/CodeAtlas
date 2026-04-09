@@ -30,7 +30,7 @@ export class WorkerPool {
   private nextId = 1;
   private closed = false;
 
-  constructor(private workerUrl: URL, opts: WorkerPoolOptions) {
+  constructor(workerUrl: URL, opts: WorkerPoolOptions) {
     const size = Math.max(1, Math.floor(opts.size));
 
     // Node v18.19+ / v20.6+ deprecated --loader for userland loaders.

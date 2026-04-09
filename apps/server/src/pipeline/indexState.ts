@@ -3,6 +3,8 @@ import path from "path";
 import type { ScanResult, ScanDiff } from "../types/scan";
 import { normalizePath } from "./id";
 
+export type { ScanResult } from "../types/scan";
+
 export type IndexState = {
   version: 1;
   repoRoot: string;
@@ -49,10 +51,10 @@ export function diffScan(prev: IndexState | null, curr: ScanResult): ScanDiff {
   const currFiles: Record<string, { mtimeMs: number; size: number; hash?: string }> = {};
   for (const e of curr.entries) currFiles[normalizePath(e.relPath)] = { mtimeMs: e.mtimeMs, size: e.size, hash: e.hash };
 
-  const added = [];
-  const changed = [];
-  const unchanged = [];
-  const removed = [];
+  const added: ScanDiff["added"] = [];
+  const changed: ScanDiff["changed"] = [];
+  const unchanged: ScanDiff["unchanged"] = [];
+  const removed: ScanDiff["removed"] = [];
 
   for (const e of curr.entries) {
     const key = normalizePath(e.relPath);

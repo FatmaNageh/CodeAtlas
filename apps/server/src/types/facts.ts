@@ -57,6 +57,12 @@ export type TextFacts = {
   references: { raw: string; range?: Range }[];
   /** Backticked identifiers or headings that likely refer to symbols (best-effort). */
   symbolMentions: { name: string; range?: Range }[];
+  chunks: Array<{
+    index: number;
+    text: string;
+    startLine: number;
+    endLine: number;
+  }>;
   lineCount?: number;
   textPreview?: string;
   textHash?: string;

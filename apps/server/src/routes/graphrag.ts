@@ -6,7 +6,7 @@ import { assembleFileContext } from '../retrieval/context';
 import { generateTextWithContext } from '../ai/generation';
 import { generateEmbeddings, generateSingleEmbed } from '../ai/embeddings';
 import { isValidEmbeddingVector } from '../utils/embedding';
-import { findSimilarChunks } from '../retrieval/vector';
+import { findSimilarChunks, type SimilarASTNodeRow } from '../retrieval/vector';
 import { runCypher } from '../db/cypher';
 import fs from 'fs/promises';
 import { repoRoots } from '../state/repoRoots';
@@ -14,6 +14,25 @@ import { embedDimensions } from '@/config/openrouter';
 import { buildGraphTour } from '@/tour/buildGraphTour';
 
 export const graphragRoute = new Hono();
+
+type SummaryRow = {
+  path: string;
+  summary: string;
+};
+
+type FilePathRow = {
+  filePath: string;
+};
+
+type CountRow = {
+  n: number;
+};
+
+type StatusRow = {
+  path: string;
+  astNodes: number;
+  embeddedAstNodes: number;
+};
 
 // Helper: Convert absolute Windows/macOS paths to repo-relative POSIX paths
 function normalizeToRepoPath(filePath: string, repoRoot: string): string {
@@ -151,7 +170,7 @@ graphragRoute.post('/ask', async (c) => {
 
     // Build code context if any chunks exist
     let codeContext = (chunks && chunks.length > 0)
-      ? chunks.map((c: any) => c.node?.text ?? c.chunkText ?? '').join('\n\n')
+      ? chunks.map((chunk) => chunk.chunkText ?? '').join('\n\n')
       : '';
     // Trim excessively long code context to avoid huge prompts
     const MAX_CODE_CONTEXT = 8000; // characters
@@ -164,8 +183,8 @@ graphragRoute.post('/ask', async (c) => {
       if (repoRoot) {
         try {
           const texts = await Promise.all(
-            chunks.slice(0, 5).map(async (c: any) => {
-              const rel = c.node?.relPath;
+            chunks.slice(0, 5).map(async (chunk) => {
+              const rel = chunk.filePath;
               if (!rel) return '';
               const absPath = path.resolve(repoRoot, rel);
               const t = await fs.readFile(absPath, 'utf8');
@@ -185,12 +204,12 @@ graphragRoute.post('/ask', async (c) => {
     // Fallback: gather file summaries if no code context
     let summaryContext = '';
     if (!codeContext) {
-      const sums = await runCypher(
+      const sums = await runCypher<SummaryRow>(
         'MATCH (f:CodeFile {repoId: $repoId}) WHERE f.summary IS NOT NULL RETURN f.relPath AS path, f.summary AS summary',
         { repoId }
       );
       if (Array.isArray(sums) && sums.length > 0) {
-        summaryContext = sums.map((s: any) => `File: ${s.path}\nSummary:\n${s.summary}`).join('\n\n');
+        summaryContext = sums.map((summaryRow) => `File: ${summaryRow.path}\nSummary:\n${summaryRow.summary}`).join('\n\n');
         // Cap length to avoid overly long prompts
         const MAX_SUMMARY_CONTEXT = 2000;
         if (summaryContext.length > MAX_SUMMARY_CONTEXT) {
@@ -218,10 +237,10 @@ graphragRoute.post('/ask', async (c) => {
     return c.json({
       ok: true,
       answer,
-      sources: chunks.map((c: any) => ({
-        file: c.filePath ?? 'unknown',
-        symbol: c.node?.symbol ?? '',
-        score: c.score ?? 0,
+      sources: chunks.map((chunk: SimilarASTNodeRow) => ({
+        file: chunk.filePath ?? 'unknown',
+        symbol: chunk.symbol ?? '',
+        score: chunk.score ?? 0,
       })),
     });
   } catch (err) {
@@ -279,17 +298,16 @@ graphragRoute.get('/status', async (c) => {
     return c.json({ ok: false, error: 'Missing repoId' }, 400);
   }
   try {
-    const totalFiles = (await runCypher('MATCH (f:CodeFile {repoId: $repoId}) RETURN count(f) AS n', { repoId }))?.[0]?.n ?? 0;
-    // Neo4j 5+ deprecated exists(property); use IS NOT NULL instead
-    const summarizedFiles = (await runCypher('MATCH (f:CodeFile {repoId: $repoId}) WHERE f.summary IS NOT NULL RETURN count(f) AS n', { repoId }))?.[0]?.n ?? 0;
-    const totalChunks = (await runCypher('MATCH (c:CodeChunk {repoId: $repoId}) RETURN count(c) AS n', { repoId }))?.[0]?.n ?? 0;
-    const embeddedChunks = (await runCypher('MATCH (c:CodeChunk {repoId: $repoId}) WHERE c.embedding IS NOT NULL RETURN count(c) AS n', { repoId }))?.[0]?.n ?? 0;
+    const totalFiles = (await runCypher<CountRow>('MATCH (f:CodeFile {repoId: $repoId}) RETURN count(f) AS n', { repoId }))?.[0]?.n ?? 0;
+    const summarizedFiles = (await runCypher<CountRow>('MATCH (f:CodeFile {repoId: $repoId}) WHERE f.summary IS NOT NULL RETURN count(f) AS n', { repoId }))?.[0]?.n ?? 0;
+    const totalChunks = (await runCypher<CountRow>('MATCH (a:ASTNode {repoId: $repoId}) RETURN count(a) AS n', { repoId }))?.[0]?.n ?? 0;
+    const embeddedChunks = (await runCypher<CountRow>('MATCH (a:ASTNode {repoId: $repoId}) WHERE a.embedding IS NOT NULL RETURN count(a) AS n', { repoId }))?.[0]?.n ?? 0;
 
-    const perFile = await runCypher(
-      `MATCH (c:CodeChunk {repoId: $repoId})
-       WITH c.relPath AS path, count(*) AS chunks,
-            sum(CASE WHEN c.embedding IS NOT NULL THEN 1 ELSE 0 END) AS embeddedChunks
-       RETURN path, chunks, embeddedChunks`,
+    const perFile = await runCypher<StatusRow>(
+      `MATCH (a:ASTNode {repoId: $repoId})
+       WITH a.fileRelPath AS path, count(*) AS astNodes,
+            sum(CASE WHEN a.embedding IS NOT NULL THEN 1 ELSE 0 END) AS embeddedAstNodes
+       RETURN path, astNodes, embeddedAstNodes`,
       { repoId }
     );
 
@@ -303,7 +321,7 @@ graphragRoute.get('/status', async (c) => {
 
 // Helper function
 async function getAllFiles(repoId: string) {
-  return runCypher(
+  return runCypher<FilePathRow>(
     'MATCH (f:CodeFile {repoId: $repoId}) RETURN f.relPath as filePath',
     { repoId }
   );

@@ -27,6 +27,23 @@ export async function extractTextFacts(files: TextFileIndexEntry[]): Promise<Fac
 
     const references: TextFacts["references"] = [];
     const symbolMentions: TextFacts["symbolMentions"] = [];
+    const chunks: TextFacts["chunks"] = [];
+
+    if (text) {
+      const lines = text.split(/\r\n|\r|\n/);
+      const linesPerChunk = 24;
+      for (let start = 0; start < lines.length; start += linesPerChunk) {
+        const slice = lines.slice(start, start + linesPerChunk);
+        const chunkText = slice.join("\n").trim();
+        if (!chunkText) continue;
+        chunks.push({
+          index: chunks.length,
+          text: chunkText,
+          startLine: start + 1,
+          endLine: start + slice.length,
+        });
+      }
+    }
 
     // Markdown-style links: [label](path)
     const linkRe = /\[[^\]]*\]\(([^)]+)\)/g;
@@ -56,6 +73,7 @@ export async function extractTextFacts(files: TextFileIndexEntry[]): Promise<Fac
       fileRelPath: f.relPath,
       references: uniq(references, (r) => r.raw),
       symbolMentions: uniq(symbolMentions, (s) => s.name),
+      chunks,
       lineCount,
       textPreview,
       textHash,

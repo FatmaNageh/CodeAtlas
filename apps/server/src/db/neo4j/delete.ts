@@ -32,49 +32,25 @@ export async function deleteFileDerived(repoId: string, relPath: string): Promis
       `
       MATCH (f {id: $fileId})
       WHERE f:CodeFile OR f:TextFile
-      // Drop outgoing semantic edges derived from this file (will be rebuilt)
-      OPTIONAL MATCH (f)-[r:IMPORTS|IMPORTS_EXTERNAL|REFERENCES|DOCUMENTS|REFERS_TO]->()
+      OPTIONAL MATCH (f)-[r:REFERENCES|MENTIONS|HAS_AST_ROOT|HAS_CHUNK]->()
       DELETE r
       `,
       { fileId: fid },
     );
 
-    // Delete declared symbols (removes their CALLS/REFERS_TO/etc via DETACH)
     await session.run(
       `
       MATCH (f:CodeFile {id: $fileId})
-      OPTIONAL MATCH (f)-[:DECLARES]->(s:Symbol)
-      DETACH DELETE s
+      OPTIONAL MATCH (f)-[:DECLARES|HAS_AST_ROOT]->(a:ASTNode)
+      DETACH DELETE a
       `,
       { fileId: fid },
     );
 
-    // Delete raw import nodes
     await session.run(
       `
-      MATCH (f:CodeFile {id: $fileId})
-      OPTIONAL MATCH (f)-[:IMPORTS_RAW]->(i:Import)
-      DETACH DELETE i
-      `,
-      { fileId: fid },
-    );
-
-    // Delete callsites
-    await session.run(
-      `
-      MATCH (f:CodeFile {id: $fileId})
-      OPTIONAL MATCH (f)-[:CONTAINS]->(c:CallSite)
-      DETACH DELETE c
-      `,
-      { fileId: fid },
-    );
-
-    // Delete chunks
-    await session.run(
-      `
-      MATCH (f {id: $fileId})
-      WHERE f:CodeFile OR f:TextFile
-      OPTIONAL MATCH (f)-[:HAS_CHUNK]->(c:DocChunk)
+      MATCH (f:TextFile {id: $fileId})
+      OPTIONAL MATCH (f)-[:HAS_CHUNK]->(c:TXTChunk)
       DETACH DELETE c
       `,
       { fileId: fid },

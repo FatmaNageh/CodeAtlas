@@ -1,8 +1,8 @@
 import { runCypher } from "../db/cypher";
 
 /**
- * Find code files that (directly OR transitively) IMPORT the given target files
- * via incoming IMPORTS edges.
+ * Find code files that (directly OR transitively) reference the given target files
+ * via incoming REFERENCES edges.
  * This uses the graph from the *previous* indexing run to decide which files
  * should be re-processed when a file changes or is removed.
  *
@@ -26,7 +26,7 @@ export async function findImportDependents(input: {
     `
     MATCH (t:CodeFile { repoId: $repoId })
     WHERE t.relPath IN $targets
-    MATCH (dep:CodeFile { repoId: $repoId })-[:IMPORTS*1..${maxDepth}]->(t)
+    MATCH (dep:CodeFile { repoId: $repoId })-[:REFERENCES*1..${maxDepth}]->(t)
     WHERE NOT dep.relPath IN $targets
     RETURN DISTINCT dep.relPath AS relPath
     `,

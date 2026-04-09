@@ -43,12 +43,12 @@ export async function buildGraphTour(repoId: string, requestedLimit: number | un
   const metricsRows = await runCypher<GraphTourMetricRow>(
     `
     MATCH (f:CodeFile {repoId: $repoId})
-    OPTIONAL MATCH (f)-[outRel]->()
+    OPTIONAL MATCH (f)-[outRel:REFERENCES]->(:CodeFile {repoId: $repoId})
     WITH f, count(outRel) AS outDegree
-    OPTIONAL MATCH ()-[inRel]->(f)
+    OPTIONAL MATCH (:CodeFile {repoId: $repoId})-[inRel:REFERENCES]->(f)
     WITH f, outDegree, count(inRel) AS inDegree
     OPTIONAL MATCH p = (root)-[:CONTAINS*0..]->(f)
-      WHERE root.repoId = $repoId AND (root:Repository OR root:Repo)
+      WHERE root.repoId = $repoId AND root:RepoRoot
     WITH f, inDegree, outDegree, min(length(p)) AS depth
     RETURN
       f.relPath AS filePath,

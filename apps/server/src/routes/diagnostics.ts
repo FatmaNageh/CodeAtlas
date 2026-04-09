@@ -51,7 +51,7 @@ diagnosticsRoute.get("/tester", async (c) => {
  */
 diagnosticsRoute.get("/diagnostics/repos", async (c) => {
   const rows = await runCypher<{ r: any }>(
-    `MATCH (r:Repo) RETURN r ORDER BY r.rootPath ASC LIMIT 50`,
+    `MATCH (r:RepoRoot) RETURN r ORDER BY r.rootPath ASC LIMIT 50`,
   );
   return c.json({ ok: true, repos: rows.map((x) => toPlain(x.r)) });
 });
@@ -81,31 +81,31 @@ diagnosticsRoute.get("/diagnostics/check", async (c) => {
 
   // 3) Relationship samples
   const importsLocal = await runCypher<{ a: any; b: any }>(
-    `MATCH (a:CodeFile {repoId:$repoId})-[:IMPORTS]->(b:CodeFile {repoId:$repoId}) RETURN a.relPath AS a, b.relPath AS b LIMIT 20`,
+    `MATCH (a:CodeFile {repoId:$repoId})-[:REFERENCES]->(b:CodeFile {repoId:$repoId}) RETURN a.relPath AS a, b.relPath AS b LIMIT 20`,
     { repoId },
   );
   const importsExternal = await runCypher<{ f: any; m: any }>(
-    `MATCH (f:CodeFile {repoId:$repoId})-[:IMPORTS_EXTERNAL]->(m:ExternalModule {repoId:$repoId}) RETURN f.relPath AS f, m.name AS m LIMIT 20`,
+    `MATCH (f:TextFile {repoId:$repoId})-[:MENTIONS]->(m:ASTNode {repoId:$repoId}) RETURN f.relPath AS f, m.name AS m LIMIT 20`,
     { repoId },
   );
   const parentEdges = await runCypher<{ p: any; c: any }>(
-    `MATCH (p:Symbol {repoId:$repoId})-[:PARENT]->(c:Symbol {repoId:$repoId}) RETURN p.qname AS p, c.qname AS c LIMIT 20`,
+    `MATCH (p:ASTNode {repoId:$repoId})-[:AST_CHILD]->(c:ASTNode {repoId:$repoId}) RETURN p.qname AS p, c.qname AS c LIMIT 20`,
     { repoId },
   );
   const extendsEdges = await runCypher<{ a: any; b: any; conf: any }>(
-    `MATCH (a:Symbol {repoId:$repoId})-[r:EXTENDS]->(b) RETURN a.qname AS a, coalesce(b.qname,b.name) AS b, r.confidence AS conf LIMIT 20`,
+    `MATCH (a:ASTNode {repoId:$repoId})-[r:EXTENDS]->(b:ASTNode {repoId:$repoId}) RETURN a.qname AS a, coalesce(b.qname,b.name) AS b, r.confidence AS conf LIMIT 20`,
     { repoId },
   );
   const implementsEdges = await runCypher<{ a: any; b: any; conf: any }>(
-    `MATCH (a:Symbol {repoId:$repoId})-[r:IMPLEMENTS]->(b) RETURN a.qname AS a, coalesce(b.qname,b.name) AS b, r.confidence AS conf LIMIT 20`,
+    `MATCH (a:ASTNode {repoId:$repoId})-[r:OVERRIDES]->(b:ASTNode {repoId:$repoId}) RETURN a.qname AS a, coalesce(b.qname,b.name) AS b, r.confidence AS conf LIMIT 20`,
     { repoId },
   );
   const callsEdges = await runCypher<{ a: any; b: any; conf: any }>(
-    `MATCH (a:Symbol {repoId:$repoId})-[r:CALLS]->(b:Symbol {repoId:$repoId}) RETURN a.qname AS a, b.qname AS b, r.confidence AS conf ORDER BY conf DESC LIMIT 20`,
+    `MATCH (a:ASTNode {repoId:$repoId})-[r:IMPORTS]->(b:ASTNode {repoId:$repoId}) RETURN a.qname AS a, b.qname AS b, r.confidence AS conf ORDER BY conf DESC LIMIT 20`,
     { repoId },
   );
   const docRefs = await runCypher<{ t: any; x: any; conf: any }>(
-    `MATCH (t:TextFile {repoId:$repoId})-[r:REFERENCES]->(x) RETURN t.relPath AS t, coalesce(x.relPath,x.qname,x.name) AS x, r.confidence AS conf LIMIT 20`,
+    `MATCH (t:TXTChunk {repoId:$repoId})-[r:DESCRIBES]->(x:ASTNode {repoId:$repoId}) RETURN t.fileRelPath AS t, coalesce(x.relPath,x.qname,x.name) AS x, r.confidence AS conf LIMIT 20`,
     { repoId },
   );
 
@@ -135,7 +135,7 @@ diagnosticsRoute.get("/diagnostics/check", async (c) => {
     hasTextFiles: textFileSample.length > 0,
     hasLocalImports: importsLocal.length > 0,
     hasExternalImports: importsExternal.length > 0,
-    hasSymbols: (await runCypher<{ c: any }>(`MATCH (s:Symbol {repoId:$repoId}) RETURN count(s) AS c`, { repoId }))?.[0]?.c ?? 0,
+    hasSymbols: (await runCypher<{ c: any }>(`MATCH (s:ASTNode {repoId:$repoId}) RETURN count(s) AS c`, { repoId }))?.[0]?.c ?? 0,
     hasOldFileLabel: !!hasOldFileLabel,
   };
 

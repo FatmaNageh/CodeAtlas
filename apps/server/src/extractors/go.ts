@@ -12,9 +12,9 @@ function receiverTypeText(node: SyntaxNode): string | undefined {
 }
 
 export const extractGo: ExtractorFn = (root) => {
-  const imports = [];
-  const symbols = [];
-  const callSites = [];
+  const imports: ReturnType<ExtractorFn>["imports"] = [];
+  const symbols: ReturnType<ExtractorFn>["symbols"] = [];
+  const callSites: ReturnType<ExtractorFn>["callSites"] = [];
 
   const stack: string[] = [];
   const currentQname = () => (stack.length ? stack[stack.length - 1] : undefined);

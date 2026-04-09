@@ -1,31 +1,24 @@
 export type IRNodeKind =
-  | "Repo"
+  | "RepoRoot"
   | "Directory"
   | "CodeFile"
   | "TextFile"
-  | "Symbol"
-  | "Import"
-  | "CallSite"
-  | "DocChunk"
-  | "ExternalModule"
-  | "ExternalSymbol";
+  | "ASTNode"
+  | "TXTChunk";
 
 export type IREdgeType =
   | "CONTAINS"
   | "DECLARES"
-  | "PARENT"
-  | "IMPORTS_RAW"
   | "IMPORTS"
-  | "IMPORTS_EXTERNAL"
-  | "RESOLVES_TO"
   | "REFERENCES"
-  | "DOCUMENTS"
-  | "CALLS_RAW"
-  | "CALLS"
   | "EXTENDS"
-  | "IMPLEMENTS"
   | "HAS_CHUNK"
-  | "REFERS_TO";
+  | "HAS_AST_ROOT"
+  | "AST_CHILD"
+  | "NEXT_CHUNK"
+  | "DESCRIBES"
+  | "MENTIONS"
+  | "OVERRIDES";
 
 export type Range = {
   startLine: number;
@@ -38,7 +31,7 @@ export type IRNode = {
   id: string;
   kind: IRNodeKind;
   repoId: string;
-  props: Record<string, any>;
+  props: Record<string, boolean | number | string | null | string[]>;
 };
 
 export type IREdge = {
@@ -47,7 +40,7 @@ export type IREdge = {
   from: string;
   to: string;
   repoId: string;
-  props?: Record<string, any>;
+  props?: Record<string, boolean | number | string | null | string[]>;
 };
 
 export type IR = {
@@ -57,7 +50,8 @@ export type IR = {
   stats: {
     files: number;
     dirs: number;
-    symbols: number;
-    importsRaw: number;
+    astNodes: number;
+    textChunks: number;
+    references: number;
   };
 };

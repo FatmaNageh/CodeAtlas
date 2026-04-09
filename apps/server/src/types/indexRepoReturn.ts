@@ -1,8 +1,9 @@
 export type IRStats = {
   files: number;
   dirs: number;
-  symbols: number;
-  importsRaw: number;
+  astNodes: number;
+  textChunks: number;
+  references: number;
 };
 
 import type { FileIndexEntry } from "./scan";

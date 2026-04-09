@@ -1,59 +1,71 @@
-import path from "node:path";
 import fs from "node:fs";
+import path from "node:path";
 import { createRequire } from "node:module";
-import crypto from "node:crypto";
 
+import type * as TypeScript from "typescript";
+
+import type { Range, IREdge, IRNode } from "../types/ir";
 import type { ScanResult } from "../types/scan";
-import type { IRNode, IREdge } from "../types/ir";
-import { edgeId, fileId, importId, normalizePath, symbolId, callsiteId } from "./id";
+import { edgeId, fileRootAstNodeId, normalizePath } from "./id";
 
-/**
- * Phase 2 Step 7: Repo-aware TS/JS symbol & call resolution using TypeScript Program + TypeChecker.
- *
- * This enriches the IR with:
- * - RESOLVES_TO edges from Import -> Symbol for named/default/namespace imports
- * - CALLS edges from CallSite -> Symbol for resolved call expressions (best-effort)
- *
- * It is designed to be safe:
- * - If TypeScript is unavailable, it no-ops.
- * - If a symbol cannot be mapped into our graph, it falls back to creating a minimal Symbol node.
- */
-type Ts = any;
-
-// Cache to avoid rebuilding a TypeScript Program repeatedly for the same repo within a process.
-// This is most helpful for full indexing or when multiple enrichment passes are added later.
-type TsProgramContext = {
-  repoRoot: string;
-  tsconfigPath: string | null;
-  compilerOptionsSig: string;
-  program: any;
-  checker: any;
-};
-
-const programCache = new Map<string, TsProgramContext>();
-
-function sha1(input: string): string {
-  return crypto.createHash("sha1").update(input).digest("hex");
-}
+type Ts = typeof TypeScript;
 
 function findTsConfig(repoRoot: string): string | null {
-  const p = path.join(repoRoot, "tsconfig.json");
-  return fs.existsSync(p) ? p : null;
+  const tsconfigPath = path.join(repoRoot, "tsconfig.json");
+  return fs.existsSync(tsconfigPath) ? tsconfigPath : null;
 }
 
-function toPosixRel(repoRoot: string, absFile: string): string | null {
-  const rel = path.relative(repoRoot, absFile);
-  if (rel.startsWith("..") || path.isAbsolute(rel)) return null;
-  return rel.split(path.sep).join("/");
+function toPosixRel(repoRoot: string, absFilePath: string): string | null {
+  const relativePath = path.relative(repoRoot, absFilePath);
+  if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) return null;
+  return normalizePath(relativePath);
 }
 
-function isTsJsRel(rel: string): boolean {
-  return /\.(ts|tsx|js|jsx|mjs|cjs)$/i.test(rel);
+function isTsJsRel(relPath: string): boolean {
+  return /\.(ts|tsx|js|jsx|mjs|cjs)$/i.test(relPath);
 }
 
-function kindFromDeclaration(ts: Ts, decl: any): string {
-  if (!decl) return "function";
-  switch (decl.kind) {
+function buildCompilerOptions(ts: Ts, repoRoot: string): TypeScript.CompilerOptions {
+  const tsconfigPath = findTsConfig(repoRoot);
+  const defaults: TypeScript.CompilerOptions = {
+    allowJs: true,
+    checkJs: false,
+    jsx: ts.JsxEmit.Preserve,
+    moduleResolution: ts.ModuleResolutionKind.NodeNext,
+    module: ts.ModuleKind.NodeNext,
+    target: ts.ScriptTarget.ES2020,
+    resolveJsonModule: true,
+    esModuleInterop: true,
+    allowSyntheticDefaultImports: true,
+    skipLibCheck: true,
+    noEmit: true,
+  };
+
+  if (!tsconfigPath) return defaults;
+
+  try {
+    const config = ts.readConfigFile(tsconfigPath, ts.sys.readFile);
+    if (config.error) return defaults;
+    const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, path.dirname(tsconfigPath));
+    return { ...defaults, ...parsed.options };
+  } catch {
+    return defaults;
+  }
+}
+
+function rangeFromNode(sourceFile: TypeScript.SourceFile, node: TypeScript.Node): Range {
+  const start = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile, false));
+  const end = sourceFile.getLineAndCharacterOfPosition(node.getEnd());
+  return {
+    startLine: start.line + 1,
+    startCol: start.character + 1,
+    endLine: end.line + 1,
+    endCol: end.character + 1,
+  };
+}
+
+function astNodeTypeFromDeclaration(ts: Ts, declaration: TypeScript.Declaration): string | null {
+  switch (declaration.kind) {
     case ts.SyntaxKind.ClassDeclaration:
     case ts.SyntaxKind.ClassExpression:
       return "class";
@@ -69,355 +81,235 @@ function kindFromDeclaration(ts: Ts, decl: any): string {
     case ts.SyntaxKind.ModuleDeclaration:
       return "module";
     default:
-      return "function";
+      return null;
   }
 }
 
-function nodeHasId(nodes: IRNode[], id: string): boolean {
-  return nodes.some((n) => n.id === id);
-}
-
-function findExistingSymbolId(params: {
-  nodes: IRNode[];
-  repoId: string;
-  fileRelPath: string;
-  kind: string;
-  name: string;
-  startLine: number;
-  startCol: number;
-}): string | null {
-  const { nodes, repoId, fileRelPath, kind, name, startLine, startCol } = params;
-
-  for (const n of nodes) {
-    if (n.kind !== "Symbol") continue;
-    if (n.repoId !== repoId) continue;
-    const p: any = n.props ?? {};
-    if (p.fileRelPath !== fileRelPath && p.fileRelPath !== fileRelPath) continue;
-    if (p.kind && p.kind !== kind) continue;
-
-    const nName = p.qname ?? p.name;
-    if (nName !== name) continue;
-
-    const r = p.range ?? {};
-    const sLine = r.startLine ?? 0;
-    const sCol = r.startCol ?? 0;
-
-    // Allow tiny drift due to parser differences
-    if (sLine === startLine && Math.abs(sCol - startCol) <= 2) return n.id;
+function propertyNameText(ts: Ts, name: TypeScript.PropertyName | undefined): string | null {
+  if (!name) return null;
+  if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) {
+    return name.text;
   }
-
   return null;
 }
 
-
-function ensureSymbolNode(params: {
+function resolveAstNodeIdFromDeclaration(params: {
   ts: Ts;
-  repoId: string;
   repoRoot: string;
-  absDeclFile: string;
-  decl: any;
-  name: string;
-  nodes: IRNode[];
-  edges: IREdge[];
-}) {
-  const { ts, repoId, repoRoot, absDeclFile, decl, name, nodes, edges } = params;
-  const rel = toPosixRel(repoRoot, absDeclFile);
-  if (!rel) return null;
+  declaration: TypeScript.Declaration;
+  declarationLookup: Map<string, string>;
+}): string | null {
+  const { ts, repoRoot, declaration, declarationLookup } = params;
+  const sourceFile = declaration.getSourceFile();
+  const fileRelPath = toPosixRel(repoRoot, sourceFile.fileName);
+  if (!fileRelPath) return null;
 
-  const sf = decl.getSourceFile ? decl.getSourceFile() : null;
-  const pos = sf ? sf.getLineAndCharacterOfPosition(decl.getStart(sf, false)) : { line: 0, character: 0 };
-  const startLine = (pos.line ?? 0) + 1;
-  const startCol = (pos.character ?? 0) + 1;
-  const kind = kindFromDeclaration(ts, decl);
-  const qname = name;
-  const sid = symbolId(repoId, rel, kind, qname, startLine, startCol);
+  const nodeType = astNodeTypeFromDeclaration(ts, declaration);
+  if (!nodeType) return null;
 
-  // Prefer reusing an existing extracted Symbol node if it matches.
-  const existing = findExistingSymbolId({ nodes, repoId, fileRelPath: rel, kind, name: qname, startLine, startCol });
-  if (existing) return existing;
-
-  if (!nodeHasId(nodes, sid)) {
-    nodes.push({
-      id: sid,
-      kind: "Symbol",
-      repoId,
-      props: {
-        repoId,
-        fileRelPath: rel,
-        kind,
-        name,
-        qname,
-        range: { startLine, startCol, endLine: startLine, endCol: startCol },
-        inferred: true,
-      },
-    });
-    // Ensure file node exists in graph (it should, but keep safe).
-    const fid = fileId(repoId, rel);
-    edges.push({ id: edgeId(repoId, "DECLARES", fid, sid), type: "DECLARES", from: fid, to: sid, repoId, props: { inferred: true } });
-  }
-
-  return sid;
+  const namedDeclaration = declaration as TypeScript.NamedDeclaration;
+  const rangeSource = namedDeclaration.name ?? declaration;
+  const range = rangeFromNode(sourceFile, rangeSource);
+  const lookupKey = `${fileRelPath}|${nodeType}|${range.startLine}|${range.startCol}`;
+  return declarationLookup.get(lookupKey) ?? null;
 }
 
-export function enrichIrWithTsProgram(opts: {
+function resolveAliasedDeclaration(
+  checker: TypeScript.TypeChecker,
+  ts: Ts,
+  symbol: TypeScript.Symbol,
+): TypeScript.Declaration | null {
+  const resolvedSymbol =
+    symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol;
+  return resolvedSymbol.declarations?.[0] ?? null;
+}
+
+export function enrichIrWithTsProgram(input: {
   scan: ScanResult;
   repoId: string;
   nodes: IRNode[];
   edges: IREdge[];
-  /**
-   * Optional list of repo-relative (posix) files to enrich.
-   * When provided, we will:
-   * 1) build the TS Program with these as roots (TypeScript will still pull imports), and
-   * 2) only walk/enrich these files.
-   */
   onlyFiles?: string[];
-}) {
-  const { scan, repoId, nodes, edges, onlyFiles } = opts;
+}): void {
   const require = createRequire(import.meta.url);
   let ts: Ts;
   try {
     ts = require("typescript") as Ts;
   } catch {
-    return; // no-op if typescript not installed
+    return;
   }
 
-  const repoRoot = path.resolve(scan.repoRoot);
-  const tsconfigPath = findTsConfig(repoRoot);
+  const repoRoot = path.resolve(input.scan.repoRoot);
+  const compilerOptions = buildCompilerOptions(ts, repoRoot);
+  const onlySet = new Set((input.onlyFiles ?? []).map((filePath) => normalizePath(filePath)));
+  const rootNames = Array.from(onlySet)
+    .filter((filePath) => isTsJsRel(filePath))
+    .map((filePath) => path.join(repoRoot, filePath))
+    .filter((filePath) => fs.existsSync(filePath));
 
-  let basePath = repoRoot;
-  let compilerOptions: any = {
-    allowJs: true,
-    checkJs: false,
-    jsx: ts.JsxEmit.Preserve,
-    moduleResolution: ts.ModuleResolutionKind.NodeNext,
-    module: ts.ModuleKind.ESNext,
-    target: ts.ScriptTarget.ES2020,
-    resolveJsonModule: true,
-    esModuleInterop: true,
-    allowSyntheticDefaultImports: true,
-    skipLibCheck: true,
-    noEmit: true,
-  };
-
-  // If we have tsconfig, we can optionally use its resolved file list as program roots.
-  // This tends to improve resolution for path mappings and project references.
-  let parsedFileNames: string[] | null = null;
-
-  if (tsconfigPath) {
-    try {
-      basePath = path.dirname(tsconfigPath);
-      const cfg = ts.readConfigFile(tsconfigPath, ts.sys.readFile);
-      if (!cfg.error) {
-        const parsed = ts.parseJsonConfigFileContent(cfg.config, ts.sys, basePath);
-        compilerOptions = { ...compilerOptions, ...(parsed.options ?? {}) };
-        parsedFileNames = Array.isArray(parsed.fileNames) ? parsed.fileNames : null;
-      }
-    } catch {
-      // ignore
-    }
-  }
-
-  // Signature for cache validation (options may change with tsconfig).
-  const compilerOptionsSig = sha1(JSON.stringify(compilerOptions));
-
-  const onlySet = Array.isArray(onlyFiles) && onlyFiles.length > 0
-    ? new Set(onlyFiles.map((p) => normalizePath(p)))
-    : null;
-
-  // Root files:
-  // - If onlyFiles is provided, use them as roots (TypeScript will still include their imports).
-  // - Otherwise, include all TS/JS inside the scanned repo.
-  const rootNames: string[] = [];
-  if (onlySet) {
-    for (const rel of onlySet) {
-      if (!isTsJsRel(rel)) continue;
-      const abs = path.join(repoRoot, rel);
-      if (fs.existsSync(abs)) rootNames.push(abs);
-    }
-  } else {
-    // Prefer tsconfig-derived file list when available; otherwise fall back to scan list.
-    if (parsedFileNames && parsedFileNames.length > 0) {
-      for (const abs of parsedFileNames) {
-        const rel = toPosixRel(repoRoot, abs);
-        if (!rel) continue;
-        const norm = normalizePath(rel);
-        if (!isTsJsRel(norm)) continue;
-        if (fs.existsSync(abs)) rootNames.push(abs);
-      }
-    } else {
-      for (const e of scan.entries) {
-        const rel = normalizePath(e.relPath);
-        if (!isTsJsRel(rel)) continue;
-        const abs = path.join(repoRoot, rel);
-        // Only include existing files (scan might include deleted if stale).
-        if (fs.existsSync(abs)) rootNames.push(abs);
-      }
-    }
-  }
   if (rootNames.length === 0) return;
 
-  // Build (or reuse) a TS Program.
-  // - If onlyFiles is provided, we skip caching to avoid uncontrolled growth.
-  // - Otherwise we reuse a cached program for this repo/config/options.
-  const cacheKey = !onlySet
-    ? `${repoRoot}::${tsconfigPath ?? ""}::${compilerOptionsSig}`
-    : null;
+  const program = ts.createProgram({
+    rootNames,
+    options: compilerOptions,
+    host: ts.createCompilerHost(compilerOptions, true),
+  });
+  const checker = program.getTypeChecker();
 
-  let program: any;
-  let checker: any;
-
-  if (cacheKey && programCache.has(cacheKey)) {
-    const ctx = programCache.get(cacheKey)!;
-    program = ctx.program;
-    checker = ctx.checker;
-  } else {
-    const host = ts.createCompilerHost(compilerOptions, true);
-    program = ts.createProgram({ rootNames, options: compilerOptions, host });
-    checker = program.getTypeChecker();
-    if (cacheKey) {
-      programCache.set(cacheKey, { repoRoot, tsconfigPath, compilerOptionsSig, program, checker });
-    }
+  const existingNodeIds = new Set(input.nodes.map((node) => node.id));
+  const declarationLookup = new Map<string, string>();
+  for (const node of input.nodes) {
+    if (node.kind !== "ASTNode") continue;
+    const fileRelPath = typeof node.props.fileRelPath === "string" ? node.props.fileRelPath : null;
+    const nodeType = typeof node.props.nodeType === "string" ? node.props.nodeType : null;
+    const startLine = typeof node.props.startLine === "number" ? node.props.startLine : null;
+    const startCol = typeof node.props.startCol === "number" ? node.props.startCol : null;
+    if (!fileRelPath || !nodeType || startLine === null || startCol === null) continue;
+    declarationLookup.set(`${fileRelPath}|${nodeType}|${startLine}|${startCol}`, node.id);
   }
-
-  // Helpers for mapping import nodes & callsite nodes
-  const getRange = (sf: any, node: any) => {
-    const s = sf.getLineAndCharacterOfPosition(node.getStart(sf, false));
-    const e = sf.getLineAndCharacterOfPosition(node.getEnd());
-    return { startLine: s.line + 1, startCol: s.character + 1, endLine: e.line + 1, endCol: e.character + 1 };
+  const existingEdgeIds = new Set(input.edges.map((edge) => edge.id));
+  const addEdge = (edge: IREdge) => {
+    if (existingEdgeIds.has(edge.id)) return;
+    existingEdgeIds.add(edge.id);
+    input.edges.push(edge);
   };
 
-  const ensureImportNode = (fileRel: string, raw: string, kind: string, range: any) => {
-    const iid = importId(repoId, fileRel, raw, kind, range?.startLine ?? 0, range?.startCol ?? 0);
-    if (!nodeHasId(nodes, iid)) {
-      nodes.push({
-        id: iid,
-        kind: "Import",
-        repoId,
-        props: { repoId, raw, normalized: raw, fileRelPath: fileRel, kind, range },
-      });
-      const fid = fileId(repoId, fileRel);
-      edges.push({ id: edgeId(repoId, "IMPORTS_RAW", fid, iid), type: "IMPORTS_RAW", from: fid, to: iid, repoId });
-    }
-    return iid;
-  };
+  for (const sourceFile of program.getSourceFiles()) {
+    const fileRelPath = toPosixRel(repoRoot, sourceFile.fileName);
+    if (!fileRelPath || !onlySet.has(fileRelPath)) continue;
+    if (!isTsJsRel(fileRelPath)) continue;
 
-  const ensureCallSiteNode = (fileRel: string, calleeText: string, range: any) => {
-    const cid = callsiteId(repoId, fileRel, calleeText, range?.startLine ?? 0, range?.startCol ?? 0);
-    if (!nodeHasId(nodes, cid)) {
-      nodes.push({ id: cid, kind: "CallSite", repoId, props: { repoId, fileRelPath: fileRel, calleeText, range } });
-      const fid = fileId(repoId, fileRel);
-      edges.push({ id: edgeId(repoId, "CONTAINS", fid, cid), type: "CONTAINS", from: fid, to: cid, repoId });
-    }
-    return cid;
-  };
+    const fileRootId = fileRootAstNodeId(input.repoId, fileRelPath);
+    if (!existingNodeIds.has(fileRootId)) continue;
 
-  // Walk each source file and enrich edges.
-  for (const sf of program.getSourceFiles()) {
-    const abs = sf.fileName;
-    const rel = toPosixRel(repoRoot, abs);
-    if (!rel) continue;
-    if (!isTsJsRel(rel)) continue;
-    if (onlySet && !onlySet.has(normalizePath(rel))) continue;
-    if (onlySet && !onlySet.has(rel)) continue;
-
-    const visit = (node: any) => {
-      // Imports: link imported identifiers to their resolved declarations.
-      if (ts.isImportDeclaration(node) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
-        const raw = node.moduleSpecifier.text;
-        const range = getRange(sf, node.moduleSpecifier);
-        const iid = ensureImportNode(rel, raw, "static", range);
-
+    const visit = (node: TypeScript.Node) => {
+      if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
+        const moduleSpecifier = node.moduleSpecifier;
         const importClause = node.importClause;
-        if (importClause) {
-          // Default import: import X from "m";
-          if (importClause.name) {
-            const sym = checker.getSymbolAtLocation(importClause.name);
-            if (sym) {
-              const aliased = (sym.flags & ts.SymbolFlags.Alias) ? checker.getAliasedSymbol(sym) : sym;
-              const decl = aliased?.declarations?.[0];
-              if (decl) {
-                const sid = ensureSymbolNode({ ts, repoId, repoRoot, absDeclFile: decl.getSourceFile().fileName, decl, name: aliased.getName(), nodes, edges });
-                if (sid) {
-                  edges.push({
-                    id: edgeId(repoId, "RESOLVES_TO", iid, sid),
-                    type: "RESOLVES_TO",
-                    from: iid,
-                    to: sid,
-                    repoId,
-                    props: { resolver: "tsProgram", kind: "importedDefault", confidence: 0.9 },
-                  });
-                }
-              }
-            }
-          }
+        if (!importClause) {
+          ts.forEachChild(node, visit);
+          return;
+        }
 
-          // Named / namespace imports
-          const nb = importClause.namedBindings;
-          if (nb && ts.isNamespaceImport(nb)) {
-            const sym = checker.getSymbolAtLocation(nb.name);
-            if (sym) {
-              const aliased = (sym.flags & ts.SymbolFlags.Alias) ? checker.getAliasedSymbol(sym) : sym;
-              const decl = aliased?.declarations?.[0];
-              if (decl) {
-                const sid = ensureSymbolNode({ ts, repoId, repoRoot, absDeclFile: decl.getSourceFile().fileName, decl, name: aliased.getName(), nodes, edges });
-                if (sid) {
-                  edges.push({
-                    id: edgeId(repoId, "RESOLVES_TO", iid, sid),
-                    type: "RESOLVES_TO",
-                    from: iid,
-                    to: sid,
-                    repoId,
-                    props: { resolver: "tsProgram", kind: "importedNamespace", confidence: 0.85 },
-                  });
-                }
-              }
-            }
-          } else if (nb && ts.isNamedImports(nb)) {
-            for (const spec of nb.elements) {
-              const local = spec.name;
-              const sym = checker.getSymbolAtLocation(local);
-              if (!sym) continue;
-              const aliased = (sym.flags & ts.SymbolFlags.Alias) ? checker.getAliasedSymbol(sym) : sym;
-              const decl = aliased?.declarations?.[0];
-              if (!decl) continue;
-              const sid = ensureSymbolNode({ ts, repoId, repoRoot, absDeclFile: decl.getSourceFile().fileName, decl, name: aliased.getName(), nodes, edges });
-              if (!sid) continue;
-              edges.push({
-                id: edgeId(repoId, "RESOLVES_TO", iid, sid),
-                type: "RESOLVES_TO",
-                from: iid,
-                to: sid,
-                repoId,
-                props: { resolver: "tsProgram", kind: "importedNamed", importedAs: local.text, confidence: 0.9 },
+        const bindImport = (symbol: TypeScript.Symbol | undefined, importedAs: string | null) => {
+          if (!symbol) return;
+          const declaration = resolveAliasedDeclaration(checker, ts, symbol);
+          if (!declaration) return;
+          const targetId = resolveAstNodeIdFromDeclaration({
+            ts,
+            repoRoot,
+            declaration,
+            declarationLookup,
+          });
+          if (!targetId) return;
+          addEdge({
+            id: edgeId(input.repoId, "IMPORTS", fileRootId, targetId),
+            type: "IMPORTS",
+            from: fileRootId,
+            to: targetId,
+            repoId: input.repoId,
+            props: {
+              raw: moduleSpecifier.text,
+              importedAs,
+              confidence: 0.9,
+            },
+          });
+        };
+
+        if (importClause.name) {
+          bindImport(checker.getSymbolAtLocation(importClause.name) ?? undefined, importClause.name.text);
+        }
+
+        const namedBindings = importClause.namedBindings;
+        if (namedBindings && ts.isNamedImports(namedBindings)) {
+          for (const element of namedBindings.elements) {
+            bindImport(checker.getSymbolAtLocation(element.name) ?? undefined, element.name.text);
+          }
+        }
+
+        if (namedBindings && ts.isNamespaceImport(namedBindings)) {
+          bindImport(checker.getSymbolAtLocation(namedBindings.name) ?? undefined, namedBindings.name.text);
+        }
+      }
+
+      if ((ts.isClassDeclaration(node) || ts.isInterfaceDeclaration(node)) && node.name) {
+        const currentId = resolveAstNodeIdFromDeclaration({
+          ts,
+          repoRoot,
+          declaration: node,
+          declarationLookup,
+        });
+        if (currentId && node.heritageClauses) {
+          for (const clause of node.heritageClauses) {
+            for (const heritageType of clause.types) {
+              const symbol = checker.getSymbolAtLocation(heritageType.expression);
+              if (!symbol) continue;
+              const declaration = resolveAliasedDeclaration(checker, ts, symbol);
+              if (!declaration) continue;
+              const targetId = resolveAstNodeIdFromDeclaration({
+                ts,
+                repoRoot,
+                declaration,
+                declarationLookup,
+              });
+              if (!targetId) continue;
+              addEdge({
+                id: edgeId(input.repoId, "EXTENDS", currentId, targetId),
+                type: "EXTENDS",
+                from: currentId,
+                to: targetId,
+                repoId: input.repoId,
+                props: { confidence: 0.9 },
               });
             }
           }
         }
       }
 
-      // Calls: resolve call expression to a declaration symbol and link.
-      if (ts.isCallExpression(node)) {
-        const expr = node.expression;
-        const calleeText = expr.getText(sf);
-        const range = getRange(sf, expr);
-        const cid = ensureCallSiteNode(rel, calleeText, range);
+      if (ts.isMethodDeclaration(node) || ts.isMethodSignature(node)) {
+        const methodName = propertyNameText(ts, node.name);
+        if (!methodName) {
+          ts.forEachChild(node, visit);
+          return;
+        }
 
-        const sym = checker.getSymbolAtLocation(expr);
-        if (sym) {
-          const aliased = (sym.flags & ts.SymbolFlags.Alias) ? checker.getAliasedSymbol(sym) : sym;
-          const decl = aliased?.declarations?.[0];
-          if (decl) {
-            const sid = ensureSymbolNode({ ts, repoId, repoRoot, absDeclFile: decl.getSourceFile().fileName, decl, name: aliased.getName(), nodes, edges });
-            if (sid) {
-              edges.push({
-                id: edgeId(repoId, "CALLS", cid, sid),
-                type: "CALLS",
-                from: cid,
-                to: sid,
-                repoId,
-                props: { resolver: "tsProgram", confidence: 0.9 },
-              });
-            }
+        const currentId = resolveAstNodeIdFromDeclaration({
+          ts,
+          repoRoot,
+          declaration: node,
+          declarationLookup,
+        });
+        if (!currentId) {
+          ts.forEachChild(node, visit);
+          return;
+        }
+
+        const parent = node.parent;
+        if (
+          parent &&
+          (ts.isClassDeclaration(parent) || ts.isClassExpression(parent) || ts.isInterfaceDeclaration(parent))
+        ) {
+          const parentType = checker.getTypeAtLocation(parent);
+          const baseTypes = parentType.getBaseTypes?.() ?? [];
+          for (const baseType of baseTypes) {
+            const property = baseType.getProperty(methodName);
+            const declaration = property?.declarations?.[0];
+            if (!declaration) continue;
+            const targetId = resolveAstNodeIdFromDeclaration({
+              ts,
+              repoRoot,
+              declaration,
+              declarationLookup,
+            });
+            if (!targetId) continue;
+            addEdge({
+              id: edgeId(input.repoId, "OVERRIDES", currentId, targetId),
+              type: "OVERRIDES",
+              from: currentId,
+              to: targetId,
+              repoId: input.repoId,
+              props: { confidence: 0.85 },
+            });
           }
         }
       }
@@ -425,6 +317,6 @@ export function enrichIrWithTsProgram(opts: {
       ts.forEachChild(node, visit);
     };
 
-    ts.forEachChild(sf, visit);
+    ts.forEachChild(sourceFile, visit);
   }
 }

@@ -23,7 +23,7 @@ export async function cleanupStaleByRunId(input: { repoId: string; runId: string
     const nodeRes = await session.run(
       `
       MATCH (n)
-      WHERE n.repoId = $repoId AND coalesce(n.runId, "") <> $runId AND NOT n:Repo
+      WHERE n.repoId = $repoId AND coalesce(n.runId, "") <> $runId AND NOT n:RepoRoot
       DELETE n
       RETURN count(n) AS deleted
       `,

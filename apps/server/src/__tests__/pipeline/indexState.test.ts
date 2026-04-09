@@ -195,7 +195,7 @@ describe('diffScan', () => {
     };
     const diff = diffScan(prev, curr);
     expect(diff.removed).toHaveLength(1);
-    expect(diff.removed[0].relPath).toBe('b.ts');
+    expect(diff.removed[0]?.relPath).toBe('b.ts');
     expect(diff.unchanged).toHaveLength(1);
   });
 

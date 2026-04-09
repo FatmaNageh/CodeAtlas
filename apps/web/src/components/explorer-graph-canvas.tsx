@@ -50,7 +50,7 @@ const C = {
   },
 } as const;
 type KindKey = "folder" | "file" | "class" | "fn" | "tour";
-type Theme = typeof C.light;
+type Theme = (typeof C)[keyof typeof C];
 const getTheme = (): Theme => document.documentElement.classList.contains("dark") ? C.dark : C.light;
 
 // ─── Lucide icon SVG paths (24×24 viewBox, stroke-only) ──────────────────────
@@ -194,6 +194,7 @@ export const ExplorerGraphCanvas = forwardRef<GraphCanvasHandle, {
   highlightNodeIds: string[];
   tourHighlightNodeIds?: string[];
   activeTourNodeId?: string | null;
+  topView?: string;
 }>(function ExplorerGraphCanvas(
   { nodes, edges, selectedNodeId, selectedNodeIds = [], onNodeClick, mode, pathNodeIds, highlightNodeIds, tourHighlightNodeIds, activeTourNodeId },
   ref
@@ -466,7 +467,9 @@ export const ExplorerGraphCanvas = forwardRef<GraphCanvasHandle, {
     svg.call(zoom);
     ctrlRef.current = { zoom, svgSel: svg, simulation, simNodes: prepared.simNodes, W, H };
 
-    return () => simulation.stop();
+    return () => {
+      simulation.stop();
+    };
   // selectedNodeId intentionally NOT in deps — selection is updated by Effect 2
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prepared, mode, pathNodeIds, highlightNodeIds, tourHighlightNodeIds, activeTourNodeId]);

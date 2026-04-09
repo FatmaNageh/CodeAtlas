@@ -1,23 +1,33 @@
-import { runCypher } from '../db/cypher';
+import { runCypher } from "../db/cypher";
 
-// Pure function to get related symbols
-export async function getRelatedSymbols(filePath: string, repoId: string) {
-  return runCypher(
-    `MATCH (f:CodeFile {repoId: $repoId, relPath: $filePath})-[:DECLARES]->(s:Symbol)
-     OPTIONAL MATCH (s)<-[:REFERENCES]-(ref:Symbol {repoId: $repoId})
-     OPTIONAL MATCH (s)<-[:CALLS]-(call:CallSite {repoId: $repoId})
-     RETURN s.name as symbol, s.symbolKind as kind,
-            collect(DISTINCT ref.name) as references,
-            collect(DISTINCT call.location) as calls`,
-    { repoId, filePath }
+export type RelatedASTNodeRow = {
+  symbol: string;
+  kind: string;
+  relatedNames: string[];
+};
+
+export type FileReferenceRow = {
+  reference: string;
+};
+
+export async function getRelatedASTNodes(filePath: string, repoId: string): Promise<RelatedASTNodeRow[]> {
+  return runCypher<RelatedASTNodeRow>(
+    `MATCH (f:CodeFile {repoId: $repoId, relPath: $filePath})-[:DECLARES]->(a:ASTNode)
+     OPTIONAL MATCH (a)-[:IMPORTS|EXTENDS|OVERRIDES]->(related:ASTNode)
+     RETURN
+       a.name AS symbol,
+       a.nodeType AS kind,
+       collect(DISTINCT related.name) AS relatedNames
+     ORDER BY a.startLine`,
+    { repoId, filePath },
   );
 }
 
-// Pure function to get imports
-export async function getFileImports(filePath: string, repoId: string) {
-  return runCypher(
-    `MATCH (f:CodeFile {repoId: $repoId, relPath: $filePath})-[:IMPORTS]->(imp:Import)
-     RETURN imp.name as import`,
-    { repoId, filePath }
+export async function getFileReferences(filePath: string, repoId: string): Promise<FileReferenceRow[]> {
+  return runCypher<FileReferenceRow>(
+    `MATCH (f:CodeFile {repoId: $repoId, relPath: $filePath})-[:REFERENCES]->(ref:CodeFile)
+     RETURN ref.relPath AS reference
+     ORDER BY ref.relPath`,
+    { repoId, filePath },
   );
 }

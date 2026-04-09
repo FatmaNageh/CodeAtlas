@@ -13,7 +13,7 @@ function scriptKindFor(ts: Ts, ext: string) {
   return ts.ScriptKind.TS;
 }
 
-function toRange(ts: Ts, sf: TSSourceFile, node: TSNode): Range {
+function toRange(sf: TSSourceFile, node: TSNode): Range {
   const start = sf.getLineAndCharacterOfPosition(node.getStart(sf, false));
   const end = sf.getLineAndCharacterOfPosition(node.getEnd());
   return {
@@ -55,7 +55,7 @@ export async function extractTsJsWithTsCompiler(ctx: ExtractorContext): Promise<
 
   const addImport = (raw: string, kind: RawImport["kind"], node?: TSNode) => {
     const r: RawImport = { raw, kind };
-    if (node) r.range = toRange(ts, sf, node);
+    if (node) r.range = toRange(sf, node);
     imports.push(r);
   };
 
@@ -64,7 +64,7 @@ export async function extractTsJsWithTsCompiler(ctx: ExtractorContext): Promise<
       kind,
       name,
       qname: qnameFor(name),
-      range: toRange(ts, sf, node),
+      range: toRange(sf, node),
       parentName,
       ...extra,
     });
@@ -111,7 +111,7 @@ export async function extractTsJsWithTsCompiler(ctx: ExtractorContext): Promise<
 
       callSites.push({
         calleeText: textOf(sf, node.expression),
-        range: toRange(ts, sf, node),
+        range: toRange(sf, node),
         enclosingSymbolQname: enclosing(),
       });
     }
