@@ -1,9 +1,9 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowRight, BrainCircuit, GitBranch, Network, Sparkles, Zap } from "lucide-react";
 
-export const Route = createFileRoute("/")(({
+export const Route = createFileRoute("/")({
   component: LandingPage,
-}));
+});
 
 const stats = [
   { value: "4,328",  label: "Nodes extracted",     sub: "from demo repo" },
@@ -269,7 +269,7 @@ function LandingPage() {
                   color: "var(--purple)",
                 }}
               >
-                 interacting map
+                 interactive map
               </code>{" "}
               where users can explore the codebase visually.
             </p>
