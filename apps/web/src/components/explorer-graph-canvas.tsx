@@ -648,7 +648,7 @@ export const ExplorerGraphCanvas = forwardRef<
 			})
 			.attr("marker-end", (d) => {
 				const c = edgeCat(d.type);
-				return c !== "CONTAINS" ? `url(#${arrowId[c]})` : (null as any);
+				return c !== "CONTAINS" ? `url(#${arrowId[c]})` : null;
 			})
 			.attr("x1", (d) => (d.source as SimNode).x ?? 0)
 			.attr("y1", (d) => (d.source as SimNode).y ?? 0)
