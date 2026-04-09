@@ -1,3 +1,5 @@
+import * as d3 from "d3";
+
 export interface CodeNode {
   path: string;
   file: string;
@@ -9,18 +11,11 @@ export interface CodeNode {
   children: CodeNode[];
 }
 
-export interface D3Node extends CodeNode {
+export interface D3Node extends CodeNode, d3.SimulationNodeDatum {
   id: string;
-  index?: number;
-  x?: number;
-  y?: number;
-  vx?: number;
-  vy?: number;
-  fx?: number | null;
-  fy?: number | null;
 }
 
-export interface D3Link {
-  source: string | D3Node;
-  target: string | D3Node;
+export interface D3Link extends d3.SimulationLinkDatum<D3Node> {
+  source: string | D3Node | number;
+  target: string | D3Node | number;
 }

@@ -2,8 +2,8 @@ import 'dotenv/config';
 import { getNeo4jClient } from './src/db/neo4j/client';
 
 async function main() {
-  console.log('URI:', process.env.NEO4J_URI);
-  console.log('Username:', process.env.NEO4J_USERNAME);
+  console.log('NEO4J_URI set:', !!process.env.NEO4J_URI);
+  console.log('NEO4J_USERNAME set:', !!process.env.NEO4J_USERNAME);
   const neo4j = getNeo4jClient();
   const session = neo4j.session();
   

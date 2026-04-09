@@ -1,9 +1,9 @@
 import fs from "fs/promises";
 import path from "path";
-import type { ScanResult, ScanDiff } from "../types/scan";
+import type { ScanResult, ScanDiff } from "@/types/scan";
 import { normalizePath } from "./id";
 
-export type { ScanResult } from "../types/scan";
+export type { ScanResult } from "@/types/scan";
 
 export type IndexState = {
   version: 1;

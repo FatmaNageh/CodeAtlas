@@ -136,7 +136,7 @@ graphragRoute.post("/summarize", async (c) => {
       );
     } else {
       // Get all files from database
-      files = (await getAllFiles(repoId)).map((f: any) => f.filePath);
+      files = (await getAllFiles(repoId)).map((f: FilePathRow) => f.filePath);
     }
 
     const { results, errors } = await generateBatchSummaries(files, repoId);
