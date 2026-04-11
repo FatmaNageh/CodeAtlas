@@ -12,7 +12,7 @@ export async function deleteRepo(repoId: string, repoRoot: string): Promise<void
 
   try {
     await session.run(
-      `
+      `/*cypher*/
       MATCH (n)
       WHERE n.repoId = $repoId OR n.id = $repoNodeId
       DETACH DELETE n
@@ -36,7 +36,7 @@ export async function deleteCodeFileDerived(repoId: string, relPath: string): Pr
   try {
     // Delete file-owned semantic edges.
     await session.run(
-      `
+      `/*cypher*/
       MATCH ()-[r]->()
       WHERE r.repoId = $repoId
         AND r.sourceFilePath = $relPath
@@ -47,13 +47,12 @@ export async function deleteCodeFileDerived(repoId: string, relPath: string): Pr
 
     // Delete AST subtree derived from this file.
     await session.run(
-      `
+      `/*cypher*/
       MATCH (f:CodeFile {id: $fileId})
-      OPTIONAL MATCH (f)-[:HAS_AST_ROOT]->(root:AstNode)
-      OPTIONAL MATCH (root)-[:AST_CHILD*0..]->(a:AstNode)
-      WITH collect(DISTINCT a) AS astNodes, root
+      OPTIONAL MATCH (f)-[:DECLARES|HAS_AST_ROOT]->(root:ASTNode)
+      OPTIONAL MATCH (root)-[:AST_CHILD*0..]->(a:ASTNode)
+      WITH collect(DISTINCT a) AS astNodes
       FOREACH (n IN astNodes | DETACH DELETE n)
-      FOREACH (n IN CASE WHEN root IS NULL THEN [] ELSE [root] END | DETACH DELETE n)
       `,
       { fileId: fileNodeId },
     );
@@ -72,7 +71,7 @@ export async function deleteTextFileDerived(repoId: string, relPath: string): Pr
   try {
     // Delete file-owned semantic edges.
     await session.run(
-      `
+      `/*cypher*/
       MATCH ()-[r]->()
       WHERE r.repoId = $repoId
         AND r.sourceFilePath = $relPath
@@ -83,7 +82,7 @@ export async function deleteTextFileDerived(repoId: string, relPath: string): Pr
 
     // Delete text chunks derived from this file.
     await session.run(
-      `
+      `/*cypher*/
       MATCH (f:TextFile {id: $fileId})
       OPTIONAL MATCH (f)-[:HAS_CHUNK]->(c:TextChunk)
       DETACH DELETE c
@@ -111,7 +110,7 @@ export async function deleteFile(
 
   try {
     await session.run(
-      `
+      `/*cypher*/
       MATCH (f {id: $fileId})
       DETACH DELETE f
       `,

@@ -13,7 +13,8 @@ export type FileReferenceRow = {
 
 export async function getRelatedASTNodes(filePath: string, repoId: string): Promise<RelatedASTNodeRow[]> {
   return runCypher<RelatedASTNodeRow>(
-    `MATCH (f:CodeFile {repoId: $repoId, relPath: $filePath})
+    `/*cypher*/
+    MATCH (f:CodeFile {repoId: $repoId, relPath: $filePath})
      MATCH (f)-[:DECLARES|HAS_AST_ROOT]->(a:ASTNode)
      OPTIONAL MATCH (a)-[:IMPORTS|EXTENDS|OVERRIDES]->(related:ASTNode)
      RETURN
@@ -28,7 +29,8 @@ export async function getRelatedASTNodes(filePath: string, repoId: string): Prom
 
 export async function getFileReferences(filePath: string, repoId: string): Promise<FileReferenceRow[]> {
   return runCypher<FileReferenceRow>(
-    `MATCH (f:CodeFile {repoId: $repoId, relPath: $filePath})-[:REFERENCES]->(ref:CodeFile)
+    `/*cypher*/
+    MATCH (f:CodeFile {repoId: $repoId, relPath: $filePath})-[:REFERENCES]->(ref:CodeFile)
      RETURN DISTINCT ref.relPath AS reference
      ORDER BY ref.relPath`,
     { repoId, filePath },
