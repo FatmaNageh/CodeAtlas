@@ -40,8 +40,8 @@ export type CodeFacts = {
   fileRelPath: string;
   language: SupportedLanguage;
   imports: RawImport[];
-  symbols: RawSymbol[];
-  callSites: RawCallSite[];
+  // symbols: RawSymbol[];
+  // callSites: RawCallSite[];
   parseErrors?: number;
   /** Optional helpers for later chunking / citations. */
   lineCount?: number;
