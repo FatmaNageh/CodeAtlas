@@ -35,42 +35,47 @@ type Neo4jValue =
   | Neo4jValue[];
 
 export function toPlain(v: Neo4jValue): unknown {
-  // Neo4j Integer objects support .toNumber()
-  if (v && typeof v === "object") {
-    if (typeof (v as Neo4jInteger).toNumber === "function") {
-      return (v as Neo4jInteger).toNumber();
-    }
-    if (Array.isArray(v)) return v.map(toPlain);
+   // Neo4j Integer objects support .toNumber()
+   if (v && typeof v === "object") {
+     if (typeof (v as Neo4jInteger).toNumber === "function") {
+       return (v as Neo4jInteger).toNumber();
+     }
+     if (Array.isArray(v)) return v.map(toPlain);
 
-    // Neo4j Node
-    const node = v as Neo4jNode;
-    if (node.identity && node.labels && node.properties) {
-      return {
-        id: String(node.properties?.id ?? ""),
-        labels: node.labels,
-        properties: Object.fromEntries(
-          Object.entries(node.properties).map(([k, val]) => [k, toPlain(val)]),
-        ),
-      };
-    }
+     // Neo4j Node
+     const node = v as Neo4jNode;
+     if (node.identity && node.labels && node.properties) {
+       return {
+         id: String(node.properties?.id ?? ""),
+         labels: node.labels,
+         properties: Object.fromEntries(
+           Object.entries(node.properties).map(([k, val]) => [k, toPlain(val)]),
+         ),
+       };
+     }
 
-    // Neo4j Relationship
-    const rel = v as Neo4jRelationship;
-    if (rel.type && rel.properties && rel.start && rel.end) {
-      return {
-        type: rel.type,
-        properties: Object.fromEntries(
-          Object.entries(rel.properties).map(([k, val]) => [k, toPlain(val)]),
-        ),
-      };
-    }
+     // Neo4j Relationship
+     const rel = v as Neo4jRelationship;
+     if (rel.type && rel.properties && rel.start && rel.end) {
+       return {
+         type: rel.type,
+         properties: Object.fromEntries(
+           Object.entries(rel.properties).map(([k, val]) => [k, toPlain(val)]),
+         ),
+       };
+     }
 
-    const out: Record<string, unknown> = {};
-    for (const [k, val] of Object.entries(v as Record<string, Neo4jValue>)) out[k] = toPlain(val);
-    return out;
-  }
-  return v;
-}
+     // Handle plain objects
+     if (!(v instanceof Array) && !(v as Neo4jNode).identity && !(v as Neo4jRelationship).type) {
+       const out: Record<string, unknown> = {};
+       for (const [k, val] of Object.entries(v as unknown as Record<string, Neo4jValue>)) out[k] = toPlain(val);
+       return out;
+     }
+     
+     return v;
+   }
+   return v;
+ }
 
 /**
  * Serve a single HTML tester page from src/test-client.html.
