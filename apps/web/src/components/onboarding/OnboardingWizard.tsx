@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { Folder, FolderOpen, Check, ArrowRight, ArrowLeft } from "lucide-react";
+import { Folder, FolderOpen, Check, ArrowRight, ArrowLeft, UploadCloud } from "lucide-react";
 import { indexRepo } from "@/lib/api";
 import { loadSession, saveSession } from "@/lib/session";
 
@@ -31,9 +31,76 @@ const demoRepos: RepoItem[] = [
 
 const relationshipTypes = ["CONTAINS", "IMPORTS", "CALLS"];
 
+// ── Path helpers ─────────────────────────────────────────────────────────────
+
+/**
+ * Attempt to extract an absolute path from a dropped DataTransferItem.
+ *
+ * Strategy (in priority order):
+ *  1. Electron exposes `file.path` — an absolute OS path.
+ *  2. webkitGetAsEntry().fullPath — browsers give a virtual root-relative path
+ *     like "/my-project". Not a real OS path, but it is the folder name.
+ *  3. File.name — last resort.
+ */
+function extractPathFromItem(item: DataTransferItem): string | null {
+  const file = item.getAsFile();
+  const entry = item.webkitGetAsEntry?.();
+
+  // Electron: absolute path on the OS.
+  if (file && (file as any).path) {
+    const absPath: string = (file as any).path;
+    if (entry?.isDirectory) return absPath;
+    // It's a file inside the folder — walk up one level.
+    const sep = absPath.includes("\\") ? "\\" : "/";
+    const parts = absPath.split(sep);
+    parts.pop();
+    return parts.join(sep) || absPath;
+  }
+
+  // Browser fallback — virtual path, not a real OS path.
+  if (entry) {
+    return entry.fullPath?.replace(/^\//, "") || entry.name || null;
+  }
+
+  return file?.name ?? null;
+}
+
+/**
+ * Extract a folder path from a FileList returned by <input webkitdirectory>.
+ *
+ * Electron: files have a real `.path`; we derive the root directory.
+ * Browser:  files have `.webkitRelativePath` like "project/src/index.ts";
+ *           we take the first segment as the folder name.
+ */
+function extractPathFromFileList(files: FileList): string | null {
+  if (!files.length) return null;
+
+  const first = files[0] as File & { path?: string };
+
+  // Electron absolute path.
+  if (first.path) {
+    const sep = first.path.includes("\\") ? "\\" : "/";
+    const parts = first.path.split(sep);
+    const relDepth = first.webkitRelativePath
+      ? first.webkitRelativePath.split("/").length - 1
+      : 1;
+    return parts.slice(0, parts.length - relDepth).join(sep) || first.path;
+  }
+
+  // Browser: webkitRelativePath = "rootFolder/sub/file.ts" → "rootFolder"
+  if (first.webkitRelativePath) {
+    return first.webkitRelativePath.split("/")[0];
+  }
+
+  return first.name;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export function OnboardingWizard() {
   const session = loadSession();
   const navigate = useNavigate();
+
   const [step, setStep] = useState<Step>(1);
   const [baseUrl] = useState(session.baseUrl ?? "");
   const [selectedRepoId, setSelectedRepoId] = useState("repo-1");
@@ -56,6 +123,12 @@ export function OnboardingWizard() {
     relations: "—",
   });
 
+  // ── Drag-and-drop state ──
+  const [isDragging, setIsDragging] = useState(false);
+  const [droppedFolderName, setDroppedFolderName] = useState<string | null>(null);
+  const dragCounterRef = useRef(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const selectedRepo = useMemo(() => {
     if (customPath.trim()) {
       const parts = customPath.replace(/\\/g, "/").split("/").filter(Boolean);
@@ -67,31 +140,117 @@ export function OnboardingWizard() {
         meta: "Custom path",
       } satisfies RepoItem;
     }
-
     return demoRepos.find((repo) => repo.id === selectedRepoId) ?? demoRepos[0];
   }, [selectedRepoId, customPath]);
 
   useEffect(() => {
     if (step !== 3 || buildDone) return;
-
     setBuilding(true);
     setBuildProgress(68);
-
     const timer = window.setInterval(() => {
-      setBuildProgress((prev) => {
-        const next = Math.min(prev + Math.random() * 4, 98);
-        return next;
-      });
+      setBuildProgress((prev) => Math.min(prev + Math.random() * 4, 98));
     }, 350);
-
-    return () => {
-      window.clearInterval(timer);
-    };
+    return () => window.clearInterval(timer);
   }, [step, buildDone]);
 
   const removePattern = (pattern: string) => {
     setIgnoredPatterns((prev) => prev.filter((item) => item !== pattern));
   };
+
+  // ── Drag-and-drop handlers ────────────────────────────────────────────────
+
+  const handleDragOver = (e: React.DragEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.dataTransfer.items.length > 0) e.dataTransfer.dropEffect = "copy";
+  };
+
+  const handleDragEnter = (e: React.DragEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current += 1;
+    if (dragCounterRef.current === 1) setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current -= 1;
+    if (dragCounterRef.current === 0) setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    dragCounterRef.current = 0;
+
+    const items = Array.from(e.dataTransfer.items);
+    if (!items.length) return;
+
+    const folderItem =
+      items.find((it) => it.webkitGetAsEntry?.()?.isDirectory) ?? items[0];
+    const entry = folderItem.webkitGetAsEntry?.();
+
+    if (entry && !entry.isDirectory) {
+      toast.error("Please drop a folder, not a file.");
+      return;
+    }
+
+    const resolved = extractPathFromItem(folderItem);
+    if (!resolved) {
+      toast.error("Could not read the folder path.");
+      return;
+    }
+
+    const folderName = entry?.name ?? resolved.split(/[/\\]/).pop() ?? resolved;
+    setDroppedFolderName(folderName);
+    setCustomPath(resolved);
+
+    const looksAbsolute =
+      resolved.startsWith("/") || /^[A-Za-z]:[\\/]/.test(resolved);
+
+    if (!looksAbsolute) {
+      toast.warning(
+        `Detected folder: "${folderName}". Your browser can't expose the full system path — please confirm or complete the path in the field below.`,
+        { duration: 6000 }
+      );
+    } else {
+      toast.success(`Folder set: ${resolved}`);
+    }
+  };
+
+  // ── Folder browser ────────────────────────────────────────────────────────
+
+  const handleBrowseClick = () => fileInputRef.current?.click();
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || !files.length) return;
+
+    const resolved = extractPathFromFileList(files);
+    if (!resolved) return;
+
+    const folderName = resolved.split(/[/\\]/).pop() ?? resolved;
+    setDroppedFolderName(folderName);
+    setCustomPath(resolved);
+
+    const looksAbsolute =
+      resolved.startsWith("/") || /^[A-Za-z]:[\\/]/.test(resolved);
+
+    if (!looksAbsolute) {
+      toast.warning(
+        `Selected: "${folderName}". Browser security limits full path access — please verify or complete the path below.`,
+        { duration: 6000 }
+      );
+    } else {
+      toast.success(`Folder set: ${resolved}`);
+    }
+
+    e.target.value = "";
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
 
   const handleBuild = async () => {
     if (building && buildDone) return;
@@ -103,40 +262,20 @@ export function OnboardingWizard() {
       setBuildError(null);
       setBuildStats({ files: "—", nodes: "—", relations: "—" });
 
-      saveSession({
-        baseUrl,
-        lastProjectPath: selectedRepo.path,
-      });
+      saveSession({ baseUrl, lastProjectPath: selectedRepo.path });
 
       const result = await indexRepo(
-        {
-          projectPath: selectedRepo.path,
-          mode: "full",
-          saveDebugJson: true,
-          computeHash: true,
-        },
-        baseUrl,
+        { projectPath: selectedRepo.path, mode: "full", saveDebugJson: true, computeHash: true },
+        baseUrl
       );
 
       const fileCount =
-        result?.scanned?.processedFiles ??
-        result?.scanned?.totalFiles ??
-        result?.files ??
-        null;
-
+        result?.scanned?.processedFiles ?? result?.scanned?.totalFiles ?? result?.files ?? null;
       const nodeCount =
-        result?.graph?.nodes ??
-        result?.metrics?.nodes ??
-        result?.nodes ??
-        null;
-
+        result?.graph?.nodes ?? result?.metrics?.nodes ?? result?.nodes ?? null;
       const edgeCount =
-        result?.graph?.edges ??
-        result?.metrics?.edges ??
-        result?.edges ??
-        null;
+        result?.graph?.edges ?? result?.metrics?.edges ?? result?.edges ?? null;
 
-      // Detect silent failure: backend returned 0 files (path not found / no supported files)
       if (fileCount === 0 || fileCount === "0") {
         setBuildProgress(100);
         setBuildDone(true);
@@ -147,7 +286,7 @@ export function OnboardingWizard() {
           relations: edgeCount != null ? String(edgeCount) : "—",
         });
         setBuildError(
-          `The backend found 0 source files at:\n"${selectedRepo.path}"\n\nThis usually means the path doesn't exist on the server or has no supported files (.ts, .js, .py, .java, etc.).\n\nGo back and enter the real absolute path to your project on the server machine.`,
+          `The backend found 0 source files at:\n"${selectedRepo.path}"\n\nThis usually means the path doesn't exist on the server or has no supported files (.ts, .js, .py, .java, etc.).\n\nGo back and enter the real absolute path to your project on the server machine.`
         );
         toast.error("0 files indexed — check your project path");
         return;
@@ -163,16 +302,10 @@ export function OnboardingWizard() {
         return;
       }
 
-      saveSession({
-        baseUrl,
-        lastRepoId: repoId,
-        lastProjectPath: selectedRepo.path,
-      });
-
+      saveSession({ baseUrl, lastRepoId: repoId, lastProjectPath: selectedRepo.path });
       setBuildProgress(100);
       setBuildDone(true);
       setBuilding(false);
-
       setBuildStats({
         files: fileCount != null ? `${fileCount} files` : "—",
         nodes: nodeCount != null ? `${nodeCount} nodes` : "—",
@@ -199,34 +332,114 @@ export function OnboardingWizard() {
             <div className="px-7 py-8">
               <h2 className="mb-2 text-[18px] font-medium tracking-[-0.3px]">Select a repository</h2>
               <p className="codeatlas-muted mb-6 text-[13px] leading-6">
-                Choose a local directory or a recent project to begin analysis.
+                Drop a folder, browse your file system, or paste an absolute path to begin analysis.
               </p>
 
+              {/* ── Drop zone ── */}
+              <button
+                type="button"
+                onClick={handleBrowseClick}
+                onDragOver={handleDragOver}
+                onDragEnter={handleDragEnter}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                className="codeatlas-dashed mb-4 w-full rounded-[10px] px-6 py-8 text-center"
+                style={{
+                  background: isDragging ? "var(--node-folder-bg)" : "transparent",
+                  borderColor: isDragging ? "var(--node-folder)" : undefined,
+                  borderStyle: isDragging ? "solid" : undefined,
+                  transform: isDragging ? "scale(1.01)" : "scale(1)",
+                  transition: "all 0.15s ease",
+                }}
+              >
+                <div
+                  className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-[10px]"
+                  style={{
+                    background: isDragging ? "var(--node-folder)" : "var(--surface2)",
+                    transition: "background 0.15s ease",
+                  }}
+                >
+                  {isDragging ? (
+                    <UploadCloud className="h-5 w-5" style={{ color: "var(--surface)" }} />
+                  ) : droppedFolderName ? (
+                    <FolderOpen className="h-5 w-5" style={{ color: "var(--node-folder)" }} />
+                  ) : (
+                    <FolderOpen className="h-5 w-5" />
+                  )}
+                </div>
+
+                {isDragging ? (
+                  <>
+                    <h4 className="mb-1 text-[14px] font-medium" style={{ color: "var(--node-folder)" }}>
+                      Release to set folder
+                    </h4>
+                    <p className="text-[12px]" style={{ color: "var(--node-folder)", opacity: 0.7 }}>
+                      Drop your project folder here
+                    </p>
+                  </>
+                ) : droppedFolderName ? (
+                  <>
+                    <h4 className="mb-1 text-[14px] font-medium">{droppedFolderName}</h4>
+                    <p className="text-[12px] text-[var(--text3)]">
+                      Folder detected — confirm path below, or drop another
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <h4 className="mb-1 text-[14px] font-medium">Drop a folder here</h4>
+                    <p className="text-[12px] text-[var(--text3)]">
+                      or{" "}
+                      <span style={{ color: "var(--node-folder)", textDecoration: "underline", textUnderlineOffset: "2px" }}>
+                        click to browse your file system
+                      </span>
+                    </p>
+                  </>
+                )}
+              </button>
+
+              {/* Hidden folder input */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                /* @ts-expect-error — webkitdirectory is non-standard */
+                webkitdirectory=""
+                multiple
+                style={{ display: "none" }}
+                onChange={handleFileInputChange}
+              />
+
+              {/* ── Path field ── */}
               <div className="mb-4 rounded-[10px] border border-[var(--border2)] bg-[var(--surface2)]/50 p-4">
-                <label className="mb-2 block text-[12px] text-[var(--text2)]">Local project path</label>
+                <label className="mb-2 block text-[12px] text-[var(--text2)]">
+                  Project path
+                  {droppedFolderName && (
+                    <span
+                      className="ml-2 rounded-full px-2 py-0.5 text-[10px]"
+                      style={{
+                        background: "var(--node-folder-bg)",
+                        color: "var(--node-folder)",
+                        border: "1px solid var(--node-folder-bg)",
+                      }}
+                    >
+                      auto-filled
+                    </span>
+                  )}
+                </label>
                 <input
                   className="w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[13px] outline-none focus:border-[var(--text)]"
                   placeholder="C:/Users/hp/Desktop/CodeAtlas/example_files/simple_js_project"
                   value={customPath}
-                  onChange={(e) => setCustomPath(e.target.value)}
+                  onChange={(e) => {
+                    setCustomPath(e.target.value);
+                    if (!e.target.value) setDroppedFolderName(null);
+                  }}
                 />
                 <p className="mt-2 text-[11px] text-[var(--text3)]">
-                  Paste the real backend-accessible path here, or pick one of the recent demo repositories below.
+                  Drop or browse above to auto-fill, or paste the backend-accessible absolute path directly.
                 </p>
               </div>
 
-              <button
-                type="button"
-                onClick={() => toast.info("Use the local project path field above in the React version.")}
-                className="codeatlas-dashed mb-4 w-full rounded-[10px] px-6 py-9 text-center transition hover:bg-[var(--surface2)]"
-              >
-                <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-[10px] bg-[var(--surface2)]">
-                  <FolderOpen className="h-5 w-5" />
-                </div>
-                <h4 className="mb-1 text-[14px] font-medium">Drop a folder here</h4>
-                <p className="text-[12px] text-[var(--text3)]">or click to browse your file system</p>
-              </button>
-
+              {/* ── Recent repos ── */}
               <p className="mb-2 text-[12px] text-[var(--text3)]">Recent repositories</p>
               <div className="flex flex-col gap-2">
                 {demoRepos.map((repo) => {
@@ -238,6 +451,7 @@ export function OnboardingWizard() {
                       onClick={() => {
                         setSelectedRepoId(repo.id);
                         setCustomPath("");
+                        setDroppedFolderName(null);
                       }}
                       className={`flex items-center gap-3 rounded-[8px] border px-4 py-3 text-left transition ${
                         selected
@@ -248,14 +462,12 @@ export function OnboardingWizard() {
                       <div className="flex h-8 w-8 items-center justify-center rounded-[6px] bg-[var(--node-folder-bg)] text-[var(--node-folder)]">
                         <Folder className="h-4 w-4" />
                       </div>
-
                       <div>
                         <div className="text-[13px] font-medium">{repo.name}</div>
                         <div className="text-[11px] text-[var(--text3)]">
                           {repo.path} · {repo.meta}
                         </div>
                       </div>
-
                       <div className="ml-auto flex h-[18px] w-[18px] items-center justify-center rounded-full border-[1.5px] border-[var(--border2)] bg-transparent text-[10px]">
                         {selected ? <Check className="h-3 w-3" /> : null}
                       </div>
@@ -265,11 +477,7 @@ export function OnboardingWizard() {
               </div>
             </div>
 
-            <WizardFooter
-              step={step}
-              onNext={() => setStep(2)}
-              nextLabel="Next"
-            />
+            <WizardFooter step={step} onNext={() => setStep(2)} nextLabel="Next" />
           </>
         )}
 
@@ -314,17 +522,9 @@ export function OnboardingWizard() {
                       className="rounded-full px-3 py-1 text-[12px]"
                       style={{
                         backgroundColor:
-                          type === "CONTAINS"
-                            ? "var(--node-folder-bg)"
-                            : type === "IMPORTS"
-                              ? "var(--node-file-bg)"
-                              : "var(--node-fn-bg)",
+                          type === "CONTAINS" ? "var(--node-folder-bg)" : type === "IMPORTS" ? "var(--node-file-bg)" : "var(--node-fn-bg)",
                         color:
-                          type === "CONTAINS"
-                            ? "var(--node-folder)"
-                            : type === "IMPORTS"
-                              ? "var(--node-file)"
-                              : "var(--node-fn)",
+                          type === "CONTAINS" ? "var(--node-folder)" : type === "IMPORTS" ? "var(--node-file)" : "var(--node-fn)",
                       }}
                     >
                       <code>{type}</code>
@@ -350,12 +550,7 @@ export function OnboardingWizard() {
               </section>
             </div>
 
-            <WizardFooter
-              step={step}
-              onBack={() => setStep(1)}
-              onNext={handleBuild}
-              nextLabel="Build graph"
-            />
+            <WizardFooter step={step} onBack={() => setStep(1)} onNext={handleBuild} nextLabel="Build graph" />
           </>
         )}
 
@@ -410,15 +605,10 @@ export function OnboardingWizard() {
                 />
               </div>
 
-              {/* Error panel — shown when path is wrong / 0 files */}
               {buildError && (
                 <div
                   className="mt-5 rounded-[10px] p-4 text-[12px] leading-6"
-                  style={{
-                    background: "var(--red-l)",
-                    border: "1px solid var(--red-b)",
-                    color: "var(--red)",
-                  }}
+                  style={{ background: "var(--red-l)", border: "1px solid var(--red-b)", color: "var(--red)" }}
                 >
                   <div className="mb-2 font-semibold text-[13px]">⚠ Indexing did not complete</div>
                   <pre className="whitespace-pre-wrap font-sans" style={{ color: "var(--red)" }}>
@@ -468,30 +658,32 @@ export function OnboardingWizard() {
   );
 }
 
+// ── Sub-components ────────────────────────────────────────────────────────────
+
 function StepHeader({ step }: { step: Step }) {
   const isDone = (value: Step) => step > value;
   const isActive = (value: Step) => step === value;
 
   return (
     <div className="flex items-center gap-2 border-b border-[var(--border)] px-7 py-5">
-      {[
+      {([
         [1, "Repository"],
         [2, "Configure"],
         [3, "Build graph"],
-      ].map(([value, label], index) => (
-        <div key={label as string} className="flex flex-1 items-center gap-2">
+      ] as [Step, string][]).map(([value, label], index) => (
+        <div key={label} className="flex flex-1 items-center gap-2">
           <div
             className={`flex h-[22px] w-[22px] items-center justify-center rounded-full border-[1.5px] text-[11px] ${
-              isDone(value as Step)
+              isDone(value)
                 ? "border-[var(--text)] bg-[var(--text)] text-[var(--surface)]"
-                : isActive(value as Step)
+                : isActive(value)
                   ? "border-[var(--text)] text-[var(--text)]"
                   : "border-[var(--border2)] text-[var(--text3)]"
             }`}
           >
-            {isDone(value as Step) ? <Check className="h-3 w-3" /> : value}
+            {isDone(value) ? <Check className="h-3 w-3" /> : value}
           </div>
-          <span className={`text-[12px] ${isActive(value as Step) ? "text-[var(--text)]" : "text-[var(--text3)]"}`}>{label}</span>
+          <span className={`text-[12px] ${isActive(value) ? "text-[var(--text)]" : "text-[var(--text3)]"}`}>{label}</span>
           {index < 2 ? <div className="mx-1 h-px flex-1 bg-[var(--border2)]" /> : null}
         </div>
       ))}
@@ -528,7 +720,11 @@ function WizardFooter({
           </div>
         )}
       </div>
-      <button type="button" onClick={onNext} className="inline-flex items-center gap-2 rounded-[6px] bg-[var(--text)] px-3 py-2 text-[12px] text-[var(--surface)]">
+      <button
+        type="button"
+        onClick={onNext}
+        className="inline-flex items-center gap-2 rounded-[6px] bg-[var(--text)] px-3 py-2 text-[12px] text-[var(--surface)]"
+      >
         {nextLabel} <ArrowRight className="h-3.5 w-3.5" />
       </button>
     </div>
@@ -557,10 +753,10 @@ function BuildRow({
           failed
             ? "border-[var(--red-b)] bg-[var(--red-l)] text-[var(--red)]"
             : done
-            ? "border-[var(--teal-b)] bg-[var(--teal-l)] text-[var(--teal)]"
-            : active
-              ? "codeatlas-progress-pulse border-[var(--text)] text-[var(--text)]"
-              : "border-[var(--border2)] text-[var(--text3)]"
+              ? "border-[var(--teal-b)] bg-[var(--teal-l)] text-[var(--teal)]"
+              : active
+                ? "codeatlas-progress-pulse border-[var(--text)] text-[var(--text)]"
+                : "border-[var(--border2)] text-[var(--text3)]"
         }`}
       >
         {failed ? <span style={{ fontSize: 14 }}>✕</span> : done ? <Check className="h-3.5 w-3.5" /> : null}
@@ -570,10 +766,7 @@ function BuildRow({
         <div className="text-[12px] text-[var(--text3)]">{sub}</div>
       </div>
       {count ? (
-        <div
-          className="text-[11px]"
-          style={{ color: failed ? "var(--red)" : count === "0 files" ? "var(--red)" : "var(--teal)" }}
-        >
+        <div className="text-[11px]" style={{ color: failed || count === "0 files" ? "var(--red)" : "var(--teal)" }}>
           {count}
         </div>
       ) : null}
