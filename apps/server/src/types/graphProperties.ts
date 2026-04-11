@@ -1,10 +1,81 @@
 import type { SupportedLanguage, TextKind } from "./scan";
 
-export type ExtractionMethod = "ast" | "ast+ts-enrichment" | "heuristic" | "text" | "manual";
+
+export const IR_SCHEMA_VERSION = "v1";
+export const NEO4J_SCHEMA_VERSION = "v1";
+export const NORMALIZED_KIND_VERSION = "v1";
+export const CHUNK_VERSION = "v1";
+
+export const GRAPH_NODE_LABELS = [
+  "Repo",
+  "Directory",
+  "CodeFile",
+  "TextFile",
+  "TextChunk",
+  "AstNode",
+] as const;
+
+export type GraphNodeLabel = (typeof GRAPH_NODE_LABELS)[number];
+
+export const GRAPH_RELATION_TYPES = [
+  "CONTAINS",
+  "HAS_CHUNK",
+  "NEXT_CHUNK",
+  "IMPORTS",
+  "EXTENDS",
+  "OVERRIDES",
+  "DESCRIBES",
+  "MENTIONS",
+  "REFERENCES",
+  "AST_CHILD",
+  "DECLARES",
+  "HAS_AST_ROOT",
+] as const;
+
+export type GraphRelationType = (typeof GRAPH_RELATION_TYPES)[number];
+
+
+export const NORMALIZED_KINDS = [
+  "module",
+  "namespace",
+  "package",
+  "class",
+  "interface",
+  "struct",
+  "enum",
+  "function",
+  "method",
+  "constructor",
+  "field",
+  "property",
+  "variable",
+  "constant",
+  "parameter",
+  "typeAlias",
+  "trait",
+  "protocol",
+  "macro",
+  "annotation",
+  "comment",
+  "unknown",
+] as const;
+
+export type NormalizedKind = (typeof NORMALIZED_KINDS)[number];
+
+export type ExtractionMethod =
+  | "ast"
+  | "ast+ts-enrichment"
+  | "heuristic"
+  | "text"
+  | "manual";
+
+export type ParseStatus = "parsed" | "partial" | "failed";
+export type EmbeddingStatus = "missing" | "ready" | "failed";
 
 export type BaseNodeProps = {
   id: string;
-  kind: string;
+  identityKey: string;
+  kind: GraphNodeLabel;
   repoId: string;
   createdAt: string;
   updatedAt: string;
@@ -36,7 +107,7 @@ export type CodeFileNodeProps = BaseNodeProps & {
   sizeBytes?: number;
   hash?: string | null;
   lastModifiedAt?: string | null;
-  parseStatus?: "parsed" | "partial" | "failed";
+  parseStatus?: ParseStatus;
 };
 
 export type TextFileNodeProps = BaseNodeProps & {
@@ -55,6 +126,7 @@ export type TextChunkNodeProps = BaseNodeProps & {
   fileId: string;
   filePath: string;
   chunkIndex: number;
+  chunkVersion: string;
   content: string;
   startOffset?: number | null;
   endOffset?: number | null;
@@ -63,7 +135,7 @@ export type TextChunkNodeProps = BaseNodeProps & {
   tokenCount?: number | null;
   charCount?: number | null;
   embeddingModel?: string | null;
-  embeddingStatus?: "missing" | "ready" | "failed" | null;
+  embeddingStatus?: EmbeddingStatus | null;
 };
 
 export type AstNodeProps = BaseNodeProps & {
@@ -71,7 +143,7 @@ export type AstNodeProps = BaseNodeProps & {
   fileId: string;
   filePath: string;
   language: SupportedLanguage;
-  normalizedKind: string;
+  normalizedKind: NormalizedKind;
   name?: string | null;
   displayName?: string | null;
   nodeType?: string | null;
@@ -102,28 +174,53 @@ export type GraphNodeProps =
   | TextChunkNodeProps
   | AstNodeProps;
 
+
 export type BaseEdgeProps = {
   repoId: string;
+  sourceFilePath?: string;
   extractionMethod?: ExtractionMethod;
   confidence?: number | null;
+  isInferred?: boolean;
 };
 
-export type ContainsEdgeProps = BaseEdgeProps & { orderIndex?: number };
+export type ContainsEdgeProps = BaseEdgeProps & {
+  orderIndex?: number;
+};
+
 export type HasChunkEdgeProps = BaseEdgeProps;
-export type NextChunkEdgeProps = BaseEdgeProps & { fromIndex?: number; toIndex?: number };
+
+export type NextChunkEdgeProps = BaseEdgeProps & {
+  fromIndex?: number;
+  toIndex?: number;
+};
+
 export type HasAstRootEdgeProps = BaseEdgeProps;
-export type AstChildEdgeProps = BaseEdgeProps & { orderIndex?: number };
+
+export type AstChildEdgeProps = BaseEdgeProps & {
+  orderIndex?: number;
+};
+
 export type DeclaresEdgeProps = BaseEdgeProps;
+
 export type ImportsEdgeProps = BaseEdgeProps & {
   importText?: string;
   isResolved?: boolean;
   resolutionKind?: "file" | "module" | "unknown";
 };
-export type ExtendsEdgeProps = BaseEdgeProps & { isInferred?: boolean };
-export type OverridesEdgeProps = BaseEdgeProps & { isInferred?: boolean };
-export type ReferencesEdgeProps = BaseEdgeProps & { referenceKind?: string };
+
+export type ExtendsEdgeProps = BaseEdgeProps;
+
+export type OverridesEdgeProps = BaseEdgeProps;
+
+export type ReferencesEdgeProps = BaseEdgeProps & {
+  referenceKind?: string;
+};
+
 export type DescribesEdgeProps = BaseEdgeProps;
-export type MentionsEdgeProps = BaseEdgeProps & { matchedText?: string };
+
+export type MentionsEdgeProps = BaseEdgeProps & {
+  matchedText?: string;
+};
 
 export type GraphEdgeProps =
   | ContainsEdgeProps
@@ -138,6 +235,96 @@ export type GraphEdgeProps =
   | ReferencesEdgeProps
   | DescribesEdgeProps
   | MentionsEdgeProps;
+
+export const REQUIRED_NODE_PROPERTIES: Record<GraphNodeLabel, readonly string[]> = {
+  Repo: ["id", "identityKey", "kind", "repoId", "name", "rootPath", "createdAt", "updatedAt"],
+  Directory: ["id", "identityKey", "kind", "repoId", "path", "name", "createdAt", "updatedAt"],
+  CodeFile: [
+    "id",
+    "identityKey",
+    "kind",
+    "repoId",
+    "path",
+    "name",
+    "extension",
+    "language",
+    "createdAt",
+    "updatedAt",
+  ],
+  TextFile: [
+    "id",
+    "identityKey",
+    "kind",
+    "repoId",
+    "path",
+    "name",
+    "extension",
+    "createdAt",
+    "updatedAt",
+  ],
+  TextChunk: [
+    "id",
+    "identityKey",
+    "kind",
+    "repoId",
+    "fileId",
+    "filePath",
+    "chunkIndex",
+    "chunkVersion",
+    "content",
+    "createdAt",
+    "updatedAt",
+  ],
+  AstNode: [
+    "id",
+    "identityKey",
+    "kind",
+    "repoId",
+    "fileId",
+    "filePath",
+    "language",
+    "normalizedKind",
+    "createdAt",
+    "updatedAt",
+  ],
+};
+
+export const REQUIRED_EDGE_PROPERTIES: Record<GraphRelationType, readonly string[]> = {
+  CONTAINS: ["repoId"],
+  HAS_CHUNK: ["repoId"],
+  NEXT_CHUNK: ["repoId"],
+  IMPORTS: ["repoId"],
+  EXTENDS: ["repoId"],
+  OVERRIDES: ["repoId"],
+  DESCRIBES: ["repoId"],
+  MENTIONS: ["repoId"],
+  REFERENCES: ["repoId"],
+  AST_CHILD: ["repoId"],
+  DECLARES: ["repoId"],
+  HAS_AST_ROOT: ["repoId"],
+};
+
+export const FILE_OWNED_RELATION_TYPES: readonly GraphRelationType[] = [
+  "IMPORTS",
+  "EXTENDS",
+  "OVERRIDES",
+  "DESCRIBES",
+  "MENTIONS",
+  "REFERENCES",
+  "DECLARES",
+] as const;
+
+export function isAllowedNodeLabel(value: string): value is GraphNodeLabel {
+  return (GRAPH_NODE_LABELS as readonly string[]).includes(value);
+}
+
+export function isAllowedRelationType(value: string): value is GraphRelationType {
+  return (GRAPH_RELATION_TYPES as readonly string[]).includes(value);
+}
+
+export function isNormalizedKind(value: string): value is NormalizedKind {
+  return (NORMALIZED_KINDS as readonly string[]).includes(value);
+}
 
 export function isoNow(): string {
   return new Date().toISOString();

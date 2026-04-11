@@ -1,7 +1,14 @@
 import type { SupportedLanguage } from "./scan";
-import type { Range } from "./ir";
 
-//should be ast node
+
+export type Range = {
+  startLine: number;
+  startCol: number;
+  endLine: number;
+  endCol: number;
+};
+
+
 export type SymbolKind =
   | "function"
   | "method"
@@ -16,9 +23,7 @@ export type RawSymbol = {
   qname?: string;
   range?: Range;
   parentName?: string;
-  /** Names of base types (best-effort). */
   extendsNames?: string[];
-  /** Names of implemented interfaces (best-effort). */
   implementsNames?: string[];
 };
 
@@ -31,8 +36,15 @@ export type RawImport = {
 export type RawCallSite = {
   calleeText: string;
   range?: Range;
-  /** Qualified name of the enclosing symbol (function/method/class) if known. */
   enclosingSymbolQname?: string;
+};
+
+export type TextChunkFact = {
+  index: number;
+  text: string;
+  startLine: number;
+  endLine: number;
+  chunkVersion: string;
 };
 
 export type CodeFacts = {
@@ -40,30 +52,18 @@ export type CodeFacts = {
   fileRelPath: string;
   language: SupportedLanguage;
   imports: RawImport[];
-  // symbols: RawSymbol[];
-  // callSites: RawCallSite[];
   parseErrors?: number;
-  /** Optional helpers for later chunking / citations. */
   lineCount?: number;
-  /** Short preview of the file text (safe size). */
   textPreview?: string;
-  /** SHA1 hash of full file text (when available). */
   textHash?: string;
 };
 
 export type TextFacts = {
   kind: "text";
   fileRelPath: string;
-  /** Links/paths referenced from docs (best-effort). */
   references: { raw: string; range?: Range }[];
-  /** Backticked identifiers or headings that likely refer to symbols (best-effort). */
   symbolMentions: { name: string; range?: Range }[];
-  chunks: Array<{
-    index: number;
-    text: string;
-    startLine: number;
-    endLine: number;
-  }>;
+  chunks: TextChunkFact[];
   lineCount?: number;
   textPreview?: string;
   textHash?: string;

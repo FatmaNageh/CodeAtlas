@@ -6,7 +6,6 @@ import { runCypher } from "../db/cypher";
 
 export const diagnosticsRoute = new Hono();
 
-// Neo4j type definitions
 interface Neo4jInteger {
   toNumber: () => number;
 }
@@ -35,139 +34,166 @@ type Neo4jValue =
   | Neo4jValue[];
 
 export function toPlain(v: Neo4jValue): unknown {
-   // Neo4j Integer objects support .toNumber()
-   if (v && typeof v === "object") {
-     if (typeof (v as Neo4jInteger).toNumber === "function") {
-       return (v as Neo4jInteger).toNumber();
-     }
-     if (Array.isArray(v)) return v.map(toPlain);
+  if (v && typeof v === "object") {
+    if (typeof (v as Neo4jInteger).toNumber === "function") {
+      return (v as Neo4jInteger).toNumber();
+    }
 
-     // Neo4j Node
-     const node = v as Neo4jNode;
-     if (node.identity && node.labels && node.properties) {
-       return {
-         id: String(node.properties?.id ?? ""),
-         labels: node.labels,
-         properties: Object.fromEntries(
-           Object.entries(node.properties).map(([k, val]) => [k, toPlain(val)]),
-         ),
-       };
-     }
+    if (Array.isArray(v)) return v.map(toPlain);
 
-     // Neo4j Relationship
-     const rel = v as Neo4jRelationship;
-     if (rel.type && rel.properties && rel.start && rel.end) {
-       return {
-         type: rel.type,
-         properties: Object.fromEntries(
-           Object.entries(rel.properties).map(([k, val]) => [k, toPlain(val)]),
-         ),
-       };
-     }
+    const node = v as Neo4jNode;
+    if (node.identity && node.labels && node.properties) {
+      return {
+        id: String(node.properties?.id ?? ""),
+        labels: node.labels,
+        properties: Object.fromEntries(
+          Object.entries(node.properties).map(([k, val]) => [k, toPlain(val)]),
+        ),
+      };
+    }
 
-     // Handle plain objects
-     if (!(v instanceof Array) && !(v as Neo4jNode).identity && !(v as Neo4jRelationship).type) {
-       const out: Record<string, unknown> = {};
-       for (const [k, val] of Object.entries(v as unknown as Record<string, Neo4jValue>)) out[k] = toPlain(val);
-       return out;
-     }
-     
-     return v;
-   }
-   return v;
- }
+    const rel = v as Neo4jRelationship;
+    if (rel.type && rel.properties && rel.start && rel.end) {
+      return {
+        type: rel.type,
+        properties: Object.fromEntries(
+          Object.entries(rel.properties).map(([k, val]) => [k, toPlain(val)]),
+        ),
+      };
+    }
 
-/**
- * Serve a single HTML tester page from src/test-client.html.
- * (We keep the filename for simplicity; it becomes the "Tester" UI.)
- */
+    const out: Record<string, unknown> = {};
+    for (const [k, val] of Object.entries(v as Record<string, Neo4jValue>)) {
+      out[k] = toPlain(val);
+    }
+    return out;
+  }
+
+  return v;
+}
+
 diagnosticsRoute.get("/tester", async (c) => {
   const filePath = path.join(process.cwd(), "src", "test-client.html");
   const html = await fs.readFile(filePath, "utf-8");
   return c.html(html);
 });
 
-/**
- * List repos that exist in Neo4j.
- */
 diagnosticsRoute.get("/diagnostics/repos", async (c) => {
   const rows = await runCypher<{ r: Neo4jNode }>(
-    `MATCH (r:RepoRoot) RETURN r ORDER BY r.rootPath ASC LIMIT 50`,
+    `MATCH (r:Repo) RETURN r ORDER BY r.rootPath ASC LIMIT 50`,
   );
   return c.json({ ok: true, repos: rows.map((x) => toPlain(x.r)) });
 });
 
-/**
- * Run a full suite of sanity checks for a given repoId.
- */
 diagnosticsRoute.get("/diagnostics/check", async (c) => {
   const repoId = c.req.query("repoId") ?? "";
   if (!repoId) return c.json({ ok: false, error: "Missing repoId" }, 400);
 
-  // 1) Labels inventory
   const labelCounts = await runCypher<{ labels: string[]; c: Neo4jInteger | number }>(
-    `MATCH (n) WHERE n.repoId=$repoId RETURN labels(n) AS labels, count(*) AS c ORDER BY c DESC`,
+    `MATCH (n) WHERE n.repoId = $repoId RETURN labels(n) AS labels, count(*) AS c ORDER BY c DESC`,
     { repoId },
   );
 
-  // 2) File node existence checks
-  const codeFileSample = await runCypher<{ relPath: string; language: string }>(
-    `MATCH (f:CodeFile {repoId:$repoId}) RETURN f.relPath AS relPath, f.language AS language LIMIT 10`,
-    { repoId },
-  );
-  const textFileSample = await runCypher<{ relPath: string; textKind: string }>(
-    `MATCH (t:TextFile {repoId:$repoId}) RETURN t.relPath AS relPath, t.textKind AS textKind LIMIT 10`,
+  const codeFileSample = await runCypher<{ path: string; language: string }>(
+    `MATCH (f:CodeFile {repoId:$repoId}) RETURN f.path AS path, f.language AS language LIMIT 10`,
     { repoId },
   );
 
-  // 3) Relationship samples
-  const importsLocal = await runCypher<{ a: string; b: string }>(
-    `MATCH (a:CodeFile {repoId:$repoId})-[:REFERENCES]->(b:CodeFile {repoId:$repoId}) RETURN a.relPath AS a, b.relPath AS b LIMIT 20`,
-    { repoId },
-  );
-  const importsExternal = await runCypher<{ f: string; m: string }>(
-    `MATCH (f:TextFile {repoId:$repoId})-[:MENTIONS]->(m:ASTNode {repoId:$repoId}) RETURN f.relPath AS f, m.name AS m LIMIT 20`,
-    { repoId },
-  );
-  const parentEdges = await runCypher<{ p: string; c: string }>(
-    `MATCH (p:ASTNode {repoId:$repoId})-[:AST_CHILD]->(c:ASTNode {repoId:$repoId}) RETURN p.qname AS p, c.qname AS c LIMIT 20`,
-    { repoId },
-  );
-  const extendsEdges = await runCypher<{ a: string; b: string; conf: number }>(
-    `MATCH (a:ASTNode {repoId:$repoId})-[r:EXTENDS]->(b:ASTNode {repoId:$repoId}) RETURN a.qname AS a, coalesce(b.qname,b.name) AS b, r.confidence AS conf LIMIT 20`,
-    { repoId },
-  );
-  const implementsEdges = await runCypher<{
-    a: string;
-    b: string;
-    conf: number;
-  }>(
-    `MATCH (a:ASTNode {repoId:$repoId})-[r:OVERRIDES]->(b:ASTNode {repoId:$repoId}) RETURN a.qname AS a, coalesce(b.qname,b.name) AS b, r.confidence AS conf LIMIT 20`,
-    { repoId },
-  );
-  const callsEdges = await runCypher<{ a: string; b: string; conf: number }>(
-    `MATCH (a:ASTNode {repoId:$repoId})-[r:IMPORTS]->(b:ASTNode {repoId:$repoId}) RETURN a.qname AS a, b.qname AS b, r.confidence AS conf ORDER BY conf DESC LIMIT 20`,
-    { repoId },
-  );
-  const docRefs = await runCypher<{ t: string; x: string; conf: number }>(
-    `MATCH (t:TXTChunk {repoId:$repoId})-[r:DESCRIBES]->(x:ASTNode {repoId:$repoId}) RETURN t.fileRelPath AS t, coalesce(x.relPath,x.qname,x.name) AS x, r.confidence AS conf LIMIT 20`,
+  const textFileSample = await runCypher<{ path: string; textType: string }>(
+    `MATCH (t:TextFile {repoId:$repoId}) RETURN t.path AS path, t.textType AS textType LIMIT 10`,
     { repoId },
   );
 
-  // 4) Schema checks (best-effort; may require privileges)
+  const referencesCodeToCode = await runCypher<{ fromPath: string; toPath: string }>(
+    `MATCH (a:CodeFile {repoId:$repoId})-[:REFERENCES]->(b:CodeFile {repoId:$repoId})
+     RETURN a.path AS fromPath, b.path AS toPath
+     LIMIT 20`,
+    { repoId },
+  );
+
+  const referencesTextToAny = await runCypher<{ fromPath: string; toId: string }>(
+    `MATCH (t:TextFile {repoId:$repoId})-[:REFERENCES]->(x {repoId:$repoId})
+     RETURN t.path AS fromPath, x.id AS toId
+     LIMIT 20`,
+    { repoId },
+  );
+
+  const chunkLinks = await runCypher<{ filePath: string; chunkIndex: number }>(
+    `MATCH (t:TextFile {repoId:$repoId})-[:HAS_CHUNK]->(c:TextChunk {repoId:$repoId})
+     RETURN t.path AS filePath, c.chunkIndex AS chunkIndex
+     ORDER BY filePath, chunkIndex
+     LIMIT 20`,
+    { repoId },
+  );
+
+  const nextChunkEdges = await runCypher<{ fromIndex: number; toIndex: number }>(
+    `MATCH (a:TextChunk {repoId:$repoId})-[:NEXT_CHUNK]->(b:TextChunk {repoId:$repoId})
+     RETURN a.chunkIndex AS fromIndex, b.chunkIndex AS toIndex
+     LIMIT 20`,
+    { repoId },
+  );
+
+  const astNodes = await runCypher<{ c: Neo4jInteger | number }>(
+    `MATCH (a:AstNode {repoId:$repoId}) RETURN count(a) AS c`,
+    { repoId },
+  );
+
+  const astSamples = await runCypher<{ filePath: string; normalizedKind: string; name: string | null }>(
+    `MATCH (a:AstNode {repoId:$repoId})
+     RETURN a.filePath AS filePath, a.normalizedKind AS normalizedKind, a.name AS name
+     LIMIT 20`,
+    { repoId },
+  );
+
+  const astChildEdges = await runCypher<{ parentName: string | null; childName: string | null }>(
+    `MATCH (p:AstNode {repoId:$repoId})-[:AST_CHILD]->(c:AstNode {repoId:$repoId})
+     RETURN p.name AS parentName, c.name AS childName
+     LIMIT 20`,
+    { repoId },
+  );
+
+  const extendsEdges = await runCypher<{ a: string | null; b: string | null; conf: number | null }>(
+    `MATCH (a:AstNode {repoId:$repoId})-[r:EXTENDS]->(b:AstNode {repoId:$repoId})
+     RETURN a.name AS a, b.name AS b, r.confidence AS conf
+     LIMIT 20`,
+    { repoId },
+  );
+
+  const overridesEdges = await runCypher<{ a: string | null; b: string | null; conf: number | null }>(
+    `MATCH (a:AstNode {repoId:$repoId})-[r:OVERRIDES]->(b:AstNode {repoId:$repoId})
+     RETURN a.name AS a, b.name AS b, r.confidence AS conf
+     LIMIT 20`,
+    { repoId },
+  );
+
+  const importsEdges = await runCypher<{ a: string | null; b: string | null; conf: number | null }>(
+    `MATCH (a:AstNode {repoId:$repoId})-[r:IMPORTS]->(b:AstNode {repoId:$repoId})
+     RETURN a.name AS a, b.name AS b, r.confidence AS conf
+     LIMIT 20`,
+    { repoId },
+  );
+
+  const describesEdges = await runCypher<{ filePath: string; targetName: string | null; conf: number | null }>(
+    `MATCH (t:TextChunk {repoId:$repoId})-[r:DESCRIBES]->(x:AstNode {repoId:$repoId})
+     RETURN t.filePath AS filePath, x.name AS targetName, r.confidence AS conf
+     LIMIT 20`,
+    { repoId },
+  );
+
   let constraints: unknown[] = [];
   let indexes: unknown[] = [];
+
   try {
     const cons = await runCypher<Record<string, Neo4jValue>>(`SHOW CONSTRAINTS`);
     constraints = cons.map(toPlain);
   } catch {
     constraints = [
       {
-        warning:
-          "SHOW CONSTRAINTS failed (insufficient privileges or older Neo4j).",
+        warning: "SHOW CONSTRAINTS failed (insufficient privileges or older Neo4j).",
       },
     ];
   }
+
   try {
     const idx = await runCypher<Record<string, Neo4jValue>>(`SHOW INDEXES`);
     indexes = idx.map(toPlain);
@@ -179,24 +205,31 @@ diagnosticsRoute.get("/diagnostics/check", async (c) => {
     ];
   }
 
-  // Pass/Fail summary
-  const labelsFlat = labelCounts.map((x) => (Array.isArray(x.labels) ? x.labels.join(":") : String(x.labels)));
-  const hasOldFileLabel = labelsFlat.some((s) => s.includes("File") && !s.includes("CodeFile") && !s.includes("TextFile"));
+  const labelsFlat = labelCounts.map((x) =>
+    Array.isArray(x.labels) ? x.labels.join(":") : String(x.labels),
+  );
+
+  const hasWrongLegacyLabels = labelsFlat.some(
+    (s) =>
+      s.includes("RepoRoot") ||
+      s.includes("ASTNode") ||
+      s.includes("TEXTChunk") ||
+      s.includes("TXTChunk"),
+  );
+
+  const astCountRaw = astNodes?.[0]?.c ?? 0;
+  const astCount =
+    typeof astCountRaw === "number" ? astCountRaw : astCountRaw.toNumber();
 
   const summary = {
     hasRepoData: labelCounts.length > 0,
     hasCodeFiles: codeFileSample.length > 0,
     hasTextFiles: textFileSample.length > 0,
-    hasLocalImports: importsLocal.length > 0,
-    hasExternalImports: importsExternal.length > 0,
-    hasSymbols:
-      (
-        await runCypher<{ c: unknown }>(
-          `MATCH (s:ASTNode {repoId:$repoId}) RETURN count(s) AS c`,
-          { repoId },
-        )
-      )?.[0]?.c ?? 0,
-    hasOldFileLabel: !!hasOldFileLabel,
+    hasCodeReferences: referencesCodeToCode.length > 0,
+    hasTextReferences: referencesTextToAny.length > 0,
+    hasChunks: chunkLinks.length > 0,
+    astNodeCount: astCount,
+    hasLegacyWrongLabels: hasWrongLegacyLabels,
   };
 
   return c.json({
@@ -207,13 +240,16 @@ diagnosticsRoute.get("/diagnostics/check", async (c) => {
     samples: {
       codeFiles: toPlain(codeFileSample),
       textFiles: toPlain(textFileSample),
-      importsLocal: toPlain(importsLocal),
-      importsExternal: toPlain(importsExternal),
-      parentEdges: toPlain(parentEdges),
+      referencesCodeToCode: toPlain(referencesCodeToCode),
+      referencesTextToAny: toPlain(referencesTextToAny),
+      chunkLinks: toPlain(chunkLinks),
+      nextChunkEdges: toPlain(nextChunkEdges),
+      astSamples: toPlain(astSamples),
+      astChildEdges: toPlain(astChildEdges),
       extendsEdges: toPlain(extendsEdges),
-      implementsEdges: toPlain(implementsEdges),
-      callsEdges: toPlain(callsEdges),
-      docRefs: toPlain(docRefs),
+      overridesEdges: toPlain(overridesEdges),
+      importsEdges: toPlain(importsEdges),
+      describesEdges: toPlain(describesEdges),
     },
     schema: { constraints, indexes },
   });

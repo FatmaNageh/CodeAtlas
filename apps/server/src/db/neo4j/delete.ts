@@ -1,10 +1,15 @@
 import { getNeo4jClient } from "./client";
-import { fileId } from "@/pipeline/id";
+import {
+  repoNodeId,
+  codeFileNodeId,
+  textFileNodeId,
+  normalizeRepoRelativePath,
+} from "@/pipeline/id";
 
-// Phase 1: delete whole repo subgraph
-export async function deleteRepo(repoId: string): Promise<void> {
+export async function deleteRepo(repoId: string, repoRoot: string): Promise<void> {
   const neo4j = getNeo4jClient();
   const session = neo4j.session();
+
   try {
     await session.run(
       `
@@ -12,69 +17,105 @@ export async function deleteRepo(repoId: string): Promise<void> {
       WHERE n.repoId = $repoId OR n.id = $repoNodeId
       DETACH DELETE n
       `,
-      { repoId, repoNodeId: `repo:${repoId}` },
+      {
+        repoId,
+        repoNodeId: repoNodeId(repoRoot),
+      },
     );
   } finally {
     await session.close();
   }
 }
 
-/**
- * Phase 1 incremental strategy: delete everything derived from a single file,
- * while preserving the :File node itself (and any incoming edges from other files).
- */
-export async function deleteFileDerived(repoId: string, relPath: string): Promise<void> {
+export async function deleteCodeFileDerived(repoId: string, relPath: string): Promise<void> {
   const neo4j = getNeo4jClient();
   const session = neo4j.session();
-  const fid = fileId(repoId, relPath);
+  const normalizedRelPath = normalizeRepoRelativePath(relPath);
+  const fileNodeId = codeFileNodeId(repoId, normalizedRelPath);
+
   try {
+    // Delete file-owned semantic edges.
     await session.run(
       `
-      MATCH (f {id: $fileId})
-      WHERE f:CodeFile OR f:TextFile
-      OPTIONAL MATCH (f)-[r:REFERENCES|MENTIONS]->()
+      MATCH ()-[r]->()
+      WHERE r.repoId = $repoId
+        AND r.sourceFilePath = $relPath
       DELETE r
       `,
-      { fileId: fid },
+      { repoId, relPath: normalizedRelPath },
     );
 
+    // Delete AST subtree derived from this file.
     await session.run(
       `
       MATCH (f:CodeFile {id: $fileId})
-      OPTIONAL MATCH (f)-[:DECLARES|HAS_AST_ROOT]->(root:ASTNode)
-      OPTIONAL MATCH (root)-[:AST_CHILD*0..]->(a:ASTNode)
-      WITH DISTINCT a
-      DETACH DELETE a
+      OPTIONAL MATCH (f)-[:HAS_AST_ROOT]->(root:AstNode)
+      OPTIONAL MATCH (root)-[:AST_CHILD*0..]->(a:AstNode)
+      WITH collect(DISTINCT a) AS astNodes, root
+      FOREACH (n IN astNodes | DETACH DELETE n)
+      FOREACH (n IN CASE WHEN root IS NULL THEN [] ELSE [root] END | DETACH DELETE n)
       `,
-      { fileId: fid },
-    );
-
-    await session.run(
-      `
-      MATCH (f:TextFile {id: $fileId})
-      OPTIONAL MATCH (f)-[:HAS_CHUNK]->(c:TEXTChunk)
-      DETACH DELETE c
-      `,
-      { fileId: fid },
+      { fileId: fileNodeId },
     );
   } finally {
     await session.close();
   }
 }
 
-/** Delete a file node and everything attached to it (for removed files). */
-export async function deleteFile(repoId: string, relPath: string): Promise<void> {
+
+export async function deleteTextFileDerived(repoId: string, relPath: string): Promise<void> {
   const neo4j = getNeo4jClient();
   const session = neo4j.session();
-  const fid = fileId(repoId, relPath);
+  const normalizedRelPath = normalizeRepoRelativePath(relPath);
+  const fileNodeId = textFileNodeId(repoId, normalizedRelPath);
+
+  try {
+    // Delete file-owned semantic edges.
+    await session.run(
+      `
+      MATCH ()-[r]->()
+      WHERE r.repoId = $repoId
+        AND r.sourceFilePath = $relPath
+      DELETE r
+      `,
+      { repoId, relPath: normalizedRelPath },
+    );
+
+    // Delete text chunks derived from this file.
+    await session.run(
+      `
+      MATCH (f:TextFile {id: $fileId})
+      OPTIONAL MATCH (f)-[:HAS_CHUNK]->(c:TextChunk)
+      DETACH DELETE c
+      `,
+      { fileId: fileNodeId },
+    );
+  } finally {
+    await session.close();
+  }
+}
+
+
+export async function deleteFile(
+  repoId: string,
+  relPath: string,
+  kind: "code" | "text",
+): Promise<void> {
+  const neo4j = getNeo4jClient();
+  const session = neo4j.session();
+  const normalizedRelPath = normalizeRepoRelativePath(relPath);
+  const fileNodeId =
+    kind === "code"
+      ? codeFileNodeId(repoId, normalizedRelPath)
+      : textFileNodeId(repoId, normalizedRelPath);
+
   try {
     await session.run(
       `
       MATCH (f {id: $fileId})
-      WHERE f:CodeFile OR f:TextFile
       DETACH DELETE f
       `,
-      { fileId: fid },
+      { fileId: fileNodeId },
     );
   } finally {
     await session.close();

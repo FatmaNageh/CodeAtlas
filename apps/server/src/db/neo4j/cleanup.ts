@@ -1,6 +1,9 @@
 import { getNeo4jClient } from "./client";
 
-export async function cleanupStaleByRunId(input: { repoId: string; runId: string }): Promise<{
+export async function cleanupStaleByRunId(input: {
+  repoId: string;
+  runId: string;
+}): Promise<{
   deletedRelationships: number;
   deletedNodes: number;
 }> {
@@ -11,11 +14,12 @@ export async function cleanupStaleByRunId(input: { repoId: string; runId: string
     const relRes = await session.run(
       `
       MATCH ()-[r]->()
-      WHERE r.repoId = $repoId AND coalesce(r.runId, "") <> $runId
+      WHERE r.repoId = $repoId
+        AND coalesce(r.runId, "") <> $runId
       DELETE r
       RETURN count(r) AS deleted
       `,
-      { repoId: input.repoId, runId: input.runId }
+      { repoId: input.repoId, runId: input.runId },
     );
 
     const deletedRelationships = Number(relRes.records[0]?.get("deleted") ?? 0);
@@ -23,11 +27,13 @@ export async function cleanupStaleByRunId(input: { repoId: string; runId: string
     const nodeRes = await session.run(
       `
       MATCH (n)
-      WHERE n.repoId = $repoId AND coalesce(n.runId, "") <> $runId AND NOT n:RepoRoot
-      DELETE n
+      WHERE n.repoId = $repoId
+        AND coalesce(n.runId, "") <> $runId
+        AND NOT n:Repo
+      DETACH DELETE n
       RETURN count(n) AS deleted
       `,
-      { repoId: input.repoId, runId: input.runId }
+      { repoId: input.repoId, runId: input.runId },
     );
 
     const deletedNodes = Number(nodeRes.records[0]?.get("deleted") ?? 0);
