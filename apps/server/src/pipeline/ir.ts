@@ -11,7 +11,7 @@ import {
   normalizePath,
   astNodeId,
   fileRootAstNodeId,
-  txtChunkId,
+  textChunkId,
 } from "./id";
 import { createTsModuleResolver } from "./tsResolve";
 import { enrichIrWithTsProgram } from "./tsProgramEnrich";
@@ -44,6 +44,38 @@ function isText(e: FileIndexEntry): e is TextFileIndexEntry {
 
 function cleanQuotes(s: string): string {
   return s.replace(/^[`'"(]+/, "").replace(/[)`'";]+$/, "").trim();
+}
+
+
+function mapNormalizedKind(kind: string): string {
+  switch (kind) {
+    case "class":
+      return "Class";
+    case "interface":
+      return "Interface";
+    case "method":
+      return "Method";
+    case "function":
+      return "Function";
+    case "module":
+      return "Module";
+    case "namespace":
+      return "Namespace";
+    case "enum":
+      return "Enum";
+    case "struct":
+      return "Struct";
+    case "trait":
+      return "Trait";
+    case "field":
+      return "Field";
+    case "variable":
+      return "Variable";
+    case "constructor":
+      return "Constructor";
+    default:
+      return "Entity";
+  }
 }
 
 function normalizeImportRaw(language: string, raw: string): string {
@@ -95,7 +127,7 @@ function resolveLocalImport(
   // Try direct match
   if (allFilesByRel.has(base)) return base;
 
-  const exts = [".ts", ".tsx", ".js", ".jsx", ".py", ".java", ".go", ".rb", ".cpp", ".cc", ".cxx", ".hpp", ".h"];
+  const exts = [".ts", ".tsx", ".js", ".jsx",".mjs",".cjs",".py", ".java", ".go", ".rb", ".c",".cpp", ".cc", ".cxx", ".hpp", ".h",".php",".kt",".swift",];
   for (const ext of exts) {
     if (allFilesByRel.has(base + ext)) return base + ext;
   }
@@ -341,10 +373,10 @@ export function buildIR(scan: ScanResult, facts: FactsByFile): IR {
       pendingTextFiles.push({ fileId: fId, relPath: rel, facts: tf });
       let previousChunkId: string | null = null;
       for (const chunk of tf.chunks) {
-        const chunkId = txtChunkId(repoId, rel, chunk.index, chunk.startLine, chunk.endLine);
+        const chunkId = textChunkId(repoId, rel, chunk.index, chunk.startLine, chunk.endLine);
         addNode({
           id: chunkId,
-          kind: "TXTChunk",
+          kind: "TEXTChunk",
           repoId,
           props: {
             repoId,
@@ -486,7 +518,7 @@ export function buildIR(scan: ScanResult, facts: FactsByFile): IR {
     }
 
     for (const chunk of pending.facts.chunks) {
-      const chunkId = txtChunkId(repoId, pending.relPath, chunk.index, chunk.startLine, chunk.endLine);
+      const chunkId = textChunkId(repoId, pending.relPath, chunk.index, chunk.startLine, chunk.endLine);
       for (const mention of pending.facts.symbolMentions) {
         if (!chunk.text.includes(mention.name)) continue;
         for (const target of astNodesByName.get(mention.name) ?? []) {
@@ -522,7 +554,7 @@ export function buildIR(scan: ScanResult, facts: FactsByFile): IR {
       files: scan.entries.length,
       dirs: dirSet.size,
       astNodes: nodes.filter((node) => node.kind === "ASTNode").length,
-      textChunks: nodes.filter((node) => node.kind === "TXTChunk").length,
+      textChunks: nodes.filter((node) => node.kind === "TEXTChunk").length,
       references: edges.filter((edge) => edge.type === "REFERENCES").length,
     },
   };

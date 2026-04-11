@@ -3,17 +3,29 @@ import { getNeo4jClient } from "./client";
 type IndexOptions = Record<string, boolean | number | string | null>;
 
 const SCHEMA_QUERIES = [
-  "CREATE CONSTRAINT reporoot_id IF NOT EXISTS FOR (n:RepoRoot) REQUIRE n.id IS UNIQUE",
+  "CREATE CONSTRAINT repo_id IF NOT EXISTS FOR (Repo) REQUIRE n.id IS UNIQUE",
   "CREATE CONSTRAINT directory_id IF NOT EXISTS FOR (n:Directory) REQUIRE n.id IS UNIQUE",
   "CREATE CONSTRAINT codefile_id IF NOT EXISTS FOR (n:CodeFile) REQUIRE n.id IS UNIQUE",
   "CREATE CONSTRAINT textfile_id IF NOT EXISTS FOR (n:TextFile) REQUIRE n.id IS UNIQUE",
   "CREATE CONSTRAINT astnode_id IF NOT EXISTS FOR (n:ASTNode) REQUIRE n.id IS UNIQUE",
-  "CREATE CONSTRAINT txtchunk_id IF NOT EXISTS FOR (n:TXTChunk) REQUIRE n.id IS UNIQUE",
+  "CREATE CONSTRAINT textchunk_id IF NOT EXISTS FOR (n:TeXTChunk) REQUIRE n.id IS UNIQUE",
+  
   "CREATE INDEX codefile_rel_path IF NOT EXISTS FOR (n:CodeFile) ON (n.repoId, n.relPath)",
   "CREATE INDEX textfile_rel_path IF NOT EXISTS FOR (n:TextFile) ON (n.repoId, n.relPath)",
   "CREATE INDEX astnode_file_rel_path IF NOT EXISTS FOR (n:ASTNode) ON (n.repoId, n.fileRelPath)",
   "CREATE INDEX astnode_qname IF NOT EXISTS FOR (n:ASTNode) ON (n.repoId, n.qname)",
-  "CREATE INDEX txtchunk_file_rel_path IF NOT EXISTS FOR (n:TXTChunk) ON (n.repoId, n.fileRelPath)",
+  "CREATE INDEX textchunk_file_rel_path IF NOT EXISTS FOR (n:TEXTChunk) ON (n.repoId, n.fileRelPath)",
+
+    "CREATE INDEX repo_path IF NOT EXISTS FOR (n:Repo) ON (n.repoId,n.path)",
+  "CREATE INDEX dir_path IF NOT EXISTS FOR (n:Directory) ON (n.repoId,n.path)",
+  "CREATE INDEX codefile_path IF NOT EXISTS FOR (n:CodeFile) ON (n.repoId,n.path)",
+  "CREATE INDEX codefile_language IF NOT EXISTS FOR (n:CodeFile) ON (n.repoId,n.language)",
+  "CREATE INDEX textfile_path IF NOT EXISTS FOR (n:TextFile) ON (n.repoId,n.path)",
+  "CREATE INDEX textchunk_index IF NOT EXISTS FOR (n:TextChunk) ON (n.repoId,n.chunkIndex)",
+  "CREATE INDEX astnode_kind IF NOT EXISTS FOR (n:AstNode) ON (n.repoId,n.kind)",
+  "CREATE INDEX astnode_fqn IF NOT EXISTS FOR (n:AstNode) ON (n.repoId,n.fqn)",
+  "CREATE INDEX astnode_language IF NOT EXISTS FOR (n:AstNode) ON (n.repoId,n.language)",
+
 ] as const;
 
 function getEmbeddingDimension(): number {
@@ -31,8 +43,8 @@ function createVectorIndexQueries(embeddingDimension: number): string[] {
     `CREATE VECTOR INDEX textfile_embedding IF NOT EXISTS
       FOR (n:TextFile) ON (n.embedding)
       OPTIONS { indexConfig: {\`vector.dimensions\`: ${embeddingDimension}, \`vector.similarity_function\`: 'cosine' } }`,
-    `CREATE VECTOR INDEX txtchunk_embedding IF NOT EXISTS
-      FOR (n:TXTChunk) ON (n.embedding)
+    `CREATE VECTOR INDEX textchunk_embedding IF NOT EXISTS
+      FOR (n:TEXTChunk) ON (n.embedding)
       OPTIONS { indexConfig: {\`vector.dimensions\`: ${embeddingDimension}, \`vector.similarity_function\`: 'cosine' } }`,
     `CREATE VECTOR INDEX astnode_embedding IF NOT EXISTS
       FOR (n:ASTNode) ON (n.embedding)
@@ -85,7 +97,7 @@ export async function ensureSchema(): Promise<void> {
 
     await checkVectorIndexDimension("codefile_embedding", embeddingDimension);
     await checkVectorIndexDimension("textfile_embedding", embeddingDimension);
-    await checkVectorIndexDimension("txtchunk_embedding", embeddingDimension);
+    await checkVectorIndexDimension("textchunk_embedding", embeddingDimension);
     await checkVectorIndexDimension("astnode_embedding", embeddingDimension);
     didRun = true;
   } finally {

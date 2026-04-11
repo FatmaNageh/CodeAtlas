@@ -52,7 +52,7 @@ export async function deleteFileDerived(repoId: string, relPath: string): Promis
     await session.run(
       `
       MATCH (f:TextFile {id: $fileId})
-      OPTIONAL MATCH (f)-[:HAS_CHUNK]->(c:TXTChunk)
+      OPTIONAL MATCH (f)-[:HAS_CHUNK]->(c:TEXTChunk)
       DETACH DELETE c
       `,
       { fileId: fid },

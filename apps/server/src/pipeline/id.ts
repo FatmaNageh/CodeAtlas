@@ -23,7 +23,7 @@ export function dirId(repoId: string, relPath: string): string {
 }
 
 export function repoNodeId(repoId: string): string {
-  return `repo-root:${repoId}`;
+  return `repo:${repoId}`;
 }
 
 export function astNodeId(
@@ -41,14 +41,14 @@ export function fileRootAstNodeId(repoId: string, fileRelPath: string): string {
   return astNodeId(repoId, fileRelPath, "file_root", normalizePath(fileRelPath), 0, 0);
 }
 
-export function txtChunkId(
+export function textChunkId(
   repoId: string,
   fileRelPath: string,
   chunkIndex: number,
   startLine = 1,
   endLine = 1,
 ): string {
-  return `txtchunk:${sha1(`${repoId}|${normalizePath(fileRelPath)}|${chunkIndex}|${startLine}:${endLine}`)}`;
+  return `textchunk:${sha1(`${repoId}|${normalizePath(fileRelPath)}|${chunkIndex}|${startLine}:${endLine}`)}`;
 }
 
 export function edgeId(repoId: string, type: string, from: string, to: string): string {

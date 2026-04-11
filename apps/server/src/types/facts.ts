@@ -1,6 +1,7 @@
 import type { SupportedLanguage } from "./scan";
 import type { Range } from "./ir";
 
+//should be ast node
 export type SymbolKind =
   | "function"
   | "method"

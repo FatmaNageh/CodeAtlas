@@ -70,7 +70,7 @@ describe("buildIR", () => {
 
     const repoRoots = ir.nodes.filter((node) => node.kind === "RepoRoot");
     const astNodes = ir.nodes.filter((node) => node.kind === "ASTNode");
-    const textChunks = ir.nodes.filter((node) => node.kind === "TXTChunk");
+    const textChunks = ir.nodes.filter((node) => node.kind === "TEXTChunk");
     const readmeFileNodeId = fileId(ir.repoId, "README.md");
     const rootNodeId = repoNodeId(ir.repoId);
 

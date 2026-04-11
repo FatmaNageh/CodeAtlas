@@ -4,7 +4,7 @@ export type IRNodeKind =
   | "CodeFile"
   | "TextFile"
   | "ASTNode"
-  | "TXTChunk";
+  | "TEXTChunk";
 
 export type IREdgeType =
   | "CONTAINS"
