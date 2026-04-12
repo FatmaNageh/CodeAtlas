@@ -15,7 +15,7 @@ debugRoute.get("/debug/ir", async (c) => {
   if (!repoId) return c.json({ ok: false, error: "Missing repoId" }, 400);
 
   const repoRoot = repoRoots.get(repoId);
-  if (!repoRoot) return c.json({ ok: false, error: "Unknown repoId (index first)" }, 404);
+  if (!repoRoot) return c.json({ ok: false, error: "Unknown repoId (index first)" }, 400);
 
   const irPath = path.join(repoRoot, ".codeatlas", "debug", repoId, "ir.json");
 
