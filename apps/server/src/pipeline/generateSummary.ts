@@ -10,13 +10,13 @@ import { repoRoots } from '../state/repoRoots';
 export async function generateFileSummary(filePath: string, repoId: string) {
   console.log(`[SUMMARY] Generating for ${filePath}`);
 
-  // Assemble context
   const context = await assembleFileContext(filePath, repoId);
   
-  // Extract data from chunks
-  let code = context.fileChunks.map((c: any) => c.text).join('\n\n');
+  let code = context.fileChunks
+    .map((chunk) => chunk.text ?? "")
+    .filter((text) => text.length > 0)
+    .join('\n\n');
   
-  // If no chunks found in database, read file directly from disk
   if (!code || code.trim().length === 0) {
     console.log(`[SUMMARY] No chunks in DB for ${filePath}, reading from disk...`);
     const repoRoot = repoRoots.get(repoId);
@@ -33,9 +33,8 @@ export async function generateFileSummary(filePath: string, repoId: string) {
     }
   }
   
-  const symbols = context.relatedSymbols.map((s: any) => s.symbol).filter(Boolean);
+  const symbols = context.relatedASTNodes.map((node) => node.symbol).filter(Boolean);
   
-  // Check if we have code available, fail if both DB and disk reads failed
   if (!code || code.trim().length === 0) {
     throw new Error(
       `[SUMMARY] No code available for ${filePath} in repo ${repoId}: ` +
@@ -43,21 +42,18 @@ export async function generateFileSummary(filePath: string, repoId: string) {
     );
   }
   
-  // Build prompt
   const prompt = buildSummaryPrompt({
     filePath,
     code: code.slice(0, 3000),
     symbols,
-    imports: context.imports,
+    imports: context.references,
   });
   
-  // Generate summary
   const summary = await generateTextWithContext(prompt, {
     temperature: 0.1,
     maxTokens: 800,
   });
   
-  // Store in Neo4j - use MERGE to create node if it doesn't exist
   const result = await runCypher(
     `MERGE (f:CodeFile {repoId: $repoId, relPath: $filePath})
      SET f.summary = $summary,
@@ -74,7 +70,6 @@ export async function generateFileSummary(filePath: string, repoId: string) {
   return { filePath, summary };
 }
 
-// Pure function for batch processing
 export async function generateBatchSummaries(filePaths: string[], repoId: string) {
   const results: Array<{ filePath: string; summary: string }> = [];
   const errors: string[] = [];

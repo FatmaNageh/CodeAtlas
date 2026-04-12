@@ -1,11 +1,14 @@
 import type { SyntaxNode } from "tree-sitter";
+import type { SymbolKind } from "@/types/facts";
 import type { ExtractorFn } from "./types";
 import { extractName, nodeRange } from "./common";
 
 function parseBaseClasses(classNodeText: string): string[] {
   const m = classNodeText.match(/^class\s+[A-Za-z_][\w]*\s*\(([^)]*)\)/);
   if (!m) return [];
-  return m[1]
+  const matches = m[1];
+  if (!matches) return [];
+  return matches
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean)
@@ -13,9 +16,9 @@ function parseBaseClasses(classNodeText: string): string[] {
 }
 
 export const extractPython: ExtractorFn = (root) => {
-  const imports = [];
-  const symbols = [];
-  const callSites = [];
+  const imports: ReturnType<ExtractorFn>["imports"] = [];
+  const symbols: ReturnType<ExtractorFn>["symbols"] = [];
+  const callSites: ReturnType<ExtractorFn>["callSites"] = [];
 
   const stack: string[] = [];
   const currentQname = () => (stack.length ? stack[stack.length - 1] : undefined);
@@ -46,9 +49,9 @@ export const extractPython: ExtractorFn = (root) => {
       const name = extractName(node);
       if (name) {
         const parent = currentQname();
-        const kind = parent ? "method" : "function";
+        const kind: SymbolKind = parent ? "method" : "function";
         const qname = parent ? `${parent}.${name}` : name;
-        symbols.push({ kind: kind as any, name, qname, range: nodeRange(node), parentName: parent });
+        symbols.push({ kind, name, qname, range: nodeRange(node), parentName: parent });
         stack.push(qname);
         for (let i = 0; i < node.childCount; i++) {
           const child = node.child(i);

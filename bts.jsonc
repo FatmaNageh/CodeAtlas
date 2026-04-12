@@ -13,8 +13,8 @@
     "tanstack-router"
   ],
   "addons": [
-    "turborepo"
-  ],
+		"turborepo"
+	],
   "examples": [],
   "auth": "none",
   "packageManager": "pnpm",

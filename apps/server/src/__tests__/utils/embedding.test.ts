@@ -89,8 +89,11 @@ describe('isValidEmbeddingVector', () => {
   });
 
   it('returns false for non-array input', () => {
+    // @ts-expect-error intentional runtime guard test
     expect(isValidEmbeddingVector('not an array')).toBe(false);
+    // @ts-expect-error intentional runtime guard test
     expect(isValidEmbeddingVector(123)).toBe(false);
+    // @ts-expect-error intentional runtime guard test
     expect(isValidEmbeddingVector({})).toBe(false);
   });
 });

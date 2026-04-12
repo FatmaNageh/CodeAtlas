@@ -253,7 +253,7 @@ export function OnboardingWizard() {
   // ─────────────────────────────────────────────────────────────────────────
 
   const handleBuild = async () => {
-    if (building && buildDone) return;
+    if (building || buildDone) return;
 
     try {
       setStep(3);
@@ -313,12 +313,13 @@ export function OnboardingWizard() {
       });
 
       toast.success(`Graph built — ${nodeCount ?? "?"} nodes indexed`);
-    } catch (error: any) {
+    } catch (error) {
       setBuildDone(true);
       setBuilding(false);
       setBuildProgress(100);
-      setBuildError(error?.message ?? "Indexing failed — check the backend is running");
-      toast.error(error?.message ?? "Failed to build graph");
+      const message = error instanceof Error ? error.message : "Indexing failed — check the backend is running";
+      setBuildError(message);
+      toast.error(message);
     }
   };
 

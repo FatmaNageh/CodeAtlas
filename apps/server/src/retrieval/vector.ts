@@ -1,36 +1,58 @@
-import { runCypher } from '../db/cypher';
+import { runCypher } from '@/db/cypher';
 
-// Pure function for vector similarity search
+export type SimilarASTNodeRow = {
+  score: number;
+  filePath: string;
+  chunkText: string | null;
+  symbol: string | null;
+  startLine: number | null;
+  endLine: number | null;
+};
+
+export type FileASTChunkRow = {
+  id: string;
+  text: string | null;
+  name: string | null;
+  qname: string | null;
+  startLine: number | null;
+  endLine: number | null;
+};
+
 export async function findSimilarChunks(
   queryEmbedding: number[],
   repoId: string,
   limit: number = 10
 ) {
-  // Over-fetch to account for repo ID filtering that happens in the WHERE clause
-  // The db.index.vector.queryNodes returns results before filtering by repoId,
-  // so we fetch more and let the WHERE clause filter them down
-  // Ensure we always pass integer values to Cypher (LIMIT expects an integer)
   const fetchLimit = Math.max(Math.floor(limit) * 3, Math.floor(limit) + 10);
   
-  const results = await runCypher(
-    `CALL db.index.vector.queryNodes('codechunk_embedding', toInteger($fetchLimit), $queryEmbedding)
+  return runCypher<SimilarASTNodeRow>(
+    `CALL db.index.vector.queryNodes('astnode_embedding', toInteger($fetchLimit), $queryEmbedding)
       YIELD node, score
-      WHERE node.repoId = $repoId
-      RETURN node, score, node.relPath AS filePath, node.text AS chunkText
+      WHERE node.repoId = $repoId AND node:ASTNode
+      RETURN
+        score,
+        node.fileRelPath AS filePath,
+        node.text AS chunkText,
+        coalesce(node.qname, node.name) AS symbol,
+        node.startLine AS startLine,
+        node.endLine AS endLine
       ORDER BY score DESC
       LIMIT toInteger($limit)`,
     { queryEmbedding, repoId, fetchLimit, limit }
   );
-  
-  return results;
 }
 
-// Pure function to get file chunks
 export async function getFileChunks(filePath: string, repoId: string) {
-  return runCypher(
-    `MATCH (c:CodeChunk {repoId: $repoId, relPath: $filePath})
-     RETURN c
-     ORDER BY c.startLine`,
+  return runCypher<FileASTChunkRow>(
+    `MATCH (:CodeFile {repoId: $repoId, relPath: $filePath})-[:DECLARES]->(a:ASTNode)
+     RETURN
+       a.id AS id,
+       a.text AS text,
+       a.name AS name,
+       a.qname AS qname,
+       a.startLine AS startLine,
+       a.endLine AS endLine
+     ORDER BY a.startLine`,
     { repoId, filePath }
   );
 }

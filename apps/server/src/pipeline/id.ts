@@ -1,84 +1,155 @@
 import crypto from "crypto";
 import path from "path";
+import { CHUNK_VERSION, type GraphRelationType, type NormalizedKind } from "../types/graphProperties";
 
 export function sha1(input: string): string {
   return crypto.createHash("sha1").update(input).digest("hex");
 }
 
-export function normalizePath(p: string): string {
-  return p.replace(/\\/g, "/");
+
+export function normalizePath(value: string): string {
+  return value.replace(/\\/g, "/").replace(/\/+/g, "/");
 }
+
+
+export function normalizeRepoRelativePath(relPath: string): string {
+  const normalized = normalizePath(relPath)
+    .replace(/^\.\//, "")
+    .replace(/\/$/, "");
+  return normalized || ".";
+}
+
+
+export function normalizeAbsolutePath(absPath: string): string {
+  return normalizePath(path.resolve(absPath));
+}
+
+
+export function repoIdentityKey(repoRoot: string): string {
+  return `repo|${normalizeAbsolutePath(repoRoot)}`;
+}
+
+export function directoryIdentityKey(repoId: string, relPath: string): string {
+  return `directory|${repoId}|${normalizeRepoRelativePath(relPath)}`;
+}
+
+export function codeFileIdentityKey(repoId: string, relPath: string): string {
+  return `codefile|${repoId}|${normalizeRepoRelativePath(relPath)}`;
+}
+
+export function textFileIdentityKey(repoId: string, relPath: string): string {
+  return `textfile|${repoId}|${normalizeRepoRelativePath(relPath)}`;
+}
+
+export function textChunkIdentityKey(
+  repoId: string,
+  fileRelPath: string,
+  chunkIndex: number,
+  chunkVersion: string = CHUNK_VERSION,
+): string {
+  return `textchunk|${repoId}|${normalizeRepoRelativePath(fileRelPath)}|${chunkIndex}|${chunkVersion}`;
+}
+
+export function astNodeIdentityKey(
+  repoId: string,
+  fileRelPath: string,
+  normalizedKind: NormalizedKind,
+  startLine: number,
+  startColumn: number,
+  endLine: number,
+  endColumn: number,
+): string {
+  return [
+    "ast",
+    repoId,
+    normalizeRepoRelativePath(fileRelPath),
+    normalizedKind,
+    `${startLine}:${startColumn}-${endLine}:${endColumn}`,
+  ].join("|");
+}
+
+export function relationKey(
+  type: GraphRelationType,
+  from: string,
+  to: string,
+  sourceFilePath?: string,
+): string {
+  const ownerSuffix = sourceFilePath
+    ? `|${normalizeRepoRelativePath(sourceFilePath)}`
+    : "";
+  return `${type}|${from}|${to}${ownerSuffix}`;
+}
+
+
+export function stableIdFromIdentityKey(identityKey: string): string {
+  return sha1(identityKey);
+}
+
 
 export function repoIdFromPath(repoRoot: string): string {
-  return sha1(normalizePath(path.resolve(repoRoot))).slice(0, 12);
+  return stableIdFromIdentityKey(repoIdentityKey(repoRoot)).slice(0, 12);
 }
 
-export function fileId(repoId: string, relPath: string): string {
-  return `file:${repoId}:${normalizePath(relPath)}`;
+
+export function repoNodeId(repoRoot: string): string {
+  return stableIdFromIdentityKey(repoIdentityKey(repoRoot));
 }
 
-export function dirId(repoId: string, relPath: string): string {
-  const rp = normalizePath(relPath).replace(/\/$/, "");
-  return `dir:${repoId}:${rp || "."}`;
+export function dirNodeId(repoId: string, relPath: string): string {
+  return stableIdFromIdentityKey(directoryIdentityKey(repoId, relPath));
 }
 
-export function repoNodeId(repoId: string): string {
-  return `repo:${repoId}`;
+export function codeFileNodeId(repoId: string, relPath: string): string {
+  return stableIdFromIdentityKey(codeFileIdentityKey(repoId, relPath));
 }
 
-export function symbolId(
+export function textFileNodeId(repoId: string, relPath: string): string {
+  return stableIdFromIdentityKey(textFileIdentityKey(repoId, relPath));
+}
+
+export function textChunkNodeId(
   repoId: string,
   fileRelPath: string,
-  kind: string,
-  qname: string,
+  chunkIndex: number,
+  chunkVersion: string = CHUNK_VERSION,
+): string {
+  return stableIdFromIdentityKey(
+    textChunkIdentityKey(repoId, fileRelPath, chunkIndex, chunkVersion),
+  );
+}
+
+export function astNodeId(
+  repoId: string,
+  fileRelPath: string,
+  normalizedKind: NormalizedKind,
   startLine = 0,
-  startCol = 0,
+  startColumn = 0,
+  endLine = 0,
+  endColumn = 0,
 ): string {
-  return `sym:${sha1(`${repoId}|${normalizePath(fileRelPath)}|${kind}|${qname}|${startLine}:${startCol}`)}`;
+  return stableIdFromIdentityKey(
+    astNodeIdentityKey(
+      repoId,
+      fileRelPath,
+      normalizedKind,
+      startLine,
+      startColumn,
+      endLine,
+      endColumn,
+    ),
+  );
 }
 
-/** Deterministic Import node id (stable across runs). */
-export function importId(
-  repoId: string,
-  fileRelPath: string,
-  raw: string,
-  kind: string,
-  startLine = 0,
-  startCol = 0,
+export function fileRootAstNodeId(repoId: string, fileRelPath: string): string {
+  return astNodeId(repoId, fileRelPath, "module", 0, 0, 0, 0);
+}
+
+
+export function edgeKey(
+  type: GraphRelationType,
+  from: string,
+  to: string,
+  sourceFilePath?: string,
 ): string {
-  return `imp:${sha1(`${repoId}|${normalizePath(fileRelPath)}|${kind}|${raw}|${startLine}:${startCol}`)}`;
-}
-
-/** Deterministic CallSite node id (stable across runs). */
-export function callsiteId(
-  repoId: string,
-  fileRelPath: string,
-  calleeText: string,
-  startLine = 0,
-  startCol = 0,
-): string {
-  return `call:${sha1(`${repoId}|${normalizePath(fileRelPath)}|${calleeText}|${startLine}:${startCol}`)}`;
-}
-
-/** Deterministic DocChunk node id (stable across runs). */
-export function chunkId(
-  repoId: string,
-  fileRelPath: string,
-  chunkType: string,
-  startLine = 1,
-  endLine = 1,
-): string {
-  return `chunk:${sha1(`${repoId}|${normalizePath(fileRelPath)}|${chunkType}|${startLine}:${endLine}`)}`;
-}
-
-export function externalModuleId(repoId: string, name: string): string {
-  return `extmod:${sha1(`${repoId}|${name}`)}`;
-}
-
-export function externalSymbolId(repoId: string, name: string): string {
-  return `extsym:${sha1(`${repoId}|${name}`)}`;
-}
-
-export function edgeId(repoId: string, type: string, from: string, to: string): string {
-  return `edge:${sha1(`${repoId}|${type}|${from}|${to}`)}`;
+  return relationKey(type, from, to, sourceFilePath);
 }

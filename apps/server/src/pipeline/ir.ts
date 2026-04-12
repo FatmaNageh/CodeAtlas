@@ -1,62 +1,74 @@
 import path from "path";
-import type { FactsByFile, FileFacts, CodeFacts, TextFacts } from "../types/facts";
-import type { ScanResult, FileIndexEntry, CodeFileIndexEntry, TextFileIndexEntry } from "../types/scan";
-import type { IR, IRNode, IREdge } from "../types/ir";
+import type { FactsByFile, FileFacts, TextFacts, CodeFacts } from "../types/facts";
+import type {
+  GraphIR,
+  GraphIRStats,
+  IRNode,
+  IREdge,
+} from "../types/ir";
+import type {
+  ScanResult,
+  FileIndexEntry,
+  CodeFileIndexEntry,
+  TextFileIndexEntry,
+} from "../types/scan";
+import { isoNow } from "../types/graphProperties";
 import {
-  dirId,
-  edgeId,
-  fileId,
   repoIdFromPath,
   repoNodeId,
-  symbolId,
+  dirNodeId,
+  codeFileNodeId,
+  textFileNodeId,
+  textChunkNodeId,
+  edgeKey,
   normalizePath,
-  importId,
-  callsiteId,
-  chunkId,
-  externalModuleId,
-  externalSymbolId,
+  normalizeRepoRelativePath,
+  repoIdentityKey,
+  directoryIdentityKey,
+  codeFileIdentityKey,
+  textFileIdentityKey,
+  textChunkIdentityKey,
 } from "./id";
 import { createTsModuleResolver } from "./tsResolve";
-import { enrichIrWithTsProgram } from "./tsProgramEnrich";
 
-function isCode(e: FileIndexEntry): e is CodeFileIndexEntry {
-  return (e as any).kind === "code";
+function isCode(entry: FileIndexEntry): entry is CodeFileIndexEntry {
+  return entry.kind === "code";
 }
 
-function isText(e: FileIndexEntry): e is TextFileIndexEntry {
-  return (e as any).kind === "text";
+function isText(entry: FileIndexEntry): entry is TextFileIndexEntry {
+  return entry.kind === "text";
 }
 
-function cleanQuotes(s: string): string {
-  return s.replace(/^[`'"(]+/, "").replace(/[)`'";]+$/, "").trim();
+function cleanQuotes(value: string): string {
+  return value.replace(/^[`'"(]+/, "").replace(/[)`'";]+$/, "").trim();
 }
 
 function normalizeImportRaw(language: string, raw: string): string {
   const t = raw.trim();
+
   if (language === "python") {
-    // e.g. "import a.b as c" or "from a.b import x"
     const m1 = t.match(/^import\s+([^\s]+)(?:\s+as\s+\w+)?/);
-    if (m1) return m1[1];
+    if (m1?.[1]) return m1[1];
+
     const m2 = t.match(/^from\s+([^\s]+)\s+import\s+/);
-    if (m2) return m2[1];
+    if (m2?.[1]) return m2[1];
   }
+
   if (language === "java") {
-    // e.g. "import foo.bar.Baz;"
     const m = t.match(/^import\s+([^;]+);?/);
-    if (m) return m[1];
+    if (m?.[1]) return m[1];
   }
+
   if (language === "go") {
-    // e.g. import "fmt" or import (
-    // "fmt"
-    // )
     const m = t.match(/"([^"]+)"/);
-    if (m) return m[1];
+    if (m?.[1]) return m[1];
   }
+
   if (language === "cpp") {
     const m = t.match(/#\s*include\s*[<"]([^>"]+)[>"]/);
-    if (m) return m[1];
+    if (m?.[1]) return m[1];
   }
-  // js/ts often comes as "./x" already, but fall back to stripping quotes
+
   return cleanQuotes(t);
 }
 
@@ -69,406 +81,340 @@ function resolveLocalImport(
   if (!cleaned) return null;
   if (!cleaned.startsWith(".") && !cleaned.startsWith("/")) return null;
 
-  const importerDir = path.posix.dirname(normalizePath(importerRel));
-  const base = cleaned.startsWith("/") ? cleaned.slice(1) : path.posix.normalize(path.posix.join(importerDir, cleaned));
+  const importerDir = path.posix.dirname(normalizeRepoRelativePath(importerRel));
+  const base = cleaned.startsWith("/")
+    ? cleaned.slice(1)
+    : path.posix.normalize(path.posix.join(importerDir, cleaned));
 
-  // Try direct match
   if (allFilesByRel.has(base)) return base;
 
-  const exts = [".ts", ".tsx", ".js", ".jsx", ".py", ".java", ".go", ".rb", ".cpp", ".cc", ".cxx", ".hpp", ".h"];
+  const exts = [
+    ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
+    ".py", ".java", ".go", ".rb", ".c", ".cpp", ".cc", ".cxx", ".hpp", ".h",
+    ".php", ".kt", ".swift",
+  ];
+
   for (const ext of exts) {
     if (allFilesByRel.has(base + ext)) return base + ext;
   }
-  // index.*
+
   for (const ext of exts) {
     const idx = path.posix.join(base, "index" + ext);
     if (allFilesByRel.has(idx)) return idx;
   }
+
   return null;
 }
 
-function resolveDocPath(allFilesByRel: Map<string, FileIndexEntry>, docRel: string, raw: string): string | null {
+function resolveDocPath(
+  allFilesByRel: Map<string, FileIndexEntry>,
+  docRel: string,
+  raw: string,
+): string | null {
   const cleaned = cleanQuotes(raw).replace(/^\.?\//, "");
   if (!cleaned) return null;
-  // If already a repo-relative path
+
   if (allFilesByRel.has(cleaned)) return cleaned;
 
-  const docDir = path.posix.dirname(normalizePath(docRel));
+  const docDir = path.posix.dirname(normalizeRepoRelativePath(docRel));
   const joined = path.posix.normalize(path.posix.join(docDir, cleaned));
   if (allFilesByRel.has(joined)) return joined;
 
   return null;
 }
 
-export function buildIR(scan: ScanResult, facts: FactsByFile): IR {
+function createStats(nodes: IRNode[], edges: IREdge[], files: number, dirs: number): GraphIRStats {
+  return {
+    files,
+    dirs,
+    textChunks: nodes.filter((n) => n.label === "TextChunk").length,
+    astNodes: nodes.filter((n) => n.label === "AstNode").length,
+    edges: edges.length,
+  };
+}
+
+export function buildIR(scan: ScanResult, facts: FactsByFile): GraphIR {
+  const now = isoNow();
   const repoRoot = scan.repoRoot;
   const repoId = repoIdFromPath(repoRoot);
 
   const nodes: IRNode[] = [];
   const edges: IREdge[] = [];
+  const nodeIds = new Set<string>();
+  const edgeKeys = new Set<string>();
+
+  function addNode(node: IRNode): void {
+    if (nodeIds.has(node.props.id)) return;
+    nodeIds.add(node.props.id);
+    nodes.push(node);
+  }
+
+  function addEdge(edge: IREdge): void {
+    if (edgeKeys.has(edge.key)) return;
+    edgeKeys.add(edge.key);
+    edges.push(edge);
+  }
 
   const repoNode: IRNode = {
-    id: repoNodeId(repoId),
-    kind: "Repo",
-    repoId,
+    label: "Repo",
     props: {
+      id: repoNodeId(repoRoot),
+      identityKey: repoIdentityKey(repoRoot),
+      kind: "Repo",
       repoId,
-      rootPath: normalizePath(repoRoot),
       name: path.basename(repoRoot),
+      rootPath: normalizePath(repoRoot),
+      createdAt: now,
+      updatedAt: now,
     },
   };
-  nodes.push(repoNode);
+  addNode(repoNode);
 
-  // Index file entries by relPath for resolution.
   const filesByRel = new Map<string, FileIndexEntry>();
-  for (const e of scan.entries) filesByRel.set(normalizePath(e.relPath), e);
+  for (const entry of scan.entries) {
+    filesByRel.set(normalizeRepoRelativePath(entry.relPath), entry);
+  }
 
-  // Phase 2 enhancement: use TypeScript's module resolution for TS/JS imports
-  // to improve cross-file import edges (paths, extensions, tsconfig paths).
   const tsResolver = createTsModuleResolver(scan, filesByRel);
 
-  // Directories set
   const dirSet = new Set<string>();
-  dirSet.add(""); // root
-  for (const e of scan.entries) {
-    const rel = normalizePath(e.relPath);
+  dirSet.add(".");
+
+  for (const entry of scan.entries) {
+    const rel = normalizeRepoRelativePath(entry.relPath);
     const parts = rel.split("/");
     for (let i = 0; i < parts.length - 1; i++) {
       dirSet.add(parts.slice(0, i + 1).join("/"));
     }
   }
 
-  // Directory nodes + edges
   for (const relDir of Array.from(dirSet)) {
-    const id = dirId(repoId, relDir);
-    const name = relDir === "" ? path.basename(repoRoot) : path.basename(relDir);
+    if (relDir === ".") continue;
 
-    nodes.push({
-      id,
-      kind: "Directory",
-      repoId,
-      props: { repoId, relPath: relDir === "" ? "." : relDir, name },
-    });
+    const id = dirNodeId(repoId, relDir);
+    const parentRel = relDir.includes("/") ? relDir.split("/").slice(0, -1).join("/") : ".";
+    const parentId = parentRel === "." ? repoNode.props.id : dirNodeId(repoId, parentRel);
 
-    const from = relDir === "" ? repoNode.id : dirId(repoId, relDir.split("/").slice(0, -1).join("/"));
-    edges.push({ id: edgeId(repoId, "CONTAINS", from, id), type: "CONTAINS", from, to: id, repoId });
-  }
-
-  let symbolsCount = 0;
-  let importsRawCount = 0;
-
-  // Per-file symbol maps (used for within-file resolution)
-  const symbolsByFileRel = new Map<string, Map<string, string>>();
-
-  // 1) Create Directory/File nodes + CONTAINS edges. Also create file-derived nodes for processed files.
-  for (const e of scan.entries) {
-    const rel = normalizePath(e.relPath);
-    const fId = fileId(repoId, rel);
-
-    if (isCode(e)) {
-      nodes.push({
-        id: fId,
-        kind: "CodeFile",
-        repoId,
-        props: {
-          repoId,
-          relPath: rel,
-          path: normalizePath(e.absPath),
-          language: e.language,
-          ext: e.ext,
-          size: e.size,
-          mtimeMs: e.mtimeMs,
-          hash: e.hash ?? null,
-        },
-      });
-    } else if (isText(e)) {
-      nodes.push({
-        id: fId,
-        kind: "TextFile",
-        repoId,
-        props: {
-          repoId,
-          relPath: rel,
-          path: normalizePath(e.absPath),
-          ext: e.ext,
-          textKind: e.textKind,
-          size: e.size,
-          mtimeMs: e.mtimeMs,
-          hash: e.hash ?? null,
-        },
-      });
-    }
-
-    const parentRel = rel.split("/").slice(0, -1).join("/");
-    const parentDirId = dirId(repoId, parentRel);
-    edges.push({ id: edgeId(repoId, "CONTAINS", parentDirId, fId), type: "CONTAINS", from: parentDirId, to: fId, repoId });
-
-    const fFacts: FileFacts | undefined = facts[rel];
-    if (!fFacts) continue;
-
-    // Minimal DocChunk per file (safe preview + hash + line count)
-    const lc = fFacts.lineCount ?? 0;
-    const chId = chunkId(repoId, rel, "file", 1, lc || 1);
-    nodes.push({
-      id: chId,
-      kind: "DocChunk",
-      repoId,
+    addNode({
+      label: "Directory",
       props: {
+        id,
+        identityKey: directoryIdentityKey(repoId, relDir),
+        kind: "Directory",
         repoId,
-        fileRelPath: rel,
-        chunkType: "file",
-        startLine: 1,
-        endLine: lc || 1,
-        textPreview: fFacts.textPreview ?? "",
-        textHash: fFacts.textHash ?? null,
+        path: relDir,
+        name: path.posix.basename(relDir),
+        parentPath: parentRel,
+        createdAt: now,
+        updatedAt: now,
       },
     });
-    edges.push({ id: edgeId(repoId, "HAS_CHUNK", fId, chId), type: "HAS_CHUNK", from: fId, to: chId, repoId });
 
-    if (fFacts.kind === "code") {
-      const cf = fFacts as CodeFacts;
-
-      // Import nodes (raw)
-      for (const imp of cf.imports) {
-        importsRawCount++;
-        const impId = importId(repoId, rel, imp.raw, imp.kind ?? "static", imp.range?.startLine ?? 0, imp.range?.startCol ?? 0);
-        nodes.push({
-          id: impId,
-          kind: "Import",
-          repoId,
-          props: {
-            repoId,
-            raw: imp.raw,
-            normalized: normalizeImportRaw(cf.language, imp.raw),
-            fileRelPath: rel,
-            kind: imp.kind ?? "static",
-            startLine: imp.range?.startLine ?? null,
-            startCol: imp.range?.startCol ?? null,
-            endLine: imp.range?.endLine ?? null,
-            endCol: imp.range?.endCol ?? null,
-          },
-        });
-        edges.push({ id: edgeId(repoId, "IMPORTS_RAW", fId, impId), type: "IMPORTS_RAW", from: fId, to: impId, repoId });
-      }
-
-      // CallSite nodes + CONTAINS edges
-      for (const cs of cf.callSites ?? []) {
-        const csId = callsiteId(repoId, rel, cs.calleeText, cs.range?.startLine ?? 0, cs.range?.startCol ?? 0);
-        nodes.push({
-          id: csId,
-          kind: "CallSite",
-          repoId,
-          props: { 
-            repoId, 
-            fileRelPath: rel, 
-            calleeText: cs.calleeText, 
-            enclosingSymbolQname: cs.enclosingSymbolQname ?? null,
-            startLine: cs.range?.startLine ?? null,
-            startCol: cs.range?.startCol ?? null,
-            endLine: cs.range?.endLine ?? null,
-            endCol: cs.range?.endCol ?? null,
-          },
-        });
-        edges.push({ id: edgeId(repoId, "CONTAINS", fId, csId), type: "CONTAINS", from: fId, to: csId, repoId });
-      }
-
-      // Symbol nodes + DECLARES edges
-      const symMap = new Map<string, string>();
-      for (const s of cf.symbols) {
-        symbolsCount++;
-        const qname = s.qname ?? s.name;
-        const sid = symbolId(repoId, rel, s.kind, qname, s.range?.startLine ?? 0, s.range?.startCol ?? 0);
-        symMap.set(qname, sid);
-        symMap.set(s.name, sid);
-        nodes.push({
-          id: sid,
-          kind: "Symbol",
-          repoId,
-          props: {
-            repoId,
-            fileRelPath: rel,
-            name: s.name,
-            qname,
-            symbolKind: s.kind,
-            parentName: s.parentName ?? null,
-            extendsNames: s.extendsNames ?? [],
-            implementsNames: s.implementsNames ?? [],
-            startLine: s.range?.startLine ?? null,
-            startCol: s.range?.startCol ?? null,
-            endLine: s.range?.endLine ?? null,
-            endCol: s.range?.endCol ?? null,
-            //range: s.range ?? null, //-__-
-          },
-        });
-        edges.push({ id: edgeId(repoId, "DECLARES", fId, sid), type: "DECLARES", from: fId, to: sid, repoId });
-      }
-      symbolsByFileRel.set(rel, symMap);
-
-      // Symbol nesting edges (PARENT)
-      for (const s of cf.symbols) {
-        if (!s.parentName) continue;
-        const childQ = s.qname ?? s.name;
-        const childId = symMap.get(childQ);
-        const parentId = symMap.get(s.parentName);
-        if (childId && parentId) {
-          edges.push({ id: edgeId(repoId, "PARENT", parentId, childId), type: "PARENT", from: parentId, to: childId, repoId });
-        }
-      }
-    } else {
-      const tf = fFacts as TextFacts;
-      // Text->file references & docs
-      for (const ref of tf.references ?? []) {
-        const targetRel = resolveDocPath(filesByRel, rel, ref.raw);
-        if (targetRel) {
-          const toId = fileId(repoId, targetRel);
-          edges.push({ id: edgeId(repoId, "REFERENCES", fId, toId), type: "REFERENCES", from: fId, to: toId, repoId, props: { raw: ref.raw, confidence: 0.7 } });
-        } else {
-          // Unknown reference -> external symbol node
-          const exId = externalSymbolId(repoId, ref.raw);
-          nodes.push({ id: exId, kind: "ExternalSymbol", repoId, props: { repoId, name: ref.raw, kind: "doc_ref" } });
-          edges.push({ id: edgeId(repoId, "REFERENCES", fId, exId), type: "REFERENCES", from: fId, to: exId, repoId, props: { raw: ref.raw, confidence: 0.2 } });
-        }
-      }
-
-      for (const m of tf.symbolMentions ?? []) {
-        const exId = externalSymbolId(repoId, m.name);
-        nodes.push({ id: exId, kind: "ExternalSymbol", repoId, props: { repoId, name: m.name, kind: "symbol_mention" } });
-        edges.push({ id: edgeId(repoId, "DOCUMENTS", fId, exId), type: "DOCUMENTS", from: fId, to: exId, repoId, props: { confidence: 0.3 } });
-      }
-    }
+    addEdge({
+      key: edgeKey("CONTAINS", parentId, id),
+      type: "CONTAINS",
+      from: parentId,
+      to: id,
+      props: { repoId },
+    });
   }
 
-  // 2) Resolve imports (local vs external) + RESOLVES_TO.
-  for (const e of scan.entries) {
-    if (!isCode(e)) continue;
-    const rel = normalizePath(e.relPath);
-    const fFacts = facts[rel];
-    if (!fFacts || fFacts.kind !== "code") continue;
-    const cf = fFacts as CodeFacts;
-    const fId = fileId(repoId, rel);
+  for (const entry of scan.entries) {
+    const rel = normalizeRepoRelativePath(entry.relPath);
+    const parentRel = rel.includes("/") ? rel.split("/").slice(0, -1).join("/") : ".";
+    const containerId = parentRel === "." ? repoNode.props.id : dirNodeId(repoId, parentRel);
 
-    for (const imp of cf.imports) {
-      const impId = importId(repoId, rel, imp.raw, imp.kind ?? "static", imp.range?.startLine ?? 0, imp.range?.startCol ?? 0);
-      const normalized = normalizeImportRaw(cf.language, imp.raw);
+    if (isCode(entry)) {
+      const fileNodeId = codeFileNodeId(repoId, rel);
 
-      // Try local resolution for relative paths
-      const localTarget = resolveLocalImport(filesByRel, rel, normalized);
-      if (localTarget) {
-        const toId = fileId(repoId, localTarget);
-        edges.push({ id: edgeId(repoId, "IMPORTS", fId, toId), type: "IMPORTS", from: fId, to: toId, repoId, props: { raw: imp.raw, normalized, confidence: 0.9 } });
-        edges.push({ id: edgeId(repoId, "RESOLVES_TO", impId, toId), type: "RESOLVES_TO", from: impId, to: toId, repoId, props: { confidence: 0.9 } });
-      } else {
-        // Phase 2 enhancement: use TS module resolver for JS/TS even when
-        // the specifier isn't a simple relative path (e.g. tsconfig paths, extensions).
+      addNode({
+        label: "CodeFile",
+        props: {
+          id: fileNodeId,
+          identityKey: codeFileIdentityKey(repoId, rel),
+          kind: "CodeFile",
+          repoId,
+          path: rel,
+          name: path.posix.basename(rel),
+          extension: entry.ext,
+          language: entry.language,
+          createdAt: now,
+          updatedAt: now,
+          sizeBytes: entry.size,
+          hash: entry.hash ?? null,
+          lastModifiedAt: entry.mtimeMs ? new Date(entry.mtimeMs).toISOString() : null,
+        },
+      });
+
+      addEdge({
+        key: edgeKey("CONTAINS", containerId, fileNodeId),
+        type: "CONTAINS",
+        from: containerId,
+        to: fileNodeId,
+        props: { repoId },
+      });
+
+      const fileFacts: FileFacts | undefined = facts[rel];
+      if (!fileFacts || fileFacts.kind !== "code") continue;
+
+      const codeFacts = fileFacts as CodeFacts;
+
+      for (const imp of codeFacts.imports) {
+        const normalized = normalizeImportRaw(codeFacts.language, imp.raw);
+
+        const localTarget = resolveLocalImport(filesByRel, rel, normalized);
+        if (localTarget) {
+          const targetEntry = filesByRel.get(localTarget);
+          const toId =
+            targetEntry?.kind === "text"
+              ? textFileNodeId(repoId, localTarget)
+              : codeFileNodeId(repoId, localTarget);
+
+          addEdge({
+            key: edgeKey("REFERENCES", fileNodeId, toId, rel),
+            type: "REFERENCES",
+            from: fileNodeId,
+            to: toId,
+            props: {
+              repoId,
+              sourceFilePath: rel,
+              extractionMethod: "heuristic",
+              confidence: 0.9,
+              referenceKind: "local-import",
+            },
+          });
+          continue;
+        }
+
         const tsTarget =
-          (cf.language === "javascript" || cf.language === "typescript") && tsResolver
+          (codeFacts.language === "javascript" || codeFacts.language === "typescript") && tsResolver
             ? tsResolver.resolveModuleToRelPath(normalized, rel)
             : null;
 
         if (tsTarget) {
-          const toId = fileId(repoId, tsTarget);
-          edges.push({
-            id: edgeId(repoId, "IMPORTS", fId, toId),
-            type: "IMPORTS",
-            from: fId,
+          const targetEntry = filesByRel.get(tsTarget);
+          const toId =
+            targetEntry?.kind === "text"
+              ? textFileNodeId(repoId, tsTarget)
+              : codeFileNodeId(repoId, tsTarget);
+
+          addEdge({
+            key: edgeKey("REFERENCES", fileNodeId, toId, rel),
+            type: "REFERENCES",
+            from: fileNodeId,
             to: toId,
-            repoId,
-            props: { raw: imp.raw, normalized, resolver: "typescript", confidence: 0.85 },
+            props: {
+              repoId,
+              sourceFilePath: rel,
+              extractionMethod: "ast+ts-enrichment",
+              confidence: 0.85,
+              referenceKind: "typescript-module-resolution",
+            },
           });
-          edges.push({
-            id: edgeId(repoId, "RESOLVES_TO", impId, toId),
-            type: "RESOLVES_TO",
-            from: impId,
-            to: toId,
-            repoId,
-            props: { resolver: "typescript", confidence: 0.85 },
-          });
-        } else {
-          // External module
-          const modId = externalModuleId(repoId, normalized);
-          nodes.push({ id: modId, kind: "ExternalModule", repoId, props: { repoId, name: normalized } });
-          edges.push({
-            id: edgeId(repoId, "IMPORTS_EXTERNAL", fId, modId),
-            type: "IMPORTS_EXTERNAL",
-            from: fId,
-            to: modId,
-            repoId,
-            props: { raw: imp.raw, normalized, confidence: 0.6 },
-          });
-          edges.push({ id: edgeId(repoId, "RESOLVES_TO", impId, modId), type: "RESOLVES_TO", from: impId, to: modId, repoId, props: { confidence: 0.6 } });
         }
       }
-    }
-  }
+    } else if (isText(entry)) {
+      const fileNodeId = textFileNodeId(repoId, rel);
 
-  // Phase 2 Step 7+: Enrich TS/JS edges using TypeScript Program (imports->symbols, calls->symbols).
-  // Optimization: only enrich files we actually processed this run (facts keys).
-  const tsJsProcessed = Object.keys(facts)
-    .map((p) => p.replace(/\\/g, "/"))
-    .filter((p) => /\.(ts|tsx|js|jsx|mjs|cjs)$/i.test(p));
-  enrichIrWithTsProgram({ scan, repoId, nodes, edges, onlyFiles: tsJsProcessed });
+      addNode({
+        label: "TextFile",
+        props: {
+          id: fileNodeId,
+          identityKey: textFileIdentityKey(repoId, rel),
+          kind: "TextFile",
+          repoId,
+          path: rel,
+          name: path.posix.basename(rel),
+          extension: entry.ext,
+          textType: entry.textKind,
+          createdAt: now,
+          updatedAt: now,
+          sizeBytes: entry.size,
+          hash: entry.hash ?? null,
+          lastModifiedAt: entry.mtimeMs ? new Date(entry.mtimeMs).toISOString() : null,
+        },
+      });
 
-  // 3) Symbol relationships: EXTENDS/IMPLEMENTS.
-  for (const [rel, symMap] of symbolsByFileRel.entries()) {
-    const fFacts = facts[rel];
-    if (!fFacts || fFacts.kind !== "code") continue;
-    const cf = fFacts as CodeFacts;
-    for (const s of cf.symbols) {
-      const q = s.qname ?? s.name;
-      const fromId = symMap.get(q);
-      if (!fromId) continue;
+      addEdge({
+        key: edgeKey("CONTAINS", containerId, fileNodeId),
+        type: "CONTAINS",
+        from: containerId,
+        to: fileNodeId,
+        props: { repoId },
+      });
 
-      for (const base of s.extendsNames ?? []) {
-        const baseName = cleanQuotes(base);
-        if (!baseName) continue;
-        const local = symMap.get(baseName);
-        if (local) {
-          edges.push({ id: edgeId(repoId, "EXTENDS", fromId, local), type: "EXTENDS", from: fromId, to: local, repoId, props: { confidence: 0.7 } });
-        } else {
-          const exId = externalSymbolId(repoId, baseName);
-          nodes.push({ id: exId, kind: "ExternalSymbol", repoId, props: { repoId, name: baseName, kind: "type" } });
-          edges.push({ id: edgeId(repoId, "EXTENDS", fromId, exId), type: "EXTENDS", from: fromId, to: exId, repoId, props: { confidence: 0.3 } });
+      const fileFacts: FileFacts | undefined = facts[rel];
+      if (!fileFacts || fileFacts.kind !== "text") continue;
+
+      const textFacts = fileFacts as TextFacts;
+      let previousChunkId: string | null = null;
+
+      for (const chunk of textFacts.chunks) {
+        const chunkId = textChunkNodeId(repoId, rel, chunk.index, chunk.chunkVersion);
+
+        addNode({
+          label: "TextChunk",
+          props: {
+            id: chunkId,
+            identityKey: textChunkIdentityKey(repoId, rel, chunk.index, chunk.chunkVersion),
+            kind: "TextChunk",
+            repoId,
+            fileId: fileNodeId,
+            filePath: rel,
+            chunkIndex: chunk.index,
+            chunkVersion: chunk.chunkVersion,
+            content: chunk.text,
+            startLine: chunk.startLine,
+            endLine: chunk.endLine,
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
+
+        addEdge({
+          key: edgeKey("HAS_CHUNK", fileNodeId, chunkId),
+          type: "HAS_CHUNK",
+          from: fileNodeId,
+          to: chunkId,
+          props: { repoId },
+        });
+
+        if (previousChunkId) {
+          addEdge({
+            key: edgeKey("NEXT_CHUNK", previousChunkId, chunkId),
+            type: "NEXT_CHUNK",
+            from: previousChunkId,
+            to: chunkId,
+            props: { repoId },
+          });
         }
+
+        previousChunkId = chunkId;
       }
 
-      for (const iface of s.implementsNames ?? []) {
-        const ifaceName = cleanQuotes(iface);
-        if (!ifaceName) continue;
-        const local = symMap.get(ifaceName);
-        if (local) {
-          edges.push({ id: edgeId(repoId, "IMPLEMENTS", fromId, local), type: "IMPLEMENTS", from: fromId, to: local, repoId, props: { confidence: 0.7 } });
-        } else {
-          const exId = externalSymbolId(repoId, ifaceName);
-          nodes.push({ id: exId, kind: "ExternalSymbol", repoId, props: { repoId, name: ifaceName, kind: "interface" } });
-          edges.push({ id: edgeId(repoId, "IMPLEMENTS", fromId, exId), type: "IMPLEMENTS", from: fromId, to: exId, repoId, props: { confidence: 0.3 } });
-        }
-      }
-    }
-  }
+      for (const ref of textFacts.references ?? []) {
+        const targetRel = resolveDocPath(filesByRel, rel, ref.raw);
+        if (!targetRel) continue;
 
-  // 4) Best-effort CALLS: within-file resolution + fallback REFERENCES.
-  for (const [rel, symMap] of symbolsByFileRel.entries()) {
-    const fFacts = facts[rel];
-    if (!fFacts || fFacts.kind !== "code") continue;
-    const cf = fFacts as CodeFacts;
-    for (const cs of cf.callSites ?? []) {
-      const fromQ = cs.enclosingSymbolQname;
-      if (!fromQ) continue;
-      const fromId = symMap.get(fromQ);
-      if (!fromId) continue;
+        const targetEntry = filesByRel.get(targetRel);
+        const toId =
+          targetEntry?.kind === "text"
+            ? textFileNodeId(repoId, targetRel)
+            : codeFileNodeId(repoId, targetRel);
 
-      const csId = callsiteId(repoId, rel, cs.calleeText, cs.range?.startLine ?? 0, cs.range?.startCol ?? 0);
-      edges.push({ id: edgeId(repoId, "CALLS_RAW", fromId, csId), type: "CALLS_RAW", from: fromId, to: csId, repoId, props: { calleeText: cs.calleeText } });
-
-      // Try resolve to local symbol by simple name.
-      const simple = cs.calleeText.split(/[.:(\[]/)[0].trim();
-      const target = symMap.get(simple);
-      if (target) {
-        edges.push({ id: edgeId(repoId, "CALLS", fromId, target), type: "CALLS", from: fromId, to: target, repoId, props: { confidence: 0.8 } });
-      } else {
-        const exId = externalSymbolId(repoId, simple || cs.calleeText);
-        nodes.push({ id: exId, kind: "ExternalSymbol", repoId, props: { repoId, name: simple || cs.calleeText, kind: "callee" } });
-        edges.push({ id: edgeId(repoId, "REFERENCES", fromId, exId), type: "REFERENCES", from: fromId, to: exId, repoId, props: { confidence: 0.2 } });
+        addEdge({
+          key: edgeKey("REFERENCES", fileNodeId, toId, rel),
+          type: "REFERENCES",
+          from: fileNodeId,
+          to: toId,
+          props: {
+            repoId,
+            sourceFilePath: rel,
+            extractionMethod: "text",
+            confidence: 0.7,
+            referenceKind: "doc-path",
+          },
+        });
       }
     }
   }
@@ -477,11 +423,6 @@ export function buildIR(scan: ScanResult, facts: FactsByFile): IR {
     repoId,
     nodes,
     edges,
-    stats: {
-      files: scan.entries.length,
-      dirs: dirSet.size,
-      symbols: symbolsCount,
-      importsRaw: importsRawCount,
-    },
+    stats: createStats(nodes, edges, scan.entries.length, dirSet.size),
   };
 }

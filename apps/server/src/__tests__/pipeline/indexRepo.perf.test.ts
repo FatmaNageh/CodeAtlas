@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import path from 'path';
 import { indexRepository } from '../../pipeline/indexRepo';
 
-const fixturesDir = path.join(process.cwd(), 'src/__tests__/fixtures');
 const fzfMaster = path.join(process.cwd(), '../../example_files/fzf-master');
 
 describe('indexRepository performance benchmarks', () => {
@@ -21,8 +20,8 @@ describe('indexRepository performance benchmarks', () => {
     console.log(`[PERF] Full index: ${duration.toFixed(0)}ms`);
     console.log(`[PERF] Files scanned: ${result.scanned.totalFiles}`);
     console.log(`[PERF] Files processed: ${result.scanned.processedFiles}`);
-    console.log(`[PERF] Symbols: ${result.stats.symbols}`);
-    console.log(`[PERF] Imports: ${result.stats.importsRaw}`);
+    console.log(`[PERF] AST nodes: ${result.stats.astNodes}`);
+    console.log(`[PERF] References: ${result.stats.references}`);
     console.log(`[PERF] Files/sec: ${(result.scanned.totalFiles / (duration / 1000)).toFixed(1)}`);
 
     expect(duration).toBeLessThan(60000);
@@ -81,10 +80,13 @@ describe('indexRepository performance benchmarks', () => {
     const start = performance.now();
     const facts = await parseAndExtract(codeFiles);
     const duration = performance.now() - start;
+    const extractedSymbolCount = Object.values(facts).reduce((count, fileFacts) => {
+      return fileFacts.kind === 'code' ? count + fileFacts.symbols.length : count;
+    }, 0);
 
     console.log(`[PERF] Parse & Extract: ${duration.toFixed(0)}ms`);
     console.log(`[PERF] Code files: ${codeFiles.length}`);
-    console.log(`[PERF] Symbols extracted: ${facts.symbols?.length ?? 0}`);
+    console.log(`[PERF] Symbols extracted: ${extractedSymbolCount}`);
     console.log(`[PERF] Files/sec: ${(codeFiles.length / (duration / 1000)).toFixed(1)}`);
 
     expect(duration).toBeLessThan(30000);
