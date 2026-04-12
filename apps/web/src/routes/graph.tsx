@@ -27,6 +27,7 @@ import { useCompletion } from "@ai-sdk/react";
 import type { Neo4jEdge, Neo4jNode } from "@/components/Neo4jGraph";
 import {
 	ExplorerGraphCanvas,
+	nodeTypeLabel,
 	classifyNode,
 	nodeDisplayLabel,
 	type ExplorerNode,
@@ -358,7 +359,10 @@ function GraphExplorerPage() {
 	>({ CONTAINS: true, IMPORTS: true, CALLS: true });
 	const [visibleKinds, setVisibleKinds] = useState<
 		Record<ExplorerNodeKind, boolean>
-	>({ folder: true, file: true, class: true, fn: true });
+	>({ folder: true, file: true, class: true, fn: true, ast: true });
+	const [expandedAstFileId, setExpandedAstFileId] = useState<string | null>(
+		null,
+	);
 	const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
 	const [chatInput, setChatInput] = useState("");
 	const [mentionSearch, setMentionSearch] = useState<string | null>(null);
@@ -519,6 +523,7 @@ function GraphExplorerPage() {
 				const nodes: Neo4jNode[] = res.nodes ?? [];
 				const edges: Neo4jEdge[] = res.edges ?? [];
 				setGraph({ nodes, edges });
+				setExpandedAstFileId(null);
 				if (nodes.length > 0 && nodes.length >= nodeLimit) {
 					setTruncated(true);
 					toast.warning(
@@ -552,16 +557,83 @@ function GraphExplorerPage() {
 			}));
 	}, [graph.nodes]);
 
+	const expandedAstNodeIds = useMemo(() => {
+		const astIds = new Set<string>();
+		if (!expandedAstFileId) return astIds;
+
+		const nodeById = new Map(
+			explorerNodes.map((node) => [String(node.id), node]),
+		);
+		const astAdjacency = new Map<string, string[]>();
+		const queue: string[] = [];
+
+		const queueAstNode = (nodeId: string) => {
+			const node = nodeById.get(nodeId);
+			if (!node || node.kind !== "ast" || astIds.has(nodeId)) return;
+			astIds.add(nodeId);
+			queue.push(nodeId);
+		};
+
+		const linkAstNodes = (fromId: string, toId: string) => {
+			const fromNode = nodeById.get(fromId);
+			const toNode = nodeById.get(toId);
+			if (fromNode?.kind !== "ast" || toNode?.kind !== "ast") return;
+			const fromList = astAdjacency.get(fromId) ?? [];
+			fromList.push(toId);
+			astAdjacency.set(fromId, fromList);
+			const toList = astAdjacency.get(toId) ?? [];
+			toList.push(fromId);
+			astAdjacency.set(toId, toList);
+		};
+
+		graph.edges.forEach((edge) => {
+			const fromId = String(edge.from);
+			const toId = String(edge.to);
+			const edgeType = String(edge.type).toUpperCase();
+			const isFileAstBridge =
+				edgeType.includes("HAS_AST_ROOT") || edgeType.includes("DECLARE");
+			if (isFileAstBridge && fromId === expandedAstFileId) {
+				queueAstNode(toId);
+			}
+			if (isFileAstBridge && toId === expandedAstFileId) {
+				queueAstNode(fromId);
+			}
+			if (edgeType.includes("AST_CHILD")) {
+				linkAstNodes(fromId, toId);
+			}
+		});
+
+		while (queue.length > 0) {
+			const current = queue.pop();
+			if (!current) continue;
+			const neighbours = astAdjacency.get(current) ?? [];
+			neighbours.forEach(queueAstNode);
+		}
+
+		return astIds;
+	}, [expandedAstFileId, graph.edges, explorerNodes]);
+
+	useEffect(() => {
+		if (!expandedAstFileId) return;
+		const fileStillVisible = explorerNodes.some(
+			(node) => node.kind === "file" && String(node.id) === expandedAstFileId,
+		);
+		if (!fileStillVisible) setExpandedAstFileId(null);
+	}, [expandedAstFileId, explorerNodes]);
+
 	const filteredNodes = useMemo(() => {
 		const lower = search.trim().toLowerCase();
 		return explorerNodes.filter((node) => {
+			if (node.kind === "ast" && !expandedAstNodeIds.has(String(node.id))) {
+				return false;
+			}
 			if (!visibleKinds[node.kind]) return false;
 			if (!lower) return true;
 			const haystack =
 				`${node.displayLabel} ${getNodePath(node)} ${JSON.stringify(node.properties ?? {})}`.toLowerCase();
 			return haystack.includes(lower);
 		});
-	}, [explorerNodes, visibleKinds, search]);
+	}, [explorerNodes, expandedAstNodeIds, visibleKinds, search]);
 
 	const visibleNodeIds = useMemo(
 		() => new Set(filteredNodes.map((node) => String(node.id))),
@@ -586,6 +658,8 @@ function GraphExplorerPage() {
 			null
 		);
 	}, [filteredNodes, selectedNodeId]);
+
+	const selectedNodeTypeLabel = selectedNode ? nodeTypeLabel(selectedNode) : "";
 
 	useEffect(() => {
 		if (!selectedNode && filteredNodes[0])
@@ -1232,7 +1306,7 @@ function GraphExplorerPage() {
 							<div className="pb-2 text-[10px] font-medium uppercase tracking-[0.07em] text-[var(--t3)]">
 								Node types
 							</div>
-							{(["folder", "file", "class", "fn"] as ExplorerNodeKind[]).map(
+							{(["folder", "file", "class", "fn", "ast"] as ExplorerNodeKind[]).map(
 								(kind) => (
 									<label
 										key={kind}
@@ -1258,11 +1332,15 @@ function GraphExplorerPage() {
 															? "var(--blue)"
 															: kind === "class"
 																? "var(--amber)"
-																: "var(--green)",
+																: kind === "fn"
+																	? "var(--green)"
+																	: "#14b8a6",
 											}}
 										/>
 										{kind === "fn"
 											? "Function"
+											: kind === "ast"
+												? "AST"
 											: kind[0]!.toUpperCase() + kind.slice(1)}
 									</label>
 								),
@@ -1554,6 +1632,7 @@ function GraphExplorerPage() {
 										["File", "var(--blue)"],
 										["Class", "var(--amber)"],
 										["Function", "var(--green)"],
+										["AST", "#14b8a6"],
 									].map(([label, color]) => (
 										<div key={label} className="flex items-center gap-2">
 											<span
@@ -1699,8 +1778,13 @@ function GraphExplorerPage() {
 								}
 								selectedNodeId={selectedNode ? String(selectedNode.id) : null}
 								selectedNodeIds={selectedNodeIds}
-								onNodeClick={(node, event) => {
-									const id = String(node.id);
+							onNodeClick={(node, event) => {
+								const id = String(node.id);
+								if (node.kind === "file") {
+									setExpandedAstFileId((current) =>
+										current === id ? null : id,
+									);
+								}
 									if (event?.ctrlKey || event?.metaKey) {
 										// Ctrl/Cmd+click: toggle multi-select, keep primary selected
 										setSelectedNodeIds((prev) =>
@@ -1952,7 +2036,9 @@ function GraphExplorerPage() {
 																		? "var(--blue-l)"
 																		: selectedNode.kind === "class"
 																			? "var(--amber-l)"
-																			: "var(--green-l)",
+																			: selectedNode.kind === "fn"
+																				? "var(--green-l)"
+																				: "#ccfbf1",
 															color:
 																selectedNode.kind === "folder"
 																	? "var(--purple)"
@@ -1960,11 +2046,13 @@ function GraphExplorerPage() {
 																		? "var(--blue)"
 																		: selectedNode.kind === "class"
 																			? "var(--amber)"
-																			: "var(--green)",
+																		: selectedNode.kind === "fn"
+																			? "var(--green)"
+																			: "#0f766e",
 														}}
 													>
-														{selectedNode.kind}
-													</div>
+									{selectedNodeTypeLabel}
+								</div>
 													<div className="text-[14px] font-medium font-mono">
 														{selectedNode.displayLabel}
 													</div>
@@ -1978,7 +2066,7 @@ function GraphExplorerPage() {
 														Metadata
 													</div>
 													{[
-														["Type", selectedNode.kind],
+									["Type", selectedNodeTypeLabel],
 														["Language", getNodeLanguage(selectedNode)],
 														["Lines of code", String(getNodeLoc(selectedNode))],
 														[

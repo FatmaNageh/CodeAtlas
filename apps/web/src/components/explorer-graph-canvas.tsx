@@ -4,13 +4,30 @@ import {
 	useRef,
 	forwardRef,
 	useImperativeHandle,
+	type ReactElement,
 } from "react";
 
 import * as d3 from "d3";
+import {
+	Boxes,
+	FileCode2,
+	FolderOpen,
+	FunctionSquare,
+	GitBranch,
+	Spline,
+	type IconNode,
+	type LucideIcon,
+} from "lucide-react";
 import type { Neo4jEdge, Neo4jNode } from "@/components/Neo4jGraph";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-export type ExplorerNodeKind = "folder" | "file" | "class" | "fn";
+export type ExplorerNodeKind = "folder" | "file" | "class" | "fn" | "ast";
+export type ExplorerAstSymbolKind =
+	| "class"
+	| "function"
+	| "namespace"
+	| "member"
+	| "ast";
 export type ExplorerNode = Neo4jNode & {
 	kind: ExplorerNodeKind;
 	displayLabel: string;
@@ -22,6 +39,7 @@ type SimLink = {
 	source: string | SimNode;
 	target: string | SimNode;
 } & d3.SimulationLinkDatum<SimNode>;
+type NodePos = { x: number; y: number };
 export type GraphCanvasHandle = {
 	zoomIn: () => void;
 	zoomOut: () => void;
@@ -30,6 +48,22 @@ export type GraphCanvasHandle = {
 };
 
 // ─── Public helpers ───────────────────────────────────────────────────────────
+export function isAstNode(node: Neo4jNode): boolean {
+	const labels = node.labels ?? [];
+	const propKind = node.properties?.kind;
+	if (typeof propKind === "string" && /^ast(node)?$/i.test(propKind)) {
+		return true;
+	}
+	return labels.some((label) => {
+		const normalized = label.toLowerCase();
+		return (
+			normalized === "astnode" ||
+			normalized === "ast" ||
+			normalized === "syntaxnode"
+		);
+	});
+}
+
 export function classifyNode(node: Neo4jNode): ExplorerNodeKind {
 	const L = node.labels ?? [];
 	if (
@@ -40,6 +74,7 @@ export function classifyNode(node: Neo4jNode): ExplorerNodeKind {
 		L.includes("Directory")
 	)
 		return "folder";
+	if (isAstNode(node)) return "ast";
 	if (L.includes("Class") || L.includes("Interface") || L.includes("Enum"))
 		return "class";
 	if (
@@ -63,6 +98,63 @@ export function nodeDisplayLabel(node: Neo4jNode): string {
 			p.text ??
 			node.id,
 	);
+}
+
+export function astSymbolKind(node: Pick<Neo4jNode, "properties">): ExplorerAstSymbolKind {
+	const p = node.properties ?? {};
+	const normalizedKind =
+		typeof p.normalizedKind === "string" ? p.normalizedKind.toLowerCase() : "";
+	const nodeType = typeof p.nodeType === "string" ? p.nodeType.toLowerCase() : "";
+	const kindHint = `${normalizedKind} ${nodeType}`;
+	if (
+		kindHint.includes("class") ||
+		kindHint.includes("interface") ||
+		kindHint.includes("enum") ||
+		kindHint.includes("struct") ||
+		kindHint.includes("trait") ||
+		kindHint.includes("protocol")
+	) {
+		return "class";
+	}
+	if (
+		kindHint.includes("function") ||
+		kindHint.includes("method") ||
+		kindHint.includes("constructor")
+	) {
+		return "function";
+	}
+	if (
+		kindHint.includes("namespace") ||
+		kindHint.includes("module") ||
+		kindHint.includes("package")
+	) {
+		return "namespace";
+	}
+	if (
+		kindHint.includes("field") ||
+		kindHint.includes("property") ||
+		kindHint.includes("variable") ||
+		kindHint.includes("constant") ||
+		kindHint.includes("parameter")
+	) {
+		return "member";
+	}
+	return "ast";
+}
+
+export function nodeTypeLabel(node: Pick<ExplorerNode, "kind" | "properties">): string {
+	if (node.kind === "folder") return "Folder";
+	if (node.kind === "file") return "File";
+	if (node.kind === "class") return "Class";
+	if (node.kind === "fn") return "Function";
+	if (node.kind === "ast") {
+		const symbolKind = astSymbolKind(node);
+		if (symbolKind === "class") return "Class";
+		if (symbolKind === "function") return "Function";
+		if (symbolKind === "namespace") return "Namespace";
+		if (symbolKind === "member") return "Member";
+	}
+	return "AST";
 }
 
 // ─── Colors ───────────────────────────────────────────────────────────────────
@@ -91,6 +183,12 @@ const C = {
 			bright: "#34d399",
 			labelBg: "#d1fae5",
 			labelText: "#065f46",
+		},
+		ast: {
+			fill: "#0f766e",
+			bright: "#14b8a6",
+			labelBg: "#ccfbf1",
+			labelText: "#115e59",
 		},
 		tour: {
 			fill: "#be123c",
@@ -132,6 +230,12 @@ const C = {
 			labelBg: "#022c22",
 			labelText: "#6ee7b7",
 		},
+		ast: {
+			fill: "#0f766e",
+			bright: "#2dd4bf",
+			labelBg: "#042f2e",
+			labelText: "#99f6e4",
+		},
 		tour: {
 			fill: "#e11d48",
 			bright: "#fb7185",
@@ -148,25 +252,66 @@ const C = {
 		} as Record<string, string>,
 	},
 } as const;
-type KindKey = "folder" | "file" | "class" | "fn" | "tour";
+type KindKey = "folder" | "file" | "class" | "fn" | "ast" | "tour";
 type Theme = (typeof C)[keyof typeof C];
 const getTheme = (): Theme =>
 	document.documentElement.classList.contains("dark") ? C.dark : C.light;
 
 // ─── Lucide icon SVG paths (24×24 viewBox, stroke-only) ──────────────────────
 // Rendered inside node circles — clean, recognizable at small sizes
-const ICON_PATH: Record<ExplorerNodeKind, string> = {
-	// Folder: classic open folder shape
-	folder:
-		"M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z",
-	// File: document with folded corner
-	file: "M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z M14 2v6h6",
-	// Class: hexagonal package/box
-	class:
-		"M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z",
-	// Function: code-2 brackets
-	fn: "m18 16 4-4-4-4 M6 8l-4 4 4 4 M14.5 4l-5 16",
+type LucideIconWithRender = LucideIcon & {
+	render: (
+		props: Record<string, never>,
+		ref: null,
+	) => ReactElement<{ iconNode?: IconNode }>;
 };
+
+function extractLucidePath(icon: LucideIcon): string {
+	const rendered = (icon as LucideIconWithRender).render({}, null);
+	const iconNode = rendered.props.iconNode ?? [];
+	const paths = iconNode
+		.filter(
+			(entry): entry is ["path", Record<string, string>] => entry[0] === "path",
+		)
+		.map(([, attrs]) => attrs.d)
+		.filter((d): d is string => typeof d === "string");
+	return paths.join(" ");
+}
+
+function extractLucideNode(icon: LucideIcon): IconNode {
+	const rendered = (icon as LucideIconWithRender).render({}, null);
+	return rendered.props.iconNode ?? [];
+}
+
+const ICON_PATH: Record<ExplorerNodeKind, string> = {
+	folder: extractLucidePath(FolderOpen),
+	file: extractLucidePath(FileCode2),
+	class: extractLucidePath(Boxes),
+	fn: extractLucidePath(FunctionSquare),
+	ast: extractLucidePath(Spline),
+};
+
+const ICON_NODES: Partial<Record<ExplorerNodeKind, IconNode>> = {
+	file: extractLucideNode(FileCode2),
+	ast: extractLucideNode(GitBranch),
+};
+
+function astSymbolIconNode(node: SimNode): IconNode {
+	const symbolKind = astSymbolKind(node);
+	if (symbolKind === "class") {
+		return extractLucideNode(Boxes);
+	}
+	if (symbolKind === "function") {
+		return extractLucideNode(FunctionSquare);
+	}
+	if (symbolKind === "namespace") {
+		return extractLucideNode(FolderOpen);
+	}
+	if (symbolKind === "member") {
+		return extractLucideNode(FileCode2);
+	}
+	return extractLucideNode(GitBranch);
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 const edgeCat = (t: string) => {
@@ -178,7 +323,15 @@ const edgeCat = (t: string) => {
 			: "CONTAINS";
 };
 const nodeR = (k: ExplorerNodeKind) =>
-	k === "folder" ? 22 : k === "class" ? 17 : k === "fn" ? 12 : 15;
+	k === "folder"
+		? 22
+		: k === "class"
+			? 17
+			: k === "fn"
+				? 12
+				: k === "ast"
+					? 11
+					: 15;
 
 // Hide labels that are just chunk/import hashes — they clutter the graph
 function shouldShowLabel(label: string, kind: ExplorerNodeKind): boolean {
@@ -217,13 +370,14 @@ function radialLayout(nodes: SimNode[], W: number, H: number) {
 		file: [],
 		class: [],
 		fn: [],
+		ast: [],
 	};
 	nodes.forEach((n) => by[n.kind].push(n));
 
 	const MIN_ARC = 70; // minimum arc-length per node so they never overlap
 	let currentR = 0;
 
-	(["folder", "file", "class", "fn"] as ExplorerNodeKind[]).forEach((kind) => {
+	(["folder", "file", "class", "fn", "ast"] as ExplorerNodeKind[]).forEach((kind) => {
 		const ns = by[kind];
 		if (!ns.length) return;
 
@@ -257,45 +411,111 @@ function radialLayout(nodes: SimNode[], W: number, H: number) {
  * so they never get squashed into one long line.
  * Generous spacing between nodes and between layers.
  */
-function hierarchicalLayout(nodes: SimNode[], W: number, H: number) {
-	const by: Record<string, SimNode[]> = {
-		folder: [],
-		file: [],
-		class: [],
-		fn: [],
+function hierarchicalLayout(nodes: SimNode[], links: SimLink[], W: number, H: number) {
+	const nodeById = new Map(nodes.map((node) => [String(node.id), node]));
+	const children = new Map<string, string[]>();
+	const parent = new Map<string, string>();
+
+	const hierarchicalEdge = (type: string) => {
+		const t = type.toUpperCase();
+		return (
+			t.includes("CONTAIN") ||
+			t.includes("DECLARE") ||
+			t.includes("HAS_AST_ROOT") ||
+			t.includes("AST_CHILD")
+		);
 	};
-	nodes.forEach((n) => by[n.kind].push(n));
 
-	const COL_W = 100; // horizontal space per node (center to center)
-	const ROW_H = 85; // vertical space per row within a layer
-	const LAYER_PAD = 70; // extra gap between different kind-layers
-	const MARGIN = 60; // left/right margin
+	links.forEach((link) => {
+		if (!hierarchicalEdge(link.type)) return;
+		const sourceId =
+			typeof link.source === "string"
+				? link.source
+				: String((link.source as SimNode).id);
+		const targetId =
+			typeof link.target === "string"
+				? link.target
+				: String((link.target as SimNode).id);
+		if (!nodeById.has(sourceId) || !nodeById.has(targetId)) return;
+		if (parent.has(targetId)) return;
+		parent.set(targetId, sourceId);
+		const list = children.get(sourceId) ?? [];
+		list.push(targetId);
+		children.set(sourceId, list);
+	});
 
-	let currentY = 80;
-
-	(["folder", "file", "class", "fn"] as ExplorerNodeKind[]).forEach((kind) => {
-		const ns = by[kind];
-		if (!ns.length) return;
-
-		// How many columns fit in the canvas width with proper spacing?
-		const maxCols = Math.max(1, Math.floor((W - MARGIN * 2) / COL_W));
-		const cols = Math.min(ns.length, maxCols);
-		const rows = Math.ceil(ns.length / cols);
-
-		// Center the columns in the canvas
-		const totalW = (cols - 1) * COL_W;
-		const startX = (W - totalW) / 2;
-
-		ns.forEach((n, i) => {
-			const col = i % cols;
-			const row = Math.floor(i / cols);
-			n.fx = startX + col * COL_W;
-			n.fy = currentY + row * ROW_H;
-			n.x = n.fx;
-			n.y = n.fy;
+	const kindOrder: Record<ExplorerNodeKind, number> = {
+		folder: 0,
+		file: 1,
+		class: 2,
+		fn: 3,
+		ast: 4,
+	};
+	const allIds = nodes.map((node) => String(node.id));
+	const roots = allIds
+		.filter((id) => !parent.has(id))
+		.sort((a, b) => {
+			const na = nodeById.get(a);
+			const nb = nodeById.get(b);
+			if (!na || !nb) return a.localeCompare(b);
+			const kindCmp = kindOrder[na.kind] - kindOrder[nb.kind];
+			if (kindCmp !== 0) return kindCmp;
+			return na.displayLabel.localeCompare(nb.displayLabel);
 		});
 
-		currentY += rows * ROW_H + LAYER_PAD;
+	const levels = new Map<string, number>();
+	const placed = new Set<string>();
+	const yById = new Map<string, number>();
+	const X_STEP = 220;
+	const Y_STEP = 58;
+	const MARGIN_X = 90;
+	const MARGIN_Y = 60;
+	let nextRow = 0;
+
+	const walk = (id: string, depth: number) => {
+		if (placed.has(id)) return;
+		placed.add(id);
+		levels.set(id, depth);
+		const kids = (children.get(id) ?? []).sort((a, b) => {
+			const na = nodeById.get(a);
+			const nb = nodeById.get(b);
+			if (!na || !nb) return a.localeCompare(b);
+			const kindCmp = kindOrder[na.kind] - kindOrder[nb.kind];
+			if (kindCmp !== 0) return kindCmp;
+			return na.displayLabel.localeCompare(nb.displayLabel);
+		});
+
+		if (kids.length === 0) {
+			yById.set(id, nextRow * Y_STEP + MARGIN_Y);
+			nextRow += 1;
+			return;
+		}
+
+		const before = nextRow;
+		kids.forEach((kid) => walk(kid, depth + 1));
+		const after = Math.max(before, nextRow - 1);
+		yById.set(id, ((before + after) / 2) * Y_STEP + MARGIN_Y);
+	};
+
+	roots.forEach((rootId) => {
+		walk(rootId, 0);
+		nextRow += 1;
+	});
+
+	allIds.forEach((id) => {
+		if (!placed.has(id)) {
+			walk(id, 0);
+			nextRow += 1;
+		}
+	});
+
+	nodes.forEach((node) => {
+		const id = String(node.id);
+		const level = levels.get(id) ?? kindOrder[node.kind];
+		node.fx = Math.min(W - 80, Math.max(50, MARGIN_X + level * X_STEP));
+		node.fy = Math.min(H - 40, Math.max(40, yById.get(id) ?? MARGIN_Y));
+		node.x = node.fx;
+		node.y = node.fy;
 	});
 }
 
@@ -305,6 +525,7 @@ type Ctrl = {
 	svgSel: d3.Selection<SVGSVGElement, undefined, null, undefined>;
 	simulation: d3.Simulation<SimNode, SimLink>;
 	simNodes: SimNode[];
+	simLinks: SimLink[];
 	W: number;
 	H: number;
 };
@@ -330,7 +551,7 @@ export const ExplorerGraphCanvas = forwardRef<
 		selectedNodeId,
 		selectedNodeIds = [],
 		onNodeClick,
-		mode,
+		mode: _mode,
 		pathNodeIds,
 		highlightNodeIds,
 		tourHighlightNodeIds,
@@ -342,6 +563,8 @@ export const ExplorerGraphCanvas = forwardRef<
 	const svgRef = useRef<SVGSVGElement>(null);
 	const ctrlRef = useRef<Ctrl | null>(null);
 	const glowIdRef = useRef<string>("");
+	const zoomTransformRef = useRef<d3.ZoomTransform>(d3.zoomIdentity);
+	const nodePosRef = useRef<Map<string, NodePos>>(new Map());
 
 	// ── Imperative handle (zoom / layout) ──────────────────────────────────
 	useImperativeHandle(ref, () => ({
@@ -396,7 +619,7 @@ export const ExplorerGraphCanvas = forwardRef<
 				radialLayout(c.simNodes, c.W, c.H);
 				c.simulation.alpha(0.15).restart();
 			} else if (layout === "hierarchical") {
-				hierarchicalLayout(c.simNodes, c.W, c.H);
+				hierarchicalLayout(c.simNodes, c.simLinks, c.W, c.H);
 				c.simulation.alpha(0.15).restart();
 			}
 			// Auto-fit after layout switch so all nodes are visible
@@ -450,8 +673,60 @@ export const ExplorerGraphCanvas = forwardRef<
 		const { width: W, height: H } =
 			containerRef.current.getBoundingClientRect();
 		const T = getTheme();
+		const prevTransform = zoomTransformRef.current;
+		const prevPos = nodePosRef.current;
 
-		const svg = d3.select(svgRef.current);
+		const seed = (id: string) => {
+			let h = 0;
+			for (let i = 0; i < id.length; i++) {
+				h = (h * 31 + id.charCodeAt(i)) >>> 0;
+			}
+			return h;
+		};
+		prepared.simNodes.forEach((node) => {
+			const p = prevPos.get(String(node.id));
+			if (p) {
+				node.x = p.x;
+				node.y = p.y;
+				node.fx = p.x;
+				node.fy = p.y;
+				return;
+			}
+			if (!(prevPos.size > 0 && node.kind === "ast")) return;
+			const id = String(node.id);
+			const anchorEdge = prepared.simLinks.find((link) => {
+				const sourceId =
+					typeof link.source === "string"
+						? link.source
+						: String((link.source as SimNode).id);
+				const targetId =
+					typeof link.target === "string"
+						? link.target
+						: String((link.target as SimNode).id);
+				if (sourceId === id) return prevPos.has(targetId);
+				if (targetId === id) return prevPos.has(sourceId);
+				return false;
+			});
+			if (!anchorEdge) return;
+			const sourceId =
+				typeof anchorEdge.source === "string"
+					? anchorEdge.source
+					: String((anchorEdge.source as SimNode).id);
+			const targetId =
+				typeof anchorEdge.target === "string"
+					? anchorEdge.target
+					: String((anchorEdge.target as SimNode).id);
+			const anchorId = sourceId === id ? targetId : sourceId;
+			const anchorPos = prevPos.get(anchorId);
+			if (!anchorPos) return;
+			const n = seed(id);
+			const angle = (n % 360) * (Math.PI / 180);
+			const radius = 28 + (n % 34);
+			node.x = anchorPos.x + Math.cos(angle) * radius;
+			node.y = anchorPos.y + Math.sin(angle) * radius;
+		});
+
+		const svg = d3.select<SVGSVGElement, undefined>(svgRef.current);
 		svg.selectAll("*").remove();
 		svg.attr("viewBox", `0 0 ${W} ${H}`);
 
@@ -517,30 +792,6 @@ export const ExplorerGraphCanvas = forwardRef<
 			.attr("height", H)
 			.attr("fill", `url(#${pid})`);
 		const g = svg.append("g");
-		//idk man
-		// ── Focus/dimming (only when multi-node focus is active) ────────────
-		// simulationRef.current = simulation;
-
-		const pathSet = new Set(pathNodeIds);
-		const hlSet = new Set(highlightNodeIds);
-		const tourSet = new Set(tourHighlightNodeIds ?? []);
-		const hasFocus = pathSet.size > 1 || tourSet.size > 0 || hlSet.size > 1;
-		const nodeOp = (id: string) => {
-			if (!hasFocus) return 1;
-			if (pathSet.size > 1) return pathSet.has(id) ? 1 : 0.1;
-			if (tourSet.size > 0) return tourSet.has(id) ? 1 : 0.1;
-			if (hlSet.size > 1) return hlSet.has(id) ? 1 : 0.1;
-			return 1;
-		};
-		const edgeOp = (s: string, t: string) => {
-			if (!hasFocus) return 0.25;
-			if (pathSet.size > 1)
-				return pathSet.has(s) && pathSet.has(t) ? 0.9 : 0.04;
-			if (tourSet.size > 0)
-				return tourSet.has(s) || tourSet.has(t) ? 0.6 : 0.04;
-			if (hlSet.size > 1) return hlSet.has(s) || hlSet.has(t) ? 0.7 : 0.04;
-			return 0.25;
-		};
 
 		// ── Simulation — pre-tick offline so graph arrives settled ──────────
 		const simulation = d3
@@ -581,7 +832,10 @@ export const ExplorerGraphCanvas = forwardRef<
 								: -250;
 				}),
 			)
-			.force("center", d3.forceCenter(W / 2, H / 2))
+			.force(
+				"center",
+				prevPos.size > 0 ? null : d3.forceCenter(W / 2, H / 2),
+			)
 			.force(
 				"collide",
 				d3
@@ -591,10 +845,16 @@ export const ExplorerGraphCanvas = forwardRef<
 			)
 			.stop();
 
-		const ticks = Math.min(
-			500,
-			Math.max(180, 800 - Math.floor(prepared.simNodes.length * 0.6)),
-		);
+		const ticks =
+			prevPos.size > 0
+				? 10
+				: prepared.simNodes.length > 1400
+				? 28
+				: prepared.simNodes.length > 800
+					? 42
+					: prepared.simNodes.length > 300
+						? 72
+						: 120;
 		for (let i = 0; i < ticks; i++) simulation.tick();
 
 		const ex2 = (d: SimLink) => {
@@ -620,33 +880,14 @@ export const ExplorerGraphCanvas = forwardRef<
 			.selectAll<SVGLineElement, SimLink>("line")
 			.data(prepared.simLinks, (d) => d.id)
 			.join("line")
+			.attr("class", "graph-link")
 			.attr("stroke", (d) => T.edge[edgeCat(d.type)] ?? T.edge.CONTAINS)
 			.attr("stroke-dasharray", (d) => {
 				const c = edgeCat(d.type);
 				return c === "CALLS" ? "3 5" : c === "IMPORTS" ? "6 3" : "none";
 			})
-			.attr("stroke-width", (d) => {
-				const si =
-					typeof d.source === "string"
-						? d.source
-						: String((d.source as SimNode).id);
-				const ti =
-					typeof d.target === "string"
-						? d.target
-						: String((d.target as SimNode).id);
-				return pathSet.has(si) && pathSet.has(ti) ? 2.5 : 1;
-			})
-			.attr("stroke-opacity", (d) => {
-				const si =
-					typeof d.source === "string"
-						? d.source
-						: String((d.source as SimNode).id);
-				const ti =
-					typeof d.target === "string"
-						? d.target
-						: String((d.target as SimNode).id);
-				return edgeOp(si, ti);
-			})
+			.attr("stroke-width", 1)
+			.attr("stroke-opacity", 0.25)
 			.attr("marker-end", (d) => {
 				const c = edgeCat(d.type);
 				return c !== "CONTAINS" ? `url(#${arrowId[c]})` : null;
@@ -656,8 +897,23 @@ export const ExplorerGraphCanvas = forwardRef<
 			.attr("x2", ex2)
 			.attr("y2", ey2);
 
+		let nodeG!: d3.Selection<
+			SVGGElement,
+			SimNode,
+			SVGGElement,
+			unknown
+		>;
+		const renderPositions = () => {
+			link
+				.attr("x1", (d) => (d.source as SimNode).x ?? 0)
+				.attr("y1", (d) => (d.source as SimNode).y ?? 0)
+				.attr("x2", ex2)
+				.attr("y2", ey2);
+			nodeG.attr("transform", (d) => `translate(${d.x ?? 0},${d.y ?? 0})`);
+		};
+
 		// ── Nodes ────────────────────────────────────────────────────────────
-		const nodeG = g
+		nodeG = g
 			.append("g")
 			.selectAll<SVGGElement, SimNode>("g")
 			.data(prepared.simNodes, (d) => String(d.id))
@@ -668,41 +924,22 @@ export const ExplorerGraphCanvas = forwardRef<
 			.call(
 				d3
 					.drag<SVGGElement, SimNode>()
-					// ── No simulation restart on drag — prevents click-triggered movement ──
-					.on("start", (_, d) => {
-						d.fx = d.x;
-						d.fy = d.y;
+					.on("start", (event, d) => {
+						event.sourceEvent.stopPropagation();
+						d.fx = d.x ?? event.x;
+						d.fy = d.y ?? event.y;
 					})
 					.on("drag", (event, d) => {
 						d.fx = event.x;
 						d.fy = event.y;
 						d.x = event.x;
 						d.y = event.y;
-						d3.select(
-							event.sourceEvent.target?.closest?.("[data-nid]") ??
-								(event.currentTarget as Element),
-						).attr("transform", `translate(${d.x},${d.y})`);
-						const nid = String(d.id);
-						link
-							.filter((l) => {
-								const si =
-									typeof l.source === "string"
-										? l.source
-										: String((l.source as SimNode).id);
-								const ti =
-									typeof l.target === "string"
-										? l.target
-										: String((l.target as SimNode).id);
-								return si === nid || ti === nid;
-							})
-							.attr("x1", (l) => (l.source as SimNode).x ?? 0)
-							.attr("y1", (l) => (l.source as SimNode).y ?? 0)
-							.attr("x2", ex2)
-							.attr("y2", ey2);
+						renderPositions();
 					})
 					.on("end", (_, d) => {
 						d.fx = d.x;
 						d.fy = d.y;
+						renderPositions();
 					}), // pin where dropped
 			)
 			.on("click", (event: MouseEvent, d) => {
@@ -728,7 +965,7 @@ export const ExplorerGraphCanvas = forwardRef<
 			.attr("fill", (d) => T[d.kind as KindKey]?.fill ?? T.file.fill)
 			.attr("stroke", "rgba(255,255,255,0.35)")
 			.attr("stroke-width", 1.5)
-			.attr("opacity", (d) => nodeOp(String(d.id)));
+			.attr("opacity", 1);
 
 		// Lucide icon — scale(s) translate(-12,-12) centers the 24×24 path at origin
 		nodeG
@@ -738,9 +975,22 @@ export const ExplorerGraphCanvas = forwardRef<
 				const s = nodeR(d.kind) * 0.055;
 				return `scale(${s}) translate(-12,-12)`;
 			})
-			.attr("opacity", (d) => nodeOp(String(d.id)))
-			.append("path")
-			.attr("d", (d) => ICON_PATH[d.kind])
+			.attr("opacity", 1)
+			.each(function (d) {
+				const iconNode =
+					d.kind === "ast" ? astSymbolIconNode(d) : ICON_NODES[d.kind];
+				const iconSel = d3.select(this);
+				if (iconNode && iconNode.length > 0) {
+					iconNode.forEach(([tag, attrs]) => {
+						const shape = iconSel.append(String(tag));
+						Object.entries(attrs).forEach(([key, value]) => {
+							shape.attr(key, value);
+						});
+					});
+				} else {
+					iconSel.append("path").attr("d", ICON_PATH[d.kind]);
+				}
+			})
 			.attr("fill", "none")
 			.attr("stroke", "rgba(255,255,255,0.95)")
 			.attr("stroke-width", 2)
@@ -767,7 +1017,7 @@ export const ExplorerGraphCanvas = forwardRef<
 			.attr("fill", (d) => T[d.kind as KindKey]?.labelBg ?? T.file.labelBg)
 			.attr("stroke", (d) => T[d.kind as KindKey]?.fill ?? T.file.fill)
 			.attr("stroke-width", 0.75)
-			.attr("opacity", (d) => nodeOp(String(d.id)));
+			.attr("opacity", 1);
 
 		nodeG
 			.filter(showLabel)
@@ -784,50 +1034,61 @@ export const ExplorerGraphCanvas = forwardRef<
 			.style("font-weight", "500")
 			.style("pointer-events", "none")
 			.attr("fill", (d) => T[d.kind as KindKey]?.labelText ?? T.file.labelText)
-			.attr("opacity", (d) => nodeOp(String(d.id)));
+			.attr("opacity", 1);
 
 		// ── Gentle final settle (very brief) ─────────────────────────────────
-		simulation
-			.alpha(0.05)
-			.alphaDecay(0.06)
-			.on("tick", () => {
-				link
-					.attr("x1", (d) => (d.source as SimNode).x ?? 0)
-					.attr("y1", (d) => (d.source as SimNode).y ?? 0)
-					.attr("x2", ex2)
-					.attr("y2", ey2);
-				nodeG.attr("transform", (d) => `translate(${d.x ?? 0},${d.y ?? 0})`);
-			})
-			.restart();
+		if (prevPos.size > 0) {
+			simulation.on("tick", null);
+			simulation.stop();
+		} else {
+			simulation
+				.alpha(0.05)
+				.alphaDecay(0.06)
+				.on("tick", renderPositions)
+				.restart();
+		}
+		renderPositions();
+		nodePosRef.current = new Map(
+			prepared.simNodes.map((node) => [
+				String(node.id),
+				{ x: node.x ?? 0, y: node.y ?? 0 },
+			]),
+		);
 
 		// Zoom
 		const zoom = d3
 			.zoom<SVGSVGElement, undefined>()
 			.scaleExtent([0.05, 6])
-			.on("zoom", (ev) => g.attr("transform", ev.transform.toString()));
+			.on("zoom", (ev) => {
+				zoomTransformRef.current = ev.transform;
+				g.attr("transform", ev.transform.toString());
+			});
 		svg.call(zoom);
+		svg.on("dblclick.zoom", null);
+		svg.call(zoom.transform, prevTransform);
+		g.attr("transform", prevTransform.toString());
 		ctrlRef.current = {
 			zoom,
 			svgSel: svg,
 			simulation,
 			simNodes: prepared.simNodes,
+			simLinks: prepared.simLinks,
 			W,
 			H,
 		};
 
 		return () => {
+			nodePosRef.current = new Map(
+				prepared.simNodes.map((node) => [
+					String(node.id),
+					{ x: node.x ?? 0, y: node.y ?? 0 },
+				]),
+			);
 			simulation.stop();
 		};
 		// selectedNodeId intentionally NOT in deps — selection is updated by Effect 2
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [
-		prepared,
-		mode,
-		pathNodeIds,
-		highlightNodeIds,
-		tourHighlightNodeIds,
-		activeTourNodeId,
-	]);
+	}, [prepared]);
 
 	// ── EFFECT 2: update selection rings WITHOUT re-running simulation ─────
 	useEffect(() => {
@@ -835,14 +1096,38 @@ export const ExplorerGraphCanvas = forwardRef<
 		const T = getTheme();
 		const multiSet = new Set(selectedNodeIds);
 		const gid = glowIdRef.current;
+		const pathSet = new Set(pathNodeIds);
+		const hlSet = new Set(highlightNodeIds);
+		const tourSet = new Set(tourHighlightNodeIds ?? []);
+		const hasFocus = pathSet.size > 1 || tourSet.size > 0 || hlSet.size > 1;
+		const nodeOpacity = (id: string) => {
+			if (!hasFocus) return 1;
+			if (pathSet.size > 1) return pathSet.has(id) ? 1 : 0.1;
+			if (tourSet.size > 0) return tourSet.has(id) ? 1 : 0.1;
+			if (hlSet.size > 1) return hlSet.has(id) ? 1 : 0.1;
+			return 1;
+		};
+		const edgeOpacity = (sourceId: string, targetId: string) => {
+			if (!hasFocus) return 0.25;
+			if (pathSet.size > 1)
+				return pathSet.has(sourceId) && pathSet.has(targetId) ? 0.9 : 0.04;
+			if (tourSet.size > 0)
+				return tourSet.has(sourceId) || tourSet.has(targetId) ? 0.6 : 0.04;
+			if (hlSet.size > 1)
+				return hlSet.has(sourceId) || hlSet.has(targetId) ? 0.7 : 0.04;
+			return 0.25;
+		};
 
-		d3.select(svgRef.current)
+		const svg = d3.select(svgRef.current);
+
+		svg
 			.selectAll<SVGGElement, SimNode>("[data-nid]")
 			.each(function (d) {
 				const id = String(d.id);
 				const isPrimary = id === selectedNodeId;
 				const isMulti = multiSet.has(id) && !isPrimary;
 				const isTour = id === activeTourNodeId;
+				const opacity = nodeOpacity(id);
 				const color = isPrimary
 					? (T[d.kind as KindKey]?.bright ?? T.file.bright)
 					: isMulti
@@ -860,9 +1145,45 @@ export const ExplorerGraphCanvas = forwardRef<
 						"stroke",
 						isPrimary || isMulti ? color : "rgba(255,255,255,0.35)",
 					)
-					.attr("stroke-width", isPrimary || isMulti ? 2.5 : 1.5);
+					.attr("stroke-width", isPrimary || isMulti ? 2.5 : 1.5)
+					.attr("opacity", opacity);
+				el.select(".icon").attr("opacity", opacity);
+				el.select(".lpill").attr("opacity", opacity);
+				el.select(".ltxt").attr("opacity", opacity);
 			});
-	}, [selectedNodeId, selectedNodeIds, activeTourNodeId]);
+
+		svg
+			.selectAll<SVGLineElement, SimLink>("line.graph-link")
+			.attr("stroke-width", (d) => {
+				const sourceId =
+					typeof d.source === "string"
+						? d.source
+						: String((d.source as SimNode).id);
+				const targetId =
+					typeof d.target === "string"
+						? d.target
+						: String((d.target as SimNode).id);
+				return pathSet.has(sourceId) && pathSet.has(targetId) ? 2.5 : 1;
+			})
+			.attr("stroke-opacity", (d) => {
+				const sourceId =
+					typeof d.source === "string"
+						? d.source
+						: String((d.source as SimNode).id);
+				const targetId =
+					typeof d.target === "string"
+						? d.target
+						: String((d.target as SimNode).id);
+				return edgeOpacity(sourceId, targetId);
+			});
+	}, [
+		selectedNodeId,
+		selectedNodeIds,
+		activeTourNodeId,
+		pathNodeIds,
+		highlightNodeIds,
+		tourHighlightNodeIds,
+	]);
 
 	return (
 		<div ref={containerRef} className="h-full w-full">
