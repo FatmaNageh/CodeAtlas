@@ -52,6 +52,7 @@ export type CodeFacts = {
   fileRelPath: string;
   language: SupportedLanguage;
   imports: RawImport[];
+  astNodes: RawSymbol[];
   parseErrors?: number;
   lineCount?: number;
   textPreview?: string;

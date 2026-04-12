@@ -12,7 +12,7 @@ import type {
   CodeFileIndexEntry,
   TextFileIndexEntry,
 } from "../types/scan";
-import { isoNow } from "../types/graphProperties";
+import { isoNow, type NormalizedKind } from "../types/graphProperties";
 import {
   repoIdFromPath,
   repoNodeId,
@@ -20,6 +20,8 @@ import {
   codeFileNodeId,
   textFileNodeId,
   textChunkNodeId,
+  astNodeId,
+  astNodeIdentityKey,
   edgeKey,
   normalizePath,
   normalizeRepoRelativePath,
@@ -37,6 +39,18 @@ function isCode(entry: FileIndexEntry): entry is CodeFileIndexEntry {
 
 function isText(entry: FileIndexEntry): entry is TextFileIndexEntry {
   return entry.kind === "text";
+}
+
+function symbolKindToNormalizedKind(kind: string): NormalizedKind {
+  const mapping: Record<string, NormalizedKind> = {
+    function: "function",
+    method: "method",
+    class: "class",
+    interface: "interface",
+    module: "module",
+    namespace: "namespace",
+  };
+  return mapping[kind] ?? "unknown";
 }
 
 function cleanQuotes(value: string): string {
@@ -311,6 +325,152 @@ export function buildIR(scan: ScanResult, facts: FactsByFile): GraphIR {
               referenceKind: "typescript-module-resolution",
             },
           });
+        }
+      }
+
+      for (const astNode of codeFacts.astNodes) {
+        const range = astNode.range;
+        if (!range) continue;
+
+        const normalizedKind = symbolKindToNormalizedKind(astNode.kind);
+        const nodeId = astNodeId(
+          repoId,
+          rel,
+          normalizedKind,
+          range.startLine,
+          range.startCol,
+          range.endLine,
+          range.endCol,
+        );
+
+        addNode({
+          label: "AstNode",
+          props: {
+            id: nodeId,
+            identityKey: astNodeIdentityKey(
+              repoId,
+              rel,
+              normalizedKind,
+              range.startLine,
+              range.startCol,
+              range.endLine,
+              range.endCol,
+            ),
+            kind: "AstNode",
+            repoId,
+            fileId: fileNodeId,
+            filePath: rel,
+            language: codeFacts.language,
+            normalizedKind,
+            name: astNode.name,
+            qname: astNode.qname ?? null,
+            startLine: range.startLine,
+            startColumn: range.startCol,
+            endLine: range.endLine,
+            endColumn: range.endCol,
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
+
+        addEdge({
+          key: edgeKey("DECLARES", fileNodeId, nodeId),
+          type: "DECLARES",
+          from: fileNodeId,
+          to: nodeId,
+          props: { repoId },
+        });
+
+        const isTopLevel = !astNode.parentName;
+        if (isTopLevel) {
+          addEdge({
+            key: edgeKey("HAS_AST_ROOT", fileNodeId, nodeId),
+            type: "HAS_AST_ROOT",
+            from: fileNodeId,
+            to: nodeId,
+            props: { repoId },
+          });
+        }
+
+        if (astNode.extendsNames) {
+          for (const extendsName of astNode.extendsNames) {
+            const targetAst = codeFacts.astNodes.find(
+              (a) => a.name === extendsName && a.kind === "class",
+            );
+            if (targetAst?.range) {
+              const targetKind = symbolKindToNormalizedKind(targetAst.kind);
+              const targetNodeId = astNodeId(
+                repoId,
+                rel,
+                targetKind,
+                targetAst.range.startLine,
+                targetAst.range.startCol,
+                targetAst.range.endLine,
+                targetAst.range.endCol,
+              );
+              addEdge({
+                key: edgeKey("EXTENDS", nodeId, targetNodeId),
+                type: "EXTENDS",
+                from: nodeId,
+                to: targetNodeId,
+                props: { repoId },
+              });
+            }
+          }
+        }
+
+        if (astNode.implementsNames) {
+          for (const implementsName of astNode.implementsNames) {
+            const targetAst = codeFacts.astNodes.find(
+              (a) => a.name === implementsName && a.kind === "interface",
+            );
+            if (targetAst?.range) {
+              const targetKind = symbolKindToNormalizedKind(targetAst.kind);
+              const targetNodeId = astNodeId(
+                repoId,
+                rel,
+                targetKind,
+                targetAst.range.startLine,
+                targetAst.range.startCol,
+                targetAst.range.endLine,
+                targetAst.range.endCol,
+              );
+              addEdge({
+                key: edgeKey("OVERRIDES", nodeId, targetNodeId),
+                type: "OVERRIDES",
+                from: nodeId,
+                to: targetNodeId,
+                props: { repoId },
+              });
+            }
+          }
+        }
+
+        if (astNode.parentName) {
+          const parentRange = codeFacts.astNodes.find(
+            (p) => p.name === astNode.parentName && p.kind !== astNode.kind,
+          )?.range;
+          if (parentRange) {
+            const parentKind = symbolKindToNormalizedKind(
+              codeFacts.astNodes.find((p) => p.name === astNode.parentName)?.kind ?? "unknown",
+            );
+            const parentId = astNodeId(
+              repoId,
+              rel,
+              parentKind,
+              parentRange.startLine,
+              parentRange.startCol,
+              parentRange.endLine,
+              parentRange.endCol,
+            );
+            addEdge({
+              key: edgeKey("AST_CHILD", parentId, nodeId),
+              type: "AST_CHILD",
+              from: parentId,
+              to: nodeId,
+              props: { repoId },
+            });
+          }
         }
       }
     } else if (isText(entry)) {

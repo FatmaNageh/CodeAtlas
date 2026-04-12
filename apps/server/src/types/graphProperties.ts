@@ -145,6 +145,7 @@ export type AstNodeProps = BaseNodeProps & {
   language: SupportedLanguage;
   normalizedKind: NormalizedKind;
   name?: string | null;
+  qname?: string | null;
   displayName?: string | null;
   nodeType?: string | null;
   signature?: string | null;

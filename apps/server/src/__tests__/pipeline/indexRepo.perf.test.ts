@@ -81,7 +81,7 @@ describe('indexRepository performance benchmarks', () => {
     const facts = await parseAndExtract(codeFiles);
     const duration = performance.now() - start;
     const extractedSymbolCount = Object.values(facts).reduce((count, fileFacts) => {
-      return fileFacts.kind === 'code' ? count + fileFacts.symbols.length : count;
+      return fileFacts.kind === 'code' ? count + fileFacts.astNodes.length : count;
     }, 0);
 
     console.log(`[PERF] Parse & Extract: ${duration.toFixed(0)}ms`);
