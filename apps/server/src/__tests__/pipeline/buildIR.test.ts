@@ -3,11 +3,11 @@ import path from "path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { parseAndExtract } from "../../pipeline/parseExtract";
-import { buildIR } from "../../pipeline/ir";
-import { scanRepo } from "../../pipeline/scan";
-import { extractTextFacts } from "../../pipeline/textExtract";
-import { fileId, repoNodeId } from "../../pipeline/id";
+import { parseAndExtract } from "@/pipeline/parseExtract";
+import { buildIR } from "@/pipeline/ir";
+import { scanRepo } from "@/pipeline/scan";
+import { extractTextFacts } from "@/pipeline/textExtract";
+import { repoNodeId, textFileNodeId } from "@/pipeline/id";
 
 const fixturesDir = path.join(process.cwd(), "src/__tests__/fixtures");
 const tempDir = path.join(fixturesDir, "temp-build-ir");
@@ -68,11 +68,11 @@ describe("buildIR", () => {
     const textFacts = await extractTextFacts(textFiles);
     const ir = buildIR(scan, { ...codeFacts, ...textFacts });
 
-    const repoRoots = ir.nodes.filter((node) => node.kind === "RepoRoot");
-    const astNodes = ir.nodes.filter((node) => node.kind === "ASTNode");
-    const textChunks = ir.nodes.filter((node) => node.kind === "TEXTChunk");
-    const readmeFileNodeId = fileId(ir.repoId, "README.md");
-    const rootNodeId = repoNodeId(ir.repoId);
+    const repoRoots = ir.nodes.filter((node) => node.label === "Repo");
+    const astNodes = ir.nodes.filter((node) => node.label === "AstNode");
+    const textChunks = ir.nodes.filter((node) => node.label === "TextChunk");
+    const readmeFileNodeId = textFileNodeId(ir.repoId, "README.md");
+    const rootNodeId = repoNodeId(tempDir);
 
     expect(repoRoots).toHaveLength(1);
     expect(astNodes.length).toBeGreaterThanOrEqual(6);
@@ -87,8 +87,8 @@ describe("buildIR", () => {
     ).toBe(true);
 
     const readmeChunks = textChunks
-      .filter((node) => node.props.fileRelPath === "README.md")
-      .sort((a, b) => Number(a.props.index) - Number(b.props.index));
+      .filter((node) => node.props.filePath === "README.md")
+      .sort((a, b) => Number(a.props.chunkIndex) - Number(b.props.chunkIndex));
     expect(readmeChunks.length).toBeGreaterThanOrEqual(2);
 
     for (const chunk of readmeChunks) {
@@ -97,7 +97,7 @@ describe("buildIR", () => {
           (edge) =>
             edge.type === "HAS_CHUNK" &&
             edge.from === readmeFileNodeId &&
-            edge.to === chunk.id,
+            edge.to === chunk.props.id,
         ),
       ).toBe(true);
     }
@@ -108,10 +108,10 @@ describe("buildIR", () => {
       if (!prevChunk || !nextChunk) continue;
       expect(
         ir.edges.some(
-          (edge) =>
-            edge.type === "NEXT_CHUNK" &&
-            edge.from === prevChunk.id &&
-            edge.to === nextChunk.id,
+            (edge) =>
+              edge.type === "NEXT_CHUNK" &&
+              edge.from === prevChunk.props.id &&
+              edge.to === nextChunk.props.id,
         ),
       ).toBe(true);
     }

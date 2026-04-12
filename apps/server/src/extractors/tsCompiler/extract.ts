@@ -1,5 +1,5 @@
 import type { RawCallSite, RawImport, RawSymbol, SymbolKind } from "@/types/facts";
-import type { Range } from "@/types/ir";
+import type { Range } from "@/types/facts";
 import type { Extracted, ExtractorContext } from "@/extractors/types";
 
 type Ts = any;

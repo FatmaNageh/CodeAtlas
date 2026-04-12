@@ -4,9 +4,10 @@ import { createRequire } from "node:module";
 
 import type * as TypeScript from "typescript";
 
-import type { Range, IREdge, IRNode } from "../types/ir";
+import type { Range } from "../types/facts";
+import type { IREdge, IRNode } from "../types/ir";
 import type { ScanResult } from "../types/scan";
-import { edgeId, fileRootAstNodeId, normalizePath } from "./id";
+import { edgeKey, fileRootAstNodeId, normalizePath } from "./id";
 
 type Ts = typeof TypeScript;
 
@@ -162,21 +163,21 @@ export function enrichIrWithTsProgram(input: {
   });
   const checker = program.getTypeChecker();
 
-  const existingNodeIds = new Set(input.nodes.map((node) => node.id));
+  const existingNodeIds = new Set(input.nodes.map((node) => node.props.id));
   const declarationLookup = new Map<string, string>();
   for (const node of input.nodes) {
-    if (node.kind !== "ASTNode") continue;
-    const fileRelPath = typeof node.props.fileRelPath === "string" ? node.props.fileRelPath : null;
+    if (node.label !== "AstNode") continue;
+    const fileRelPath = typeof node.props.filePath === "string" ? node.props.filePath : null;
     const nodeType = typeof node.props.nodeType === "string" ? node.props.nodeType : null;
     const startLine = typeof node.props.startLine === "number" ? node.props.startLine : null;
-    const startCol = typeof node.props.startCol === "number" ? node.props.startCol : null;
+    const startCol = typeof node.props.startColumn === "number" ? node.props.startColumn : null;
     if (!fileRelPath || !nodeType || startLine === null || startCol === null) continue;
-    declarationLookup.set(`${fileRelPath}|${nodeType}|${startLine}|${startCol}`, node.id);
+    declarationLookup.set(`${fileRelPath}|${nodeType}|${startLine}|${startCol}`, node.props.id);
   }
-  const existingEdgeIds = new Set(input.edges.map((edge) => edge.id));
+  const existingEdgeKeys = new Set(input.edges.map((edge) => edge.key));
   const addEdge = (edge: IREdge) => {
-    if (existingEdgeIds.has(edge.id)) return;
-    existingEdgeIds.add(edge.id);
+    if (existingEdgeKeys.has(edge.key)) return;
+    existingEdgeKeys.add(edge.key);
     input.edges.push(edge);
   };
 
@@ -209,15 +210,18 @@ export function enrichIrWithTsProgram(input: {
           });
           if (!targetId) return;
           addEdge({
-            id: edgeId(input.repoId, "IMPORTS", fileRootId, targetId),
+            key: edgeKey("IMPORTS", fileRootId, targetId, fileRelPath),
             type: "IMPORTS",
             from: fileRootId,
             to: targetId,
-            repoId: input.repoId,
             props: {
-              raw: moduleSpecifier.text,
-              importedAs,
+              repoId: input.repoId,
+              sourceFilePath: fileRelPath,
+              extractionMethod: "ast+ts-enrichment",
               confidence: 0.9,
+              importText: importedAs ?? moduleSpecifier.text,
+              isResolved: true,
+              resolutionKind: "module",
             },
           });
         };
@@ -260,12 +264,16 @@ export function enrichIrWithTsProgram(input: {
               });
               if (!targetId) continue;
               addEdge({
-                id: edgeId(input.repoId, "EXTENDS", currentId, targetId),
+                key: edgeKey("EXTENDS", currentId, targetId, fileRelPath),
                 type: "EXTENDS",
                 from: currentId,
                 to: targetId,
-                repoId: input.repoId,
-                props: { confidence: 0.9 },
+                props: {
+                  repoId: input.repoId,
+                  sourceFilePath: fileRelPath,
+                  extractionMethod: "ast+ts-enrichment",
+                  confidence: 0.9,
+                },
               });
             }
           }
@@ -309,12 +317,16 @@ export function enrichIrWithTsProgram(input: {
             });
             if (!targetId) continue;
             addEdge({
-              id: edgeId(input.repoId, "OVERRIDES", currentId, targetId),
+              key: edgeKey("OVERRIDES", currentId, targetId, fileRelPath),
               type: "OVERRIDES",
               from: currentId,
               to: targetId,
-              repoId: input.repoId,
-              props: { confidence: 0.85 },
+              props: {
+                repoId: input.repoId,
+                sourceFilePath: fileRelPath,
+                extractionMethod: "ast+ts-enrichment",
+                confidence: 0.85,
+              },
             });
           }
         }

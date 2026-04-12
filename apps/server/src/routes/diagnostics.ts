@@ -23,6 +23,10 @@ interface Neo4jRelationship {
   end: Neo4jInteger;
 }
 
+interface Neo4jMap {
+  [key: string]: Neo4jValue;
+}
+
 type Neo4jValue =
   | string
   | number
@@ -31,39 +35,72 @@ type Neo4jValue =
   | Neo4jInteger
   | Neo4jNode
   | Neo4jRelationship
-  | Neo4jValue[];
+  | Neo4jValue[]
+  | Neo4jMap;
 
-export function toPlain(v: Neo4jValue): unknown {
+type PlainValue =
+  | string
+  | number
+  | boolean
+  | null
+  | PlainValue[]
+  | { [key: string]: PlainValue };
+
+function isNeo4jInteger(v: Neo4jValue): v is Neo4jInteger {
+  return typeof v === "object" && v !== null && "toNumber" in v && typeof v.toNumber === "function";
+}
+
+function isNeo4jNode(v: Neo4jValue): v is Neo4jNode {
+  return (
+    typeof v === "object" &&
+    v !== null &&
+    "identity" in v &&
+    "labels" in v &&
+    "properties" in v &&
+    Array.isArray(v.labels)
+  );
+}
+
+function isNeo4jRelationship(v: Neo4jValue): v is Neo4jRelationship {
+  return (
+    typeof v === "object" &&
+    v !== null &&
+    "type" in v &&
+    "properties" in v &&
+    "start" in v &&
+    "end" in v
+  );
+}
+
+export function toPlain(v: Neo4jValue): PlainValue {
   if (v && typeof v === "object") {
-    if (typeof (v as Neo4jInteger).toNumber === "function") {
-      return (v as Neo4jInteger).toNumber();
+    if (isNeo4jInteger(v)) {
+      return v.toNumber();
     }
 
     if (Array.isArray(v)) return v.map(toPlain);
 
-    const node = v as Neo4jNode;
-    if (node.identity && node.labels && node.properties) {
+    if (isNeo4jNode(v)) {
       return {
-        id: String(node.properties?.id ?? ""),
-        labels: node.labels,
+        id: String(v.properties.id ?? ""),
+        labels: v.labels,
         properties: Object.fromEntries(
-          Object.entries(node.properties).map(([k, val]) => [k, toPlain(val)]),
+          Object.entries(v.properties).map(([k, val]) => [k, toPlain(val)]),
         ),
       };
     }
 
-    const rel = v as Neo4jRelationship;
-    if (rel.type && rel.properties && rel.start && rel.end) {
+    if (isNeo4jRelationship(v)) {
       return {
-        type: rel.type,
+        type: v.type,
         properties: Object.fromEntries(
-          Object.entries(rel.properties).map(([k, val]) => [k, toPlain(val)]),
+          Object.entries(v.properties).map(([k, val]) => [k, toPlain(val)]),
         ),
       };
     }
 
-    const out: Record<string, unknown> = {};
-    for (const [k, val] of Object.entries(v as Record<string, Neo4jValue>)) {
+    const out: { [key: string]: PlainValue } = {};
+    for (const [k, val] of Object.entries(v)) {
       out[k] = toPlain(val);
     }
     return out;
@@ -180,8 +217,8 @@ diagnosticsRoute.get("/diagnostics/check", async (c) => {
     { repoId },
   );
 
-  let constraints: unknown[] = [];
-  let indexes: unknown[] = [];
+  let constraints: PlainValue[] = [];
+  let indexes: PlainValue[] = [];
 
   try {
     const cons = await runCypher<Record<string, Neo4jValue>>(`SHOW CONSTRAINTS`);

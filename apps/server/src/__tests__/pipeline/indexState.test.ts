@@ -102,6 +102,7 @@ describe('saveIndexState', () => {
     };
     const result = await saveIndexState(tmpDir, scan);
     expect(result.files['src/index.ts']).toEqual({
+      kind: 'code',
       mtimeMs: 1234567890,
       size: 100,
       hash: undefined,
@@ -133,8 +134,8 @@ describe('diffScan', () => {
       repoRoot: '/test',
       scannedAt: new Date().toISOString(),
       files: {
-        'a.ts': { mtimeMs: 1000, size: 100 },
-        'b.ts': { mtimeMs: 2000, size: 200 },
+        'a.ts': { kind: 'code', mtimeMs: 1000, size: 100 },
+        'b.ts': { kind: 'code', mtimeMs: 2000, size: 200 },
       },
     };
     const curr: ScanResult = {
@@ -159,7 +160,7 @@ describe('diffScan', () => {
       repoRoot: '/test',
       scannedAt: new Date().toISOString(),
       files: {
-        'a.ts': { mtimeMs: 1000, size: 100 },
+        'a.ts': { kind: 'code', mtimeMs: 1000, size: 100 },
       },
     };
     const curr: ScanResult = {
@@ -181,8 +182,8 @@ describe('diffScan', () => {
       repoRoot: '/test',
       scannedAt: new Date().toISOString(),
       files: {
-        'a.ts': { mtimeMs: 1000, size: 100 },
-        'b.ts': { mtimeMs: 2000, size: 200 },
+        'a.ts': { kind: 'code', mtimeMs: 1000, size: 100 },
+        'b.ts': { kind: 'code', mtimeMs: 2000, size: 200 },
       },
     };
     const curr: ScanResult = {
@@ -205,9 +206,9 @@ describe('diffScan', () => {
       repoRoot: '/test',
       scannedAt: new Date().toISOString(),
       files: {
-        'unchanged.ts': { mtimeMs: 1000, size: 100 },
-        'changed.ts': { mtimeMs: 2000, size: 200 },
-        'removed.ts': { mtimeMs: 3000, size: 300 },
+        'unchanged.ts': { kind: 'code', mtimeMs: 1000, size: 100 },
+        'changed.ts': { kind: 'code', mtimeMs: 2000, size: 200 },
+        'removed.ts': { kind: 'code', mtimeMs: 3000, size: 300 },
       },
     };
     const curr: ScanResult = {
@@ -233,7 +234,7 @@ describe('diffScan', () => {
       repoRoot: '/test',
       scannedAt: new Date().toISOString(),
       files: {
-        'a.ts': { mtimeMs: 1000, size: 100, hash: 'abc123' },
+        'a.ts': { kind: 'code', mtimeMs: 1000, size: 100, hash: 'abc123' },
       },
     };
     const curr: ScanResult = {

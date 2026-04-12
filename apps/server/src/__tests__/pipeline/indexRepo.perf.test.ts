@@ -21,7 +21,7 @@ describe('indexRepository performance benchmarks', () => {
     console.log(`[PERF] Files scanned: ${result.scanned.totalFiles}`);
     console.log(`[PERF] Files processed: ${result.scanned.processedFiles}`);
     console.log(`[PERF] AST nodes: ${result.stats.astNodes}`);
-    console.log(`[PERF] References: ${result.stats.references}`);
+    console.log(`[PERF] Edges: ${result.stats.edges}`);
     console.log(`[PERF] Files/sec: ${(result.scanned.totalFiles / (duration / 1000)).toFixed(1)}`);
 
     expect(duration).toBeLessThan(60000);
