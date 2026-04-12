@@ -294,7 +294,7 @@ $('btn-embed-fix').addEventListener('click',async()=>{
   const btn=$('btn-embed-fix'); btn.textContent='⏳ Embedding…'; btn.disabled=true;
   addMsg({role:'bot',text:'Starting embedding generation — this may take a few minutes…'});
   try{
-    const res=await fetch(ST.serverUrl+'/graphrag/embedRepo',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({repoId:ST.repoId,repoRoot:''})});
+    const res=await fetch(ST.serverUrl+'/graphrag/embedRepo',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({repoId:ST.repoId,Repo:''})});
     const d=await res.json();
     if(d.ok!==false){ $('embed-notice').style.display='none'; addMsg({role:'bot',text:'✓ Embeddings generated! Try asking your question again.'}); }
     else addMsg({role:'bot',text:'Embedding failed: '+d.error,error:true});

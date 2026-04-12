@@ -4,9 +4,9 @@ import { createRequire } from "node:module";
 
 import type * as TypeScript from "typescript";
 
-import type { Range } from "../types/facts";
-import type { IREdge, IRNode } from "../types/ir";
-import type { ScanResult } from "../types/scan";
+import type { Range } from "@/types";
+import type { IREdge, IRNode } from "@/types";
+import type { ScanResult } from "@/types";
 import { edgeKey, fileRootAstNodeId, normalizePath } from "./id";
 
 type Ts = typeof TypeScript;

@@ -26,7 +26,8 @@ export async function findSimilarChunks(
   const fetchLimit = Math.max(Math.floor(limit) * 3, Math.floor(limit) + 10);
   
   return runCypher<SimilarASTNodeRow>(
-    `CALL db.index.vector.queryNodes('astnode_embedding', toInteger($fetchLimit), $queryEmbedding)
+    `/*cypher*/
+    CALL db.index.vector.queryNodes('astnode_embedding', toInteger($fetchLimit), $queryEmbedding)
       YIELD node, score
       WHERE node.repoId = $repoId AND node:ASTNode
       RETURN

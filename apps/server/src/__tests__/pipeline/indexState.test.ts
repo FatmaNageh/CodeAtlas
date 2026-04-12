@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs/promises';
 import path from 'path';
-import { loadIndexState, saveIndexState, diffScan } from '../../pipeline/indexState';
-import type { ScanResult, IndexState } from '../../pipeline/indexState';
+import { loadIndexState, saveIndexState, diffScan } from '@/pipeline/indexState';
+import type { ScanResult, IndexState } from '@/pipeline/indexState';
 
 describe('loadIndexState', () => {
   let tmpDir: string;

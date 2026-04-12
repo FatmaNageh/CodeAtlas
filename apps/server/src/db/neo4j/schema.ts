@@ -1,7 +1,7 @@
+import { embedDimensions } from "@/config/openrouter";
 import { getNeo4jClient } from "./client";
 
 type IndexOptions = Record<string, boolean | number | string | null>;
-
 
 const SCHEMA_QUERIES = [
   "CREATE CONSTRAINT repo_id IF NOT EXISTS FOR (n:Repo) REQUIRE n.id IS UNIQUE",
@@ -29,7 +29,6 @@ const SCHEMA_QUERIES = [
   "CREATE INDEX textchunk_chunk_index IF NOT EXISTS FOR (n:TextChunk) ON (n.repoId, n.chunkIndex)",
   "CREATE INDEX textchunk_identity_key IF NOT EXISTS FOR (n:TextChunk) ON (n.identityKey)",
 
-
   "CREATE INDEX astnode_file_path IF NOT EXISTS FOR (n:AstNode) ON (n.repoId, n.filePath)",
   "CREATE INDEX astnode_normalized_kind IF NOT EXISTS FOR (n:AstNode) ON (n.repoId, n.normalizedKind)",
   "CREATE INDEX astnode_identity_key IF NOT EXISTS FOR (n:AstNode) ON (n.identityKey)",
@@ -40,6 +39,7 @@ function getEmbeddingDimension(): number {
     process.env.OPENAI_EMBED_DIM ??
     process.env.EMBED_DIM ??
     process.env.OLLAMA_EMBED_DIM ??
+    embedDimensions ??
     "";
 
   const parsedDimension = rawDimension ? Number(rawDimension) : 1536;
@@ -50,21 +50,29 @@ function getEmbeddingDimension(): number {
 
 function createVectorIndexQueries(embeddingDimension: number): string[] {
   return [
-    `CREATE VECTOR INDEX codefile_embedding IF NOT EXISTS
+    `/*cypher*/
+    CREATE VECTOR INDEX codefile_embedding IF NOT EXISTS
       FOR (n:CodeFile) ON (n.embedding)
-      OPTIONS { indexConfig: {\`vector.dimensions\`: ${embeddingDimension}, \`vector.similarity_function\`: 'cosine' } }`,
+      OPTIONS { indexConfig: {\`vector.dimensions\`: ${embeddingDimension}, \`vector.similarity_function\`: 'cosine' } }
+      `,
 
-    `CREATE VECTOR INDEX textfile_embedding IF NOT EXISTS
+    `/*cypher*/
+    CREATE VECTOR INDEX textfile_embedding IF NOT EXISTS
       FOR (n:TextFile) ON (n.embedding)
-      OPTIONS { indexConfig: {\`vector.dimensions\`: ${embeddingDimension}, \`vector.similarity_function\`: 'cosine' } }`,
+      OPTIONS { indexConfig: {\`vector.dimensions\`: ${embeddingDimension}, \`vector.similarity_function\`: 'cosine' } }
+      `,
 
-    `CREATE VECTOR INDEX textchunk_embedding IF NOT EXISTS
+    `/*cypher*/
+    CREATE VECTOR INDEX textchunk_embedding IF NOT EXISTS
       FOR (n:TextChunk) ON (n.embedding)
-      OPTIONS { indexConfig: {\`vector.dimensions\`: ${embeddingDimension}, \`vector.similarity_function\`: 'cosine' } }`,
+      OPTIONS { indexConfig: {\`vector.dimensions\`: ${embeddingDimension}, \`vector.similarity_function\`: 'cosine' } }
+      `,
 
-    `CREATE VECTOR INDEX astnode_embedding IF NOT EXISTS
+    `/*cypher*/
+    CREATE VECTOR INDEX astnode_embedding IF NOT EXISTS
       FOR (n:AstNode) ON (n.embedding)
-      OPTIONS { indexConfig: {\`vector.dimensions\`: ${embeddingDimension}, \`vector.similarity_function\`: 'cosine' } }`,
+      OPTIONS { indexConfig: {\`vector.dimensions\`: ${embeddingDimension}, \`vector.similarity_function\`: 'cosine' } }
+      `,
   ];
 }
 
@@ -81,10 +89,15 @@ async function checkVectorIndexDimension(
       { indexName },
     );
 
-    const options = result.records[0]?.get("options") as IndexOptions | undefined;
+    const options = result.records[0]?.get("options") as
+      | IndexOptions
+      | undefined;
     const actualDimension = options?.["vector.dimensions"];
 
-    if (typeof actualDimension === "number" && actualDimension !== expectedDimension) {
+    if (
+      typeof actualDimension === "number" &&
+      actualDimension !== expectedDimension
+    ) {
       console.warn(
         `[NEO4J-SCHEMA] Vector index "${indexName}" has dimension ${actualDimension}; expected ${expectedDimension}.`,
       );
@@ -109,7 +122,10 @@ export async function ensureSchema(): Promise<void> {
   const embeddingDimension = getEmbeddingDimension();
 
   try {
-    for (const query of [...SCHEMA_QUERIES, ...createVectorIndexQueries(embeddingDimension)]) {
+    for (const query of [
+      ...SCHEMA_QUERIES,
+      ...createVectorIndexQueries(embeddingDimension),
+    ]) {
       try {
         await session.run(query);
       } catch (error) {

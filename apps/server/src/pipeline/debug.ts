@@ -1,7 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
-import type { FactsByFile } from "../types/facts";
-import type { GraphIR } from "../types/ir";
+import type { FactsByFile } from "@/types";
+import type { GraphIR } from "@/types";
 
 export async function saveDebug(repoRoot: string, repoId: string, facts: FactsByFile, ir: GraphIR): Promise<string> {
   const dir = path.join(repoRoot, ".codeatlas", "debug", repoId);

@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import fs from "node:fs/promises";
 import path from "node:path";
 
-import { runCypher } from "../db/cypher";
+import { runCypher } from "@/db/cypher";
 
 export const diagnosticsRoute = new Hono();
 

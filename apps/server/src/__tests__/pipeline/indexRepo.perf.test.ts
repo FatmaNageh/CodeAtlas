@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import path from 'path';
-import { indexRepository } from '../../pipeline/indexRepo';
+import { indexRepository } from '@/pipeline/indexRepo';
 
 const fzfMaster = path.join(process.cwd(), '../../example_files/fzf-master');
 
