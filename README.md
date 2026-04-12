@@ -53,7 +53,7 @@ The API is running at [http://localhost:3000](http://localhost:3000).
 
 
 
-
+f
 
 ## Project Structure
 
@@ -62,6 +62,7 @@ CodeAtlas/
 ├── apps/
 │   ├── web/         # Frontend application (React + TanStack Router)
 │   └── server/      # Backend API (Hono, TRPC)
+│   └── extension/      
 ├── packages/
 │   ├── api/         # API layer / business logic
 │   └── db/          # Database schema & queries
