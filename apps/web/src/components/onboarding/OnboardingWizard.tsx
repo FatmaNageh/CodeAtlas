@@ -1,7 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { Folder, FolderOpen, Check, ArrowRight, ArrowLeft, UploadCloud } from "lucide-react";
+import {
+  Folder,
+  FolderOpen,
+  Check,
+  ArrowRight,
+  ArrowLeft,
+  UploadCloud,
+  Sparkles,
+  Settings2,
+  Database,
+} from "lucide-react";
 import { indexRepo } from "@/lib/api";
 import { loadSession, saveSession } from "@/lib/session";
 
@@ -31,8 +41,6 @@ const demoRepos: RepoItem[] = [
 
 const relationshipTypes = ["CONTAINS", "IMPORTS", "CALLS"];
 
-// ── Path helpers ─────────────────────────────────────────────────────────────
-
 /**
  * Attempt to extract an absolute path from a dropped DataTransferItem.
  *
@@ -46,38 +54,26 @@ function extractPathFromItem(item: DataTransferItem): string | null {
   const file = item.getAsFile();
   const entry = item.webkitGetAsEntry?.();
 
-  // Electron: absolute path on the OS.
   if (file && (file as any).path) {
     const absPath: string = (file as any).path;
     if (entry?.isDirectory) return absPath;
-    // It's a file inside the folder — walk up one level.
     const sep = absPath.includes("\\") ? "\\" : "/";
     const parts = absPath.split(sep);
     parts.pop();
     return parts.join(sep) || absPath;
   }
 
-  // Browser fallback — virtual path, not a real OS path.
   if (entry) {
     return entry.fullPath?.replace(/^\//, "") || entry.name || null;
   }
 
   return file?.name ?? null;
 }
-
-/**
- * Extract a folder path from a FileList returned by <input webkitdirectory>.
- *
- * Electron: files have a real `.path`; we derive the root directory.
- * Browser:  files have `.webkitRelativePath` like "project/src/index.ts";
- *           we take the first segment as the folder name.
- */
 function extractPathFromFileList(files: FileList): string | null {
   if (!files.length) return null;
 
   const first = files[0] as File & { path?: string };
 
-  // Electron absolute path.
   if (first.path) {
     const sep = first.path.includes("\\") ? "\\" : "/";
     const parts = first.path.split(sep);
@@ -87,15 +83,12 @@ function extractPathFromFileList(files: FileList): string | null {
     return parts.slice(0, parts.length - relDepth).join(sep) || first.path;
   }
 
-  // Browser: webkitRelativePath = "rootFolder/sub/file.ts" → "rootFolder"
   if (first.webkitRelativePath) {
     return first.webkitRelativePath.split("/")[0];
   }
 
   return first.name;
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
 
 export function OnboardingWizard() {
   const session = loadSession();
@@ -123,7 +116,6 @@ export function OnboardingWizard() {
     relations: "—",
   });
 
-  // ── Drag-and-drop state ──
   const [isDragging, setIsDragging] = useState(false);
   const [droppedFolderName, setDroppedFolderName] = useState<string | null>(null);
   const dragCounterRef = useRef(0);
@@ -156,8 +148,6 @@ export function OnboardingWizard() {
   const removePattern = (pattern: string) => {
     setIgnoredPatterns((prev) => prev.filter((item) => item !== pattern));
   };
-
-  // ── Drag-and-drop handlers ────────────────────────────────────────────────
 
   const handleDragOver = (e: React.DragEvent<HTMLButtonElement>) => {
     e.preventDefault();
@@ -213,14 +203,12 @@ export function OnboardingWizard() {
     if (!looksAbsolute) {
       toast.warning(
         `Detected folder: "${folderName}". Your browser can't expose the full system path — please confirm or complete the path in the field below.`,
-        { duration: 6000 }
+        { duration: 6000 },
       );
     } else {
       toast.success(`Folder set: ${resolved}`);
     }
   };
-
-  // ── Folder browser ────────────────────────────────────────────────────────
 
   const handleBrowseClick = () => fileInputRef.current?.click();
 
@@ -241,7 +229,7 @@ export function OnboardingWizard() {
     if (!looksAbsolute) {
       toast.warning(
         `Selected: "${folderName}". Browser security limits full path access — please verify or complete the path below.`,
-        { duration: 6000 }
+        { duration: 6000 },
       );
     } else {
       toast.success(`Folder set: ${resolved}`);
@@ -249,8 +237,6 @@ export function OnboardingWizard() {
 
     e.target.value = "";
   };
-
-  // ─────────────────────────────────────────────────────────────────────────
 
   const handleBuild = async () => {
     if (building || buildDone) return;
@@ -266,7 +252,7 @@ export function OnboardingWizard() {
 
       const result = await indexRepo(
         { projectPath: selectedRepo.path, mode: "full", saveDebugJson: true, computeHash: true },
-        baseUrl
+        baseUrl,
       );
 
       const fileCount =
@@ -286,7 +272,7 @@ export function OnboardingWizard() {
           relations: edgeCount != null ? String(edgeCount) : "—",
         });
         setBuildError(
-          `The backend found 0 source files at:\n"${selectedRepo.path}"\n\nThis usually means the path doesn't exist on the server or has no supported files (.ts, .js, .py, .java, etc.).\n\nGo back and enter the real absolute path to your project on the server machine.`
+          `The backend found 0 source files at:\n"${selectedRepo.path}"\n\nThis usually means the path doesn't exist on the server or has no supported files (.ts, .js, .py, .java, etc.).\n\nGo back and enter the real absolute path to your project on the server machine.`,
         );
         toast.error("0 files indexed — check your project path");
         return;
@@ -317,377 +303,723 @@ export function OnboardingWizard() {
       setBuildDone(true);
       setBuilding(false);
       setBuildProgress(100);
-      const message = error instanceof Error ? error.message : "Indexing failed — check the backend is running";
+      const message =
+        error instanceof Error ? error.message : "Indexing failed — check the backend is running";
       setBuildError(message);
       toast.error(message);
     }
   };
 
   return (
-    <div className="mx-auto flex min-h-[calc(100vh-50px)] w-full max-w-[1200px] items-center justify-center px-6 py-10">
-      <div className="codeatlas-card w-full max-w-[560px] overflow-hidden rounded-[16px] shadow-[0_18px_50px_rgba(0,0,0,0.08)]">
-        <StepHeader step={step} />
+    <main
+      className="min-h-[calc(100vh-50px)]"
+      style={{
+        background:
+          "radial-gradient(circle at top, color-mix(in srgb, var(--purple) 10%, transparent), transparent 35%), var(--bg)",
+      }}
+    >
+      <section className="mx-auto max-w-[1280px] px-6 py-10">
+        <div
+          className="overflow-hidden rounded-[28px]"
+          style={{
+            background:
+              "linear-gradient(180deg, color-mix(in srgb, var(--surface) 96%, transparent), color-mix(in srgb, var(--surface) 100%, transparent))",
+            border: "1px solid var(--border)",
+            boxShadow: "0 24px 80px rgba(0,0,0,0.10)",
+          }}
+        >
+          <div className="grid lg:grid-cols-[320px_1fr]">
+            <aside
+              className="border-b p-6 lg:border-b-0 lg:border-r lg:p-8"
+              style={{ borderColor: "var(--border)" }}
+            >
+        
 
-        {step === 1 && (
-          <>
-            <div className="px-7 py-8">
-              <h2 className="mb-2 text-[18px] font-medium tracking-[-0.3px]">Select a repository</h2>
-              <p className="codeatlas-muted mb-6 text-[13px] leading-6">
-                Drop a folder, browse your file system, or paste an absolute path to begin analysis.
-              </p>
+             
+            
+              <div className="mt-8 space-y-4">
+                <ProgressStep
+                  stepNumber={1}
+                  title="Repository"
+                  description="Choose a project folder or paste a path"
+                  active={step === 1}
+                  done={step > 1}
+                  icon={<Folder className="h-3 w-3" />}
+                />
+                <ProgressStep
+                  stepNumber={2}
+                  title="Configure"
+                  description="Adjust analysis and extraction settings"
+                  active={step === 2}
+                  done={step > 2}
+                  icon={<Settings2 className="h-4 w-4" />}
+                />
+                <ProgressStep
+                  stepNumber={3}
+                  title="Build graph"
+                  description="Index entities and relationships"
+                  active={step === 3}
+                  done={buildDone && !buildError}
+                  icon={<Database className="h-4 w-4" />}
+                />
+              </div>
 
-              {/* ── Drop zone ── */}
-              <button
-                type="button"
-                onClick={handleBrowseClick}
-                onDragOver={handleDragOver}
-                onDragEnter={handleDragEnter}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
-                className="codeatlas-dashed mb-4 w-full rounded-[10px] px-6 py-8 text-center"
+              <div
+                className="mt-8 rounded-[20px] p-4"
                 style={{
-                  background: isDragging ? "var(--node-folder-bg)" : "transparent",
-                  borderColor: isDragging ? "var(--node-folder)" : undefined,
-                  borderStyle: isDragging ? "solid" : undefined,
-                  transform: isDragging ? "scale(1.01)" : "scale(1)",
-                  transition: "all 0.15s ease",
+                  background: "color-mix(in srgb, var(--surface2) 60%, transparent)",
+                  border: "1px solid var(--border)",
                 }}
               >
-                <div
-                  className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-[10px]"
-                  style={{
-                    background: isDragging ? "var(--node-folder)" : "var(--surface2)",
-                    transition: "background 0.15s ease",
-                  }}
-                >
-                  {isDragging ? (
-                    <UploadCloud className="h-5 w-5" style={{ color: "var(--surface)" }} />
-                  ) : droppedFolderName ? (
-                    <FolderOpen className="h-5 w-5" style={{ color: "var(--node-folder)" }} />
-                  ) : (
-                    <FolderOpen className="h-5 w-5" />
-                  )}
+                <div className="text-[12px] font-medium" style={{ color: "var(--text)" }}>
+                  Current selection
                 </div>
-
-                {isDragging ? (
-                  <>
-                    <h4 className="mb-1 text-[14px] font-medium" style={{ color: "var(--node-folder)" }}>
-                      Release to set folder
-                    </h4>
-                    <p className="text-[12px]" style={{ color: "var(--node-folder)", opacity: 0.7 }}>
-                      Drop your project folder here
-                    </p>
-                  </>
-                ) : droppedFolderName ? (
-                  <>
-                    <h4 className="mb-1 text-[14px] font-medium">{droppedFolderName}</h4>
-                    <p className="text-[12px] text-[var(--text3)]">
-                      Folder detected — confirm path below, or drop another
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <h4 className="mb-1 text-[14px] font-medium">Drop a folder here</h4>
-                    <p className="text-[12px] text-[var(--text3)]">
-                      or{" "}
-                      <span style={{ color: "var(--node-folder)", textDecoration: "underline", textUnderlineOffset: "2px" }}>
-                        click to browse your file system
-                      </span>
-                    </p>
-                  </>
-                )}
-              </button>
-
-              {/* Hidden folder input */}
-              <input
-                ref={fileInputRef}
-                type="file"
-                /* @ts-expect-error — webkitdirectory is non-standard */
-                webkitdirectory=""
-                multiple
-                style={{ display: "none" }}
-                onChange={handleFileInputChange}
-              />
-
-              {/* ── Path field ── */}
-              <div className="mb-4 rounded-[10px] border border-[var(--border2)] bg-[var(--surface2)]/50 p-4">
-                <label className="mb-2 block text-[12px] text-[var(--text2)]">
-                  Project path
-                  {droppedFolderName && (
-                    <span
-                      className="ml-2 rounded-full px-2 py-0.5 text-[10px]"
-                      style={{
-                        background: "var(--node-folder-bg)",
-                        color: "var(--node-folder)",
-                        border: "1px solid var(--node-folder-bg)",
-                      }}
-                    >
-                      auto-filled
-                    </span>
-                  )}
-                </label>
-                <input
-                  className="w-full rounded-[8px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[13px] outline-none focus:border-[var(--text)]"
-                  placeholder="C:/Users/hp/Desktop/CodeAtlas/example_files/simple_js_project"
-                  value={customPath}
-                  onChange={(e) => {
-                    setCustomPath(e.target.value);
-                    if (!e.target.value) setDroppedFolderName(null);
-                  }}
-                />
-                <p className="mt-2 text-[11px] text-[var(--text3)]">
-                  Drop or browse above to auto-fill, or paste the backend-accessible absolute path directly.
-                </p>
+                <div
+                  className="mt-2 text-[12px] leading-6"
+                  style={{ color: "var(--text3)" }}
+                >
+                  {selectedRepo.name}
+                </div>
+                <div
+                  className="mt-1 break-all text-[11px] leading-5"
+                  style={{ color: "var(--text3)" }}
+                >
+                  {selectedRepo.path}
+                </div>
               </div>
+            </aside>
 
-              {/* ── Recent repos ── */}
-              <p className="mb-2 text-[12px] text-[var(--text3)]">Recent repositories</p>
-              <div className="flex flex-col gap-2">
-                {demoRepos.map((repo) => {
-                  const selected = !customPath.trim() && repo.id === selectedRepoId;
-                  return (
-                    <button
-                      key={repo.id}
-                      type="button"
-                      onClick={() => {
-                        setSelectedRepoId(repo.id);
-                        setCustomPath("");
-                        setDroppedFolderName(null);
-                      }}
-                      className={`flex items-center gap-3 rounded-[8px] border px-4 py-3 text-left transition ${
-                        selected
-                          ? "border-[var(--text)] bg-[var(--surface2)]"
-                          : "border-[var(--border)] hover:bg-[var(--surface2)]"
-                      }`}
-                    >
-                      <div className="flex h-8 w-8 items-center justify-center rounded-[6px] bg-[var(--node-folder-bg)] text-[var(--node-folder)]">
-                        <Folder className="h-4 w-4" />
-                      </div>
-                      <div>
-                        <div className="text-[13px] font-medium">{repo.name}</div>
-                        <div className="text-[11px] text-[var(--text3)]">
-                          {repo.path} · {repo.meta}
-                        </div>
-                      </div>
-                      <div className="ml-auto flex h-[18px] w-[18px] items-center justify-center rounded-full border-[1.5px] border-[var(--border2)] bg-transparent text-[10px]">
-                        {selected ? <Check className="h-3 w-3" /> : null}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
+            <div className="p-6 md:p-8 lg:p-10">
+              {step === 1 && (
+                <>
+                  <PageHeader
+                    title="Select a repository"
+                    description="Drop a folder, browse your file system, or paste an absolute path to begin analysis."
+                  />
 
-            <WizardFooter step={step} onNext={() => setStep(2)} nextLabel="Next" />
-          </>
-        )}
-
-        {step === 2 && (
-          <>
-            <div className="px-7 py-8">
-              <h2 className="mb-2 text-[18px] font-medium tracking-[-0.3px]">Configure analysis</h2>
-              <p className="codeatlas-muted mb-6 text-[13px] leading-6">
-                Adjust what CodeAtlas will include or ignore when building the knowledge graph.
-              </p>
-
-              <section className="mb-6">
-                <label className="mb-2 block text-[12px] text-[var(--text2)]">Excluded directories &amp; files</label>
-                <div className="flex flex-wrap gap-2">
-                  {ignoredPatterns.map((pattern) => (
+                  <button
+                    type="button"
+                    onClick={handleBrowseClick}
+                    onDragOver={handleDragOver}
+                    onDragEnter={handleDragEnter}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                    className="w-full rounded-[24px] border border-dashed px-6 py-12 text-center transition"
+                    style={{
+                      borderColor: isDragging ? "var(--node-folder)" : "var(--border2)",
+                      background: isDragging
+                        ? "color-mix(in srgb, var(--node-folder-bg) 70%, transparent)"
+                        : "color-mix(in srgb, var(--surface2) 55%, transparent)",
+                      transform: isDragging ? "scale(1.01)" : "scale(1)",
+                    }}
+                  >
                     <div
-                      key={pattern}
-                      className="flex items-center gap-2 rounded-full border border-[var(--border2)] px-3 py-1 text-[12px] text-[var(--text2)]"
+                      className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl"
+                      style={{
+                        background: isDragging ? "var(--node-folder)" : "var(--surface)",
+                        color: isDragging ? "var(--surface)" : "var(--text)",
+                        border: `1px solid ${isDragging ? "var(--node-folder)" : "var(--border)"}`,
+                      }}
                     >
-                      <code>{pattern}</code>
-                      <button type="button" onClick={() => removePattern(pattern)} className="text-[14px] leading-none">
-                        ×
+                      {isDragging ? (
+                        <UploadCloud className="h-6 w-6" />
+                      ) : droppedFolderName ? (
+                        <FolderOpen className="h-6 w-6" style={{ color: "var(--node-folder)" }} />
+                      ) : (
+                        <FolderOpen className="h-6 w-6" />
+                      )}
+                    </div>
+
+                    {isDragging ? (
+                      <>
+                        <h3
+                          className="mt-5 text-[18px] font-semibold"
+                          style={{ color: "var(--node-folder)" }}
+                        >
+                          Release to set folder
+                        </h3>
+                        <p
+                          className="mt-2 text-[13px]"
+                          style={{ color: "var(--node-folder)", opacity: 0.8 }}
+                        >
+                          Drop your project folder here
+                        </p>
+                      </>
+                    ) : droppedFolderName ? (
+                      <>
+                        <h3
+                          className="mt-5 text-[18px] font-semibold"
+                          style={{ color: "var(--text)" }}
+                        >
+                          {droppedFolderName}
+                        </h3>
+                        <p className="mt-2 text-[13px]" style={{ color: "var(--text3)" }}>
+                          Folder detected — confirm the path below or choose another
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <h3
+                          className="mt-5 text-[18px] font-semibold"
+                          style={{ color: "var(--text)" }}
+                        >
+                          Drop a folder here
+                        </h3>
+                        <p className="mt-2 text-[13px]" style={{ color: "var(--text3)" }}>
+                          or click to browse your file system
+                        </p>
+                      </>
+                    )}
+                  </button>
+
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    // @ts-expect-error — webkitdirectory is non-standard
+                    webkitdirectory=""
+                    multiple
+                    style={{ display: "none" }}
+                    onChange={handleFileInputChange}
+                  />
+
+                  <section
+                    className="mt-6 rounded-[22px] p-5"
+                    style={{
+                      background: "color-mix(in srgb, var(--surface2) 55%, transparent)",
+                      border: "1px solid var(--border)",
+                    }}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <label
+                        className="text-[12px] font-medium"
+                        style={{ color: "var(--text2)" }}
+                      >
+                        Project path
+                      </label>
+
+                      {droppedFolderName && (
+                        <span
+                          className="rounded-full px-2.5 py-1 text-[10px] font-medium"
+                          style={{
+                            background: "var(--node-folder-bg)",
+                            color: "var(--node-folder)",
+                            border: "1px solid color-mix(in srgb, var(--node-folder) 15%, transparent)",
+                          }}
+                        >
+                          Auto-filled
+                        </span>
+                      )}
+                    </div>
+
+                    <input
+                      className="mt-3 w-full rounded-[12px] border px-4 py-3 text-[13px] outline-none transition"
+                      style={{
+                        borderColor: "var(--border)",
+                        background: "var(--surface)",
+                        color: "var(--text)",
+                      }}
+                      placeholder="C:/Users/hp/Desktop/CodeAtlas/example_files/simple_js_project"
+                      value={customPath}
+                      onChange={(e) => {
+                        setCustomPath(e.target.value);
+                        if (!e.target.value) setDroppedFolderName(null);
+                      }}
+                    />
+
+                    <p className="mt-3 text-[11px] leading-6" style={{ color: "var(--text3)" }}>
+                      Drop or browse above to auto-fill, or paste the backend-accessible absolute path directly.
+                    </p>
+                  </section>
+
+                  <section className="mt-8">
+                    <div
+                      className="mb-3 text-[12px] font-medium uppercase tracking-[0.12em]"
+                      style={{ color: "var(--text3)" }}
+                    >
+                      Recent repositories
+                    </div>
+
+                    <div className="space-y-3">
+                      {demoRepos.map((repo) => {
+                        const selected = !customPath.trim() && repo.id === selectedRepoId;
+
+                        return (
+                          <button
+                            key={repo.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedRepoId(repo.id);
+                              setCustomPath("");
+                              setDroppedFolderName(null);
+                            }}
+                            className="flex w-full items-center gap-4 rounded-[18px] border px-4 py-4 text-left transition"
+                            style={{
+                              borderColor: selected ? "var(--text)" : "var(--border)",
+                              background: selected
+                                ? "color-mix(in srgb, var(--surface2) 90%, transparent)"
+                                : "transparent",
+                            }}
+                          >
+                            <div
+                              className="flex h-10 w-10 items-center justify-center rounded-xl"
+                              style={{
+                                background: "var(--node-folder-bg)",
+                                color: "var(--node-folder)",
+                              }}
+                            >
+                              <Folder className="h-4 w-4" />
+                            </div>
+
+                            <div className="min-w-0 flex-1">
+                              <div
+                                className="truncate text-[14px] font-medium"
+                                style={{ color: "var(--text)" }}
+                              >
+                                {repo.name}
+                              </div>
+                              <div
+                                className="truncate text-[11px]"
+                                style={{ color: "var(--text3)" }}
+                              >
+                                {repo.path}
+                              </div>
+                              <div
+                                className="mt-1 text-[11px]"
+                                style={{ color: "var(--text3)" }}
+                              >
+                                {repo.meta}
+                              </div>
+                            </div>
+
+                            <div
+                              className="flex h-6 w-6 items-center justify-center rounded-full border"
+                              style={{
+                                borderColor: selected ? "var(--text)" : "var(--border2)",
+                                color: selected ? "var(--text)" : "transparent",
+                              }}
+                            >
+                              <Check className="h-3.5 w-3.5" />
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </section>
+
+                  <WizardFooter
+                    step={step}
+                    onNext={() => setStep(2)}
+                    nextLabel="Continue"
+                  />
+                </>
+              )}
+
+              {step === 2 && (
+                <>
+                  <PageHeader
+                    title="Configure analysis"
+                    description="Adjust what CodeAtlas includes or ignores while building the knowledge graph."
+                  />
+
+                  <ConfigCard
+                    title="Excluded directories & files"
+                    description="These patterns will be ignored during indexing."
+                  >
+                    <div className="flex flex-wrap gap-2">
+                      {ignoredPatterns.map((pattern) => (
+                        <div
+                          key={pattern}
+                          className="flex items-center gap-2 rounded-full border px-3 py-1.5 text-[12px]"
+                          style={{
+                            borderColor: "var(--border)",
+                            background: "color-mix(in srgb, var(--surface) 96%, transparent)",
+                            color: "var(--text2)",
+                          }}
+                        >
+                          <code>{pattern}</code>
+                          <button
+                            type="button"
+                            onClick={() => removePattern(pattern)}
+                            className="text-[14px] leading-none"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          toast.info(
+                            "Add more patterns by extending ignoredPatterns in the component state.",
+                          )
+                        }
+                        className="rounded-full border border-dashed px-3 py-1.5 text-[12px]"
+                        style={{
+                          borderColor: "var(--border2)",
+                          color: "var(--text2)",
+                        }}
+                      >
+                        + Add pattern
                       </button>
                     </div>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() => toast.info("Add more patterns by extending ignoredPatterns in the component state.")}
-                    className="rounded-full border border-dashed border-[var(--border2)] px-3 py-1 text-[12px] text-[var(--text2)]"
-                  >
-                    + Add pattern
-                  </button>
-                </div>
-              </section>
+                  </ConfigCard>
 
-              <section className="mb-6">
-                <label className="mb-2 block text-[12px] text-[var(--text2)]">Relationship types to extract</label>
-                <div className="flex flex-wrap gap-2">
-                  {relationshipTypes.map((type) => (
+                  <ConfigCard
+                    title="Relationship types"
+                    description="Core relations extracted during graph construction."
+                  >
+                    <div className="flex flex-wrap gap-2">
+                      {relationshipTypes.map((type) => (
+                        <div
+                          key={type}
+                          className="rounded-full px-3 py-1.5 text-[12px] font-medium"
+                          style={{
+                            backgroundColor:
+                              type === "CONTAINS"
+                                ? "var(--node-folder-bg)"
+                                : type === "IMPORTS"
+                                  ? "var(--node-file-bg)"
+                                  : "var(--node-fn-bg)",
+                            color:
+                              type === "CONTAINS"
+                                ? "var(--node-folder)"
+                                : type === "IMPORTS"
+                                  ? "var(--node-file)"
+                                  : "var(--node-fn)",
+                          }}
+                        >
+                          <code>{type}</code>
+                        </div>
+                      ))}
+                    </div>
+                  </ConfigCard>
+
+                  <ConfigCard
+                    title="AI context limit"
+                    description="Set the maximum number of nodes included as context."
+                  >
+                    <div className="flex items-center gap-4">
+                      <input
+                        className="w-full accent-[var(--text)]"
+                        type="range"
+                        min={5}
+                        max={50}
+                        value={aiContextLimit}
+                        onChange={(e) => setAiContextLimit(Number(e.target.value))}
+                      />
+                      <div
+                        className="min-w-[72px] rounded-xl px-3 py-2 text-center text-[13px] font-semibold"
+                        style={{
+                          background: "var(--surface)",
+                          color: "var(--text)",
+                          border: "1px solid var(--border)",
+                        }}
+                      >
+                        {aiContextLimit}
+                      </div>
+                    </div>
+                    <div className="mt-2 text-[11px]" style={{ color: "var(--text3)" }}>
+                      nodes max
+                    </div>
+                  </ConfigCard>
+
+                  <WizardFooter
+                    step={step}
+                    onBack={() => setStep(1)}
+                    onNext={handleBuild}
+                    nextLabel="Build graph"
+                  />
+                </>
+              )}
+
+              {step === 3 && (
+                <>
+                  <PageHeader
+                    title="Building knowledge graph"
+                    description="CodeAtlas is validating the repository, extracting entities, and identifying relationships."
+                  />
+
+                  <div
+                    className="rounded-[22px] p-5"
+                    style={{
+                      background: "color-mix(in srgb, var(--surface2) 55%, transparent)",
+                      border: "1px solid var(--border)",
+                    }}
+                  >
+                    <div className="flex items-center gap-4">
+                      <div
+                        className="flex h-11 w-11 items-center justify-center rounded-xl"
+                        style={{
+                          background: "var(--node-folder-bg)",
+                          color: "var(--node-folder)",
+                        }}
+                      >
+                        <Folder className="h-5 w-5" />
+                      </div>
+
+                      <div className="min-w-0">
+                        <div
+                          className="truncate text-[15px] font-medium"
+                          style={{ color: "var(--text)" }}
+                        >
+                          {selectedRepo.name}
+                        </div>
+                        <div
+                          className="truncate text-[12px]"
+                          style={{ color: "var(--text3)" }}
+                        >
+                          {selectedRepo.path}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-6">
+                      <div
+                        className="mb-2 flex items-center justify-between text-[11px]"
+                        style={{ color: "var(--text3)" }}
+                      >
+                        <span>Build progress</span>
+                        <span>{Math.round(buildProgress)}%</span>
+                      </div>
+
+                      <div
+                        className="h-[8px] overflow-hidden rounded-full"
+                        style={{ background: "var(--surface)" }}
+                      >
+                        <div
+                          className="h-full rounded-full transition-all duration-500"
+                          style={{
+                            width: `${buildProgress}%`,
+                            background: "linear-gradient(90deg, var(--text), var(--teal))",
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-6 space-y-3">
+                    <BuildRow
+                      done={buildDone && !buildError}
+                      failed={buildError != null && buildStats.files === "0 files"}
+                      label="Validating repository"
+                      sub="Found supported source files"
+                      count={buildStats.files !== "—" ? buildStats.files : undefined}
+                    />
+                    <BuildRow
+                      done={buildDone && !buildError}
+                      label="Extracting entities"
+                      sub="Folders, files, classes, and functions"
+                      count={buildStats.nodes !== "—" ? buildStats.nodes : undefined}
+                    />
+                    <BuildRow
+                      active={!buildDone}
+                      done={buildDone && !buildError}
+                      label="Identifying relationships"
+                      sub="CONTAINS · IMPORTS · CALLS"
+                      count={
+                        buildDone
+                          ? buildStats.relations !== "—"
+                            ? buildStats.relations
+                            : undefined
+                          : "Building…"
+                      }
+                    />
+                    <BuildRow
+                      done={buildDone && !buildError}
+                      label="Persisting graph"
+                      sub="Saving repoId into session storage"
+                    />
+                  </div>
+
+                  {buildError && (
                     <div
-                      key={type}
-                      className="rounded-full px-3 py-1 text-[12px]"
+                      className="mt-5 rounded-[18px] p-5 text-[12px] leading-6"
                       style={{
-                        backgroundColor:
-                          type === "CONTAINS" ? "var(--node-folder-bg)" : type === "IMPORTS" ? "var(--node-file-bg)" : "var(--node-fn-bg)",
-                        color:
-                          type === "CONTAINS" ? "var(--node-folder)" : type === "IMPORTS" ? "var(--node-file)" : "var(--node-fn)",
+                        background: "var(--red-l)",
+                        border: "1px solid var(--red-b)",
+                        color: "var(--red)",
                       }}
                     >
-                      <code>{type}</code>
+                      <div className="mb-2 text-[13px] font-semibold">
+                        Indexing did not complete
+                      </div>
+                      <pre className="whitespace-pre-wrap font-sans">{buildError}</pre>
                     </div>
-                  ))}
-                </div>
-              </section>
+                  )}
 
-              <section>
-                <label className="mb-2 block text-[12px] text-[var(--text2)]">AI context limit</label>
-                <div className="flex items-center gap-3">
-                  <input
-                    className="w-full"
-                    type="range"
-                    min={5}
-                    max={50}
-                    value={aiContextLimit}
-                    onChange={(e) => setAiContextLimit(Number(e.target.value))}
-                  />
-                  <span className="min-w-8 text-[13px] font-medium">{aiContextLimit}</span>
-                  <span className="text-[12px] text-[var(--text3)]">nodes max</span>
-                </div>
-              </section>
-            </div>
+                  <div
+                    className="mt-8 flex items-center justify-between border-t pt-6"
+                    style={{ borderColor: "var(--border)" }}
+                  >
+                    <span className="text-[12px]" style={{ color: "var(--text3)" }}>
+                      {buildError ? "Fix the project path and retry" : "Build in progress"}
+                    </span>
 
-            <WizardFooter step={step} onBack={() => setStep(1)} onNext={handleBuild} nextLabel="Build graph" />
-          </>
-        )}
-
-        {step === 3 && (
-          <>
-            <div className="px-7 py-8">
-              <div className="mb-7 flex items-center gap-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-[8px] bg-[var(--node-folder-bg)] text-[var(--node-folder)]">
-                  <Folder className="h-4 w-4" />
-                </div>
-                <div>
-                  <div className="text-[16px] font-medium">{selectedRepo.name}</div>
-                  <div className="text-[12px] text-[var(--text3)]">{selectedRepo.path}</div>
-                </div>
-              </div>
-
-              <div className="mb-6">
-                <div className="mb-2 flex items-center justify-between text-[11px] text-[var(--text3)]">
-                  <span>Building knowledge graph</span>
-                  <span>{Math.round(buildProgress)}%</span>
-                </div>
-                <div className="h-[4px] overflow-hidden rounded bg-[var(--surface2)]">
-                  <div className="h-full rounded bg-[var(--text)] transition-all duration-500" style={{ width: `${buildProgress}%` }} />
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                <BuildRow
-                  done={buildDone && !buildError}
-                  failed={buildError != null && buildStats.files === "0 files"}
-                  label="Validating repository"
-                  sub="Found supported source files"
-                  count={buildStats.files !== "—" ? buildStats.files : undefined}
-                />
-                <BuildRow
-                  done={buildDone && !buildError}
-                  label="Extracting entities"
-                  sub="Folders, files, classes, functions"
-                  count={buildStats.nodes !== "—" ? buildStats.nodes : undefined}
-                />
-                <BuildRow
-                  active={!buildDone}
-                  done={buildDone && !buildError}
-                  label="Identifying relationships"
-                  sub="CONTAINS · IMPORTS · CALLS"
-                  count={buildDone ? (buildStats.relations !== "—" ? buildStats.relations : undefined) : "Building…"}
-                />
-                <BuildRow
-                  done={buildDone && !buildError}
-                  label="Persisting graph"
-                  sub="Saving repoId into session storage"
-                />
-              </div>
-
-              {buildError && (
-                <div
-                  className="mt-5 rounded-[10px] p-4 text-[12px] leading-6"
-                  style={{ background: "var(--red-l)", border: "1px solid var(--red-b)", color: "var(--red)" }}
-                >
-                  <div className="mb-2 font-semibold text-[13px]">⚠ Indexing did not complete</div>
-                  <pre className="whitespace-pre-wrap font-sans" style={{ color: "var(--red)" }}>
-                    {buildError}
-                  </pre>
-                </div>
+                    <div className="flex items-center gap-3">
+                      {buildError ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setStep(1);
+                            setBuildError(null);
+                            setBuildDone(false);
+                            setBuildProgress(0);
+                          }}
+                          className="inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-[12px] font-medium"
+                          style={{
+                            background: "var(--text)",
+                            color: "var(--surface)",
+                          }}
+                        >
+                          <ArrowLeft className="h-3.5 w-3.5" />
+                          Fix project path
+                        </button>
+                      ) : (
+                        <>
+                          <Link
+                            to="/graph"
+                            className="rounded-xl border px-4 py-2.5 text-[12px] font-medium"
+                            style={{
+                              borderColor: "var(--border2)",
+                              color: "var(--text)",
+                            }}
+                          >
+                            Open existing graph
+                          </Link>
+                          <button
+                            type="button"
+                            onClick={() => navigate({ to: "/graph" })}
+                            disabled={!buildDone}
+                            className="inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-[12px] font-medium disabled:opacity-40"
+                            style={{
+                              background: "var(--text)",
+                              color: "var(--surface)",
+                            }}
+                          >
+                            Open Explorer
+                            <ArrowRight className="h-3.5 w-3.5" />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </>
               )}
             </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  );
+}
 
-            <div className="flex items-center justify-between border-t border-[var(--border)] px-7 py-5">
-              <span className="text-[12px] text-[var(--text3)]">
-                {buildError ? "Fix path and retry" : "Build progress"}
-              </span>
-              <div className="flex items-center gap-2">
-                {buildError ? (
-                  <button
-                    type="button"
-                    onClick={() => { setStep(1); setBuildError(null); setBuildDone(false); setBuildProgress(0); }}
-                    className="inline-flex items-center gap-2 rounded-[6px] bg-[var(--text)] px-3 py-2 text-[12px] text-[var(--surface)]"
-                  >
-                    <ArrowLeft className="h-3.5 w-3.5" /> Fix project path
-                  </button>
-                ) : (
-                  <>
-                    <Link
-                      to="/graph"
-                      className="rounded-[6px] border border-[var(--border2)] px-3 py-2 text-[12px] hover:bg-[var(--surface2)]"
-                    >
-                      Open existing graph
-                    </Link>
-                    <button
-                      type="button"
-                      onClick={() => navigate({ to: "/graph" })}
-                      disabled={!buildDone}
-                      className="inline-flex items-center gap-2 rounded-[6px] bg-[var(--text)] px-3 py-2 text-[12px] text-[var(--surface)] disabled:opacity-40"
-                    >
-                      Open Explorer <ArrowRight className="h-3.5 w-3.5" />
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-          </>
-        )}
-      </div>
+function PageHeader({
+  title,
+  description,
+}: {
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="mb-8">
+      <h2
+        className="text-[26px] font-semibold tracking-[-0.04em]"
+        style={{ color: "var(--text)" }}
+      >
+        {title}
+      </h2>
+      <p className="mt-2 max-w-2xl text-[13px] leading-7" style={{ color: "var(--text2)" }}>
+        {description}
+      </p>
     </div>
   );
 }
 
-// ── Sub-components ────────────────────────────────────────────────────────────
-
-function StepHeader({ step }: { step: Step }) {
-  const isDone = (value: Step) => step > value;
-  const isActive = (value: Step) => step === value;
-
+function ConfigCard({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description: string;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="flex items-center gap-2 border-b border-[var(--border)] px-7 py-5">
-      {([
-        [1, "Repository"],
-        [2, "Configure"],
-        [3, "Build graph"],
-      ] as [Step, string][]).map(([value, label], index) => (
-        <div key={label} className="flex flex-1 items-center gap-2">
-          <div
-            className={`flex h-[22px] w-[22px] items-center justify-center rounded-full border-[1.5px] text-[11px] ${
-              isDone(value)
-                ? "border-[var(--text)] bg-[var(--text)] text-[var(--surface)]"
-                : isActive(value)
-                  ? "border-[var(--text)] text-[var(--text)]"
-                  : "border-[var(--border2)] text-[var(--text3)]"
-            }`}
-          >
-            {isDone(value) ? <Check className="h-3 w-3" /> : value}
-          </div>
-          <span className={`text-[12px] ${isActive(value) ? "text-[var(--text)]" : "text-[var(--text3)]"}`}>{label}</span>
-          {index < 2 ? <div className="mx-1 h-px flex-1 bg-[var(--border2)]" /> : null}
+    <section
+      className="mb-5 rounded-[22px] p-5"
+      style={{
+        background: "color-mix(in srgb, var(--surface2) 50%, transparent)",
+        border: "1px solid var(--border)",
+      }}
+    >
+      <h3 className="text-[14px] font-semibold" style={{ color: "var(--text)" }}>
+        {title}
+      </h3>
+      <p className="mt-1 text-[12px] leading-6" style={{ color: "var(--text3)" }}>
+        {description}
+      </p>
+      <div className="mt-4">{children}</div>
+    </section>
+  );
+}
+
+function ProgressStep({
+  stepNumber,
+  title,
+  description,
+  active,
+  done,
+  icon,
+}: {
+  stepNumber: number;
+  title: string;
+  description: string;
+  active: boolean;
+  done: boolean;
+  icon: React.ReactNode;
+}) {
+  return (
+    <div
+      className="rounded-[18px] p-4"
+      style={{
+        background: active
+          ? "color-mix(in srgb, var(--purple) 7%, transparent)"
+          : "color-mix(in srgb, var(--surface2) 45%, transparent)",
+        border: `1px solid ${
+          active ? "color-mix(in srgb, var(--purple) 18%, transparent)" : "var(--border)"
+        }`,
+      }}
+    >
+      <div className="flex items-start gap-3">
+        <div
+          className="flex h-9 w-9 items-center justify-center rounded-full"
+          style={{
+            background: done || active ? "var(--text)" : "var(--surface)",
+            color: done || active ? "var(--surface)" : "var(--text2)",
+            border: done || active ? "none" : "1px solid var(--border)",
+          }}
+        >
+          {done ? <Check className="h-4 w-4" /> : icon}
         </div>
-      ))}
+
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span
+              className="text-[11px] font-medium uppercase tracking-[0.12em]"
+              style={{ color: active ? "var(--purple)" : "var(--text3)" }}
+            >
+              Step {stepNumber}
+            </span>
+          </div>
+          <div className="mt-1 text-[14px] font-semibold" style={{ color: "var(--text)" }}>
+            {title}
+          </div>
+          <div className="mt-1 text-[12px] leading-6" style={{ color: "var(--text3)" }}>
+            {description}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -704,29 +1036,50 @@ function WizardFooter({
   nextLabel: string;
 }) {
   return (
-    <div className="flex items-center justify-between border-t border-[var(--border)] px-7 py-5">
+    <div
+      className="mt-8 flex items-center justify-between border-t pt-6"
+      style={{ borderColor: "var(--border)" }}
+    >
       <div className="flex items-center gap-3">
         {onBack ? (
-          <button type="button" onClick={onBack} className="inline-flex items-center gap-1 text-[12px] text-[var(--text2)] hover:text-[var(--text)]">
-            <ArrowLeft className="h-3.5 w-3.5" /> Back
+          <button
+            type="button"
+            onClick={onBack}
+            className="inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-[12px] font-medium"
+            style={{
+              borderColor: "var(--border)",
+              color: "var(--text)",
+            }}
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+            Back
           </button>
         ) : (
-          <div className="flex gap-1.5">
+          <div className="flex gap-2">
             {[1, 2, 3].map((dot) => (
               <span
                 key={dot}
-                className={`h-[6px] w-[6px] rounded-full ${dot === step ? "bg-[var(--text)]" : "bg-[var(--border2)]"}`}
+                className="h-[7px] w-[7px] rounded-full"
+                style={{
+                  background: dot === step ? "var(--text)" : "var(--border2)",
+                }}
               />
             ))}
           </div>
         )}
       </div>
+
       <button
         type="button"
         onClick={onNext}
-        className="inline-flex items-center gap-2 rounded-[6px] bg-[var(--text)] px-3 py-2 text-[12px] text-[var(--surface)]"
+        className="inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-[12px] font-medium"
+        style={{
+          background: "var(--text)",
+          color: "var(--surface)",
+        }}
       >
-        {nextLabel} <ArrowRight className="h-3.5 w-3.5" />
+        {nextLabel}
+        <ArrowRight className="h-3.5 w-3.5" />
       </button>
     </div>
   );
@@ -748,26 +1101,64 @@ function BuildRow({
   failed?: boolean;
 }) {
   return (
-    <div className="flex items-start gap-3 border-b border-[var(--border)] py-3 last:border-b-0">
+    <div
+      className="flex items-start gap-4 rounded-[18px] p-4"
+      style={{
+        background: "color-mix(in srgb, var(--surface2) 45%, transparent)",
+        border: "1px solid var(--border)",
+      }}
+    >
       <div
-        className={`mt-0.5 flex h-7 w-7 items-center justify-center rounded-full border-[1.5px] ${
-          failed
-            ? "border-[var(--red-b)] bg-[var(--red-l)] text-[var(--red)]"
-            : done
-              ? "border-[var(--teal-b)] bg-[var(--teal-l)] text-[var(--teal)]"
-              : active
-                ? "codeatlas-progress-pulse border-[var(--text)] text-[var(--text)]"
-                : "border-[var(--border2)] text-[var(--text3)]"
+        className={`mt-0.5 flex h-8 w-8 items-center justify-center rounded-full border ${
+          active ? "codeatlas-progress-pulse" : ""
         }`}
+        style={{
+          borderColor: failed
+            ? "var(--red-b)"
+            : done
+              ? "var(--teal-b)"
+              : active
+                ? "var(--text)"
+                : "var(--border2)",
+          background: failed
+            ? "var(--red-l)"
+            : done
+              ? "var(--teal-l)"
+              : active
+                ? "color-mix(in srgb, var(--text) 8%, transparent)"
+                : "transparent",
+          color: failed
+            ? "var(--red)"
+            : done
+              ? "var(--teal)"
+              : active
+                ? "var(--text)"
+                : "var(--text3)",
+        }}
       >
-        {failed ? <span style={{ fontSize: 14 }}>✕</span> : done ? <Check className="h-3.5 w-3.5" /> : null}
+        {failed ? (
+          <span style={{ fontSize: 14 }}>✕</span>
+        ) : done ? (
+          <Check className="h-4 w-4" />
+        ) : null}
       </div>
-      <div className="flex-1">
-        <div className="text-[13px] font-medium">{label}</div>
-        <div className="text-[12px] text-[var(--text3)]">{sub}</div>
+
+      <div className="min-w-0 flex-1">
+        <div className="text-[14px] font-medium" style={{ color: "var(--text)" }}>
+          {label}
+        </div>
+        <div className="mt-1 text-[12px] leading-6" style={{ color: "var(--text3)" }}>
+          {sub}
+        </div>
       </div>
+
       {count ? (
-        <div className="text-[11px]" style={{ color: failed || count === "0 files" ? "var(--red)" : "var(--teal)" }}>
+        <div
+          className="text-[11px] font-medium"
+          style={{
+            color: failed || count === "0 files" ? "var(--red)" : "var(--teal)",
+          }}
+        >
           {count}
         </div>
       ) : null}

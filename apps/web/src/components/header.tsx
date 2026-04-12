@@ -4,11 +4,11 @@ import { color } from "d3";
 
 const NAV_LINKS = [
   { to: "/",           label: "Home"       },
-  { to: "/onboarding", label: "Onboarding" },
+  { to: "/onboarding", label: "Onboarding" }, 
+   { to: "/faquestions",      label: "FAQ"      },
   { to: "/indexing",   label: "Indexing"   },
   { to: "/ir",         label: "IR"         },
   { to: "/analytics",  label: "Analytics"  },
-  { to: "/faquestions",      label: "FAQ"      },
 
 ] as const;
 

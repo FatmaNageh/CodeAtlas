@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
 	ArrowLeft,
@@ -720,9 +720,20 @@ function GraphExplorerPage() {
 	}, [filteredNodes, depthMap]);
 
 	const repoName = useMemo(() => {
-		if (!repoId) return "No repository loaded";
-		return repoId;
-	}, [repoId]);
+		const cleanRoot = repoRoot?.trim();
+
+		if (cleanRoot) {
+			const normalized = cleanRoot.replace(/\\/g, "/");
+			const parts = normalized.split("/").filter(Boolean);
+			return parts[parts.length - 1] || cleanRoot;
+		}
+
+		if (repoId?.trim()) {
+			return `Repository ${repoId.slice(0, 8)}`;
+		}
+
+		return "No repository loaded";
+	}, [repoRoot, repoId]);
 
 	// ── Re-index shortcut ────────────────────────────────────────────────────
 	const handleReIndex = async () => {
