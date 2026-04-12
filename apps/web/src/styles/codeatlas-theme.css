@@ -1,33 +1,43 @@
-/* ── CodeAtlas Design Tokens ─────────────────────────────── */
+/* =============================================================================
+   CodeAtlas — Design Token System
+   Single source of truth for every color, surface, border, and text shade.
+   Consumed by both custom components (var(--t0), var(--s0)…) and shadcn
+   components (var(--background), var(--primary)…) via the bridges below.
 
+   Load order (in __root.tsx):
+     1. index.css     — Tailwind base, fonts, shadcn @theme inline mapping
+     2. this file     — sets all raw tokens + overrides shadcn vars to match
+
+   Dark mode: next-themes adds `.dark` to <html>; all tokens flip here.
+   ============================================================================= */
+
+/* ── 1. Raw palette tokens ──────────────────────────────────────────────────── */
 :root {
-  /* Backgrounds */
-  --bg:  #f4f3f0;
-  --s0:  #ffffff;
-  --s1:  #f0efe9;
-  --s2:  #e6e5de;
-  --s3:  #d9d8d0;
+  /* Surfaces */
+  --bg:  #f4f3f0;   /* page canvas          */
+  --s0:  #ffffff;   /* card / panel         */
+  --s1:  #f0efe9;   /* hover / subtle lift  */
+  --s2:  #e6e5de;   /* input / code bg      */
+  --s3:  #d9d8d0;   /* strong divider       */
 
   /* Borders */
-  --b0: rgba(0, 0, 0, 0.045);
-  --b1: rgba(0, 0, 0, 0.09);
-  --b2: rgba(0, 0, 0, 0.16);
+  --b0: rgba(0,0,0,0.045);  /* hairline  */
+  --b1: rgba(0,0,0,0.09);   /* default   */
+  --b2: rgba(0,0,0,0.16);   /* emphasis  */
 
   /* Text */
-  --t0: #0e0e0c;
-  --t1: #3d3d39;
-  --t2: #7a7a75;
-  --t3: #b5b5ae;
+  --t0: #0e0e0c;   /* primary   */
+  --t1: #3d3d39;   /* secondary */
+  --t2: #7a7a75;   /* muted     */
+  --t3: #b5b5ae;   /* hint      */
 
-  /* ── Semantic colors ── */
-
-  /* Purple / Folder */
+  /* Purple — folders / primary accent */
   --purple:   #6d28d9;
   --purple-l: #ede9fe;
   --purple-b: #c4b5fd;
   --purple-h: #5b21b6;
 
-  /* Blue / File */
+  /* Blue — files */
   --blue:   #0369a1;
   --blue-l: #e0f2fe;
   --blue-b: #7dd3fc;
@@ -39,7 +49,7 @@
   --teal-b: #5eead4;
   --teal-h: #0d6b62;
 
-  /* Amber / Class */
+  /* Amber — classes */
   --amber:   #b45309;
   --amber-l: #fef3c7;
   --amber-b: #fcd34d;
@@ -50,7 +60,7 @@
   --red-l: #fee2e2;
   --red-b: #fca5a5;
 
-  /* Green / Function */
+  /* Green — functions */
   --green:   #047857;
   --green-l: #d1fae5;
   --green-b: #6ee7b7;
@@ -60,58 +70,90 @@
   --coral:   #be4b15;
   --coral-l: #ffedd5;
   --coral-b: #fb923c;
+}
 
-  /* ── Aliases ── */
+/* ── 2. Semantic aliases (used by OnboardingWizard + shared components) ─────── */
+:root {
   --surface:  var(--s0);
   --surface2: var(--s1);
-  --border:   var(--b1);
-  --border2:  var(--b2);
   --text:     var(--t0);
   --text2:    var(--t1);
   --text3:    var(--t2);
 
-  /* ── Graph node tokens ── */
+  /* Graph node tokens */
   --node-folder:    var(--purple);
   --node-folder-bg: var(--purple-l);
   --node-folder-b:  var(--purple-b);
+  --node-file:      var(--blue);
+  --node-file-bg:   var(--blue-l);
+  --node-file-b:    var(--blue-b);
+  --node-fn:        var(--green);
+  --node-fn-bg:     var(--green-l);
+  --node-fn-b:      var(--green-b);
+  --node-class:     var(--amber);
+  --node-class-bg:  var(--amber-l);
+  --node-class-b:   var(--amber-b);
 
-  --node-file:    var(--blue);
-  --node-file-bg: var(--blue-l);
-  --node-file-b:  var(--blue-b);
-
-  --node-fn:    var(--green);
-  --node-fn-bg: var(--green-l);
-  --node-fn-b:  var(--green-b);
-
-  --node-class:    var(--amber);
-  --node-class-bg: var(--amber-l);
-  --node-class-b:  var(--amber-b);
-
-  /* ── Graph canvas ── */
-  --graph-bg:        #f0efe9;
-  --graph-dot-color: rgba(0, 0, 0, 0.07);
+  /* Graph canvas */
+  --graph-bg:        var(--s1);
+  --graph-dot-color: rgba(0,0,0,0.07);
   --graph-grid-size: 28px;
 
-  /* ── Edge colors ── */
+  /* Edge colors */
   --edge-contains: #7c3aed;
   --edge-imports:  #0369a1;
   --edge-calls:    #047857;
 }
 
-/* ─────────────────────────────────────────────────────────── */
-/*  Dark mode                                                   */
-/* ─────────────────────────────────────────────────────────── */
+/* ── 3. shadcn variable bridge (light) ──────────────────────────────────────── 
+   shadcn components read --background, --primary, --popover, etc.
+   We remap them here to match codeatlas tokens exactly, so shadcn
+   Buttons, DropdownMenus, Toasters, and Inputs all render on-brand.
+   ──────────────────────────────────────────────────────────────────────────── */
+:root {
+  --background:           var(--bg);   /* #f4f3f0 */
+  --foreground:           var(--t0);   /* #0e0e0c */
+
+  --card:                 var(--s0);   /* #ffffff  */
+  --card-foreground:      var(--t0);
+
+  --popover:              var(--s0);
+  --popover-foreground:   var(--t0);
+
+  --primary:              var(--purple);   /* #6d28d9 */
+  --primary-foreground:   #ffffff;
+
+  --secondary:            var(--s1);       /* #f0efe9 */
+  --secondary-foreground: var(--t0);
+
+  --muted:                var(--s1);
+  --muted-foreground:     var(--t2);       /* #7a7a75 */
+
+  --accent:               var(--purple-l); /* #ede9fe */
+  --accent-foreground:    var(--purple);
+
+  --destructive:          var(--red);      /* #b91c1c */
+
+  --border:               var(--b1);       /* rgba(0,0,0,0.09) */
+  --input:                var(--b1);
+  --ring:                 color-mix(in srgb, var(--purple) 40%, transparent);
+}
+
+/* ── 4. Dark mode tokens ────────────────────────────────────────────────────── */
 .dark {
+  /* Surfaces */
   --bg:  #0b0b0a;
   --s0:  #131312;
   --s1:  #1a1a18;
   --s2:  #222220;
   --s3:  #2b2b28;
 
+  /* Borders */
   --b0: rgba(255,255,255,0.04);
   --b1: rgba(255,255,255,0.08);
   --b2: rgba(255,255,255,0.13);
 
+  /* Text */
   --t0: #f0f0ea;
   --t1: #8f8f89;
   --t2: #555550;
@@ -158,34 +200,69 @@
   --coral-b: #7c2d12;
 
   /* Graph canvas */
-  --graph-bg:        #0b0b0a;
+  --graph-bg:        var(--bg);
   --graph-dot-color: rgba(255,255,255,0.06);
 
   /* Edge colors */
   --edge-contains: #a78bfa;
   --edge-imports:  #38bdf8;
   --edge-calls:    #34d399;
+
+  /* shadcn bridge — dark overrides */
+  --background:           var(--bg);
+  --foreground:           var(--t0);
+  --card:                 var(--s0);
+  --card-foreground:      var(--t0);
+  --popover:              var(--s0);
+  --popover-foreground:   var(--t0);
+  --primary:              var(--purple);
+  --primary-foreground:   var(--bg);
+  --secondary:            var(--s1);
+  --secondary-foreground: var(--t0);
+  --muted:                var(--s1);
+  --muted-foreground:     var(--t2);
+  --accent:               var(--purple-l);
+  --accent-foreground:    var(--purple);
+  --destructive:          var(--red);
+  --border:               var(--b1);
+  --input:                var(--b1);
+  --ring:                 color-mix(in srgb, var(--purple) 40%, transparent);
 }
 
-/* ─────────────────────────────────────────────────────────── */
-/*  Utility classes                                             */
-/* ─────────────────────────────────────────────────────────── */
+/* ── 5. Global utility classes ──────────────────────────────────────────────── */
 
+/* Main app wrapper — set by RootComponent in __root.tsx */
 .codeatlas-shell {
   background: var(--bg);
   color: var(--t0);
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
+/* Card surface */
 .codeatlas-card {
-  background: var(--surface);
-  border: 0.5px solid var(--border2);
+  background: var(--s0);
+  border: 0.5px solid var(--b2);
+  border-radius: 12px;
 }
 
-.codeatlas-muted   { color: var(--text2); }
-.codeatlas-subtle  { color: var(--text3); }
-.codeatlas-dashed  { border: 1.5px dashed var(--border2); }
+/* Text helpers */
+.codeatlas-muted  { color: var(--t2); }
+.codeatlas-subtle { color: var(--t3); }
 
-/* ── Progress pulse ── */
+/* Dashed border */
+.codeatlas-dashed { border: 1.5px dashed var(--b2); }
+
+/* ── 6. Global scrollbar ────────────────────────────────────────────────────── */
+::-webkit-scrollbar        { width: 5px; height: 5px; }
+::-webkit-scrollbar-track  { background: transparent; }
+::-webkit-scrollbar-thumb  {
+  background: var(--b2);
+  border-radius: 99px;
+  transition: background 0.2s;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--t3); }
+
+/* ── 7. Shared animation utilities ──────────────────────────────────────────── */
 .codeatlas-progress-pulse {
   animation: codeatlasPulse 1.5s ease-in-out infinite;
 }
@@ -194,7 +271,7 @@
   50%       { opacity: 0.45; }
 }
 
-/* ── Graph node badge ── */
+/* ── 8. Graph node badge ────────────────────────────────────────────────────── */
 .node-badge {
   display: inline-flex;
   align-items: center;
@@ -206,8 +283,441 @@
   letter-spacing: 0.02em;
 }
 
-/* ── Scrollbar ── */
-::-webkit-scrollbar        { width: 5px; height: 5px; }
-::-webkit-scrollbar-track  { background: transparent; }
-::-webkit-scrollbar-thumb  { background: var(--b2); border-radius: 99px; }
-::-webkit-scrollbar-thumb:hover { background: var(--t3); }
+/* =============================================================================
+   Home page (/) — Stars · Beam · Hero · Graph mock
+   All colors use global tokens so dark/light mode work automatically.
+   ============================================================================= */
+
+/* ── Stars — dark mode only ──────────────────────────────────────────────── */
+.ca-stars {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  display: none;
+}
+.dark .ca-stars { display: block; }
+
+.ca-star {
+  position: absolute;
+  border-radius: 50%;
+  background: #fff;
+  animation: ca-twinkle var(--dur, 3s) ease-in-out infinite var(--delay, 0s);
+  opacity: 0;
+}
+@keyframes ca-twinkle {
+  0%, 100% { opacity: 0; }
+  50%       { opacity: var(--op, 0.5); }
+}
+
+/* ── Light beam — golden in dark, purple in light ────────────────────────── */
+.ca-beam-wrap {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+}
+.ca-beam {
+  position: absolute;
+  top: -60px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 3px;
+  height: 0;
+  filter: blur(0.5px);
+  animation: ca-beamGrow 1.6s cubic-bezier(0.16,1,0.3,1) 0.2s forwards;
+  /* light mode — purple beam */
+  background: linear-gradient(to bottom, var(--purple), color-mix(in srgb, var(--purple) 50%, transparent), transparent);
+}
+.dark .ca-beam {
+  /* dark mode — golden amber beam */
+  background: linear-gradient(to bottom, #f5c842, rgba(245,166,35,0.53), transparent);
+}
+.ca-beam::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 50%;
+  width: 0; height: 0;
+  animation: ca-beamGlow 1.6s cubic-bezier(0.16,1,0.3,1) 0.2s forwards;
+  pointer-events: none;
+  background: radial-gradient(ellipse 280px 420px at center top,
+    color-mix(in srgb, var(--purple) 12%, transparent), transparent 70%);
+}
+.dark .ca-beam::after {
+  background: radial-gradient(ellipse 280px 420px at center top,
+    rgba(245,168,35,0.22), transparent 70%);
+}
+@keyframes ca-beamGrow {
+  from { height: 0; opacity: 0; }
+  to   { height: 75vh; opacity: 1; }
+}
+@keyframes ca-beamGlow {
+  from { width: 0; height: 0; opacity: 0; }
+  to   { width: 600px; height: 600px; opacity: 1; transform: translateX(-50%); }
+}
+
+/* ── Page shell ──────────────────────────────────────────────────────────── */
+.ca-page {
+  position: relative;
+  z-index: 1;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Home nav ────────────────────────────────────────────────────────────── */
+.ca-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 22px 48px;
+  border-bottom: 1px solid var(--b1);
+  backdrop-filter: blur(12px);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: color-mix(in srgb, var(--bg) 85%, transparent);
+  animation: ca-fadeDown 0.7s ease both;
+}
+@keyframes ca-fadeDown {
+  from { opacity: 0; transform: translateY(-12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.ca-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 18px;
+  letter-spacing: -0.3px;
+  color: var(--t0);
+  text-decoration: none;
+}
+.ca-logo-icon {
+  width: 32px; height: 32px;
+  background: linear-gradient(135deg, var(--purple) 0%, var(--blue) 100%);
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+}
+
+.ca-nav-links {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  list-style: none;
+  background: color-mix(in srgb, var(--t0) 4%, transparent);
+  border: 1px solid var(--b1);
+  border-radius: 100px;
+  padding: 5px 6px;
+}
+.ca-nav-link {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 16px;
+  border-radius: 100px;
+  font-size: 13.5px;
+  color: var(--t2);
+  text-decoration: none;
+  transition: color 0.2s, background 0.2s;
+  white-space: nowrap;
+}
+.ca-nav-link--active {
+  background: color-mix(in srgb, var(--t0) 8%, transparent);
+  color: var(--t0);
+}
+.ca-nav-link:hover:not(.ca-nav-link--active) { color: var(--t0); }
+.ca-nav-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--teal); }
+
+.ca-nav-actions { display: flex; align-items: center; gap: 10px; }
+
+.ca-btn-ghost {
+  background: color-mix(in srgb, var(--t0) 5%, transparent);
+  border: 1px solid var(--b2);
+  color: var(--t2);
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex; align-items: center; gap: 6px;
+  font-family: var(--font-sans);
+}
+.ca-btn-ghost:hover { background: color-mix(in srgb, var(--t0) 9%, transparent); color: var(--t0); }
+
+.ca-btn-primary-nav {
+  background: linear-gradient(135deg, var(--purple) 0%, var(--blue) 100%);
+  color: #fff;
+  padding: 8px 18px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  transition: opacity 0.2s;
+  font-family: var(--font-sans);
+  text-decoration: none;
+  display: inline-flex; align-items: center;
+}
+.ca-btn-primary-nav:hover { opacity: 0.85; }
+
+/* ── Hero layout ─────────────────────────────────────────────────────────── */
+.ca-hero {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 48px;
+  align-items: center;
+  padding: 72px 48px 60px;
+  max-width: 1280px;
+  margin: 0 auto;
+  width: 100%;
+}
+.ca-hero-left { animation: ca-fadeUp 0.9s ease 0.25s both; }
+@keyframes ca-fadeUp {
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.ca-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--b2);
+  border-radius: 100px;
+  padding: 6px 14px;
+  font-size: 12.5px;
+  color: var(--t2);
+  margin-bottom: 28px;
+  background: color-mix(in srgb, var(--t0) 3%, transparent);
+}
+.ca-badge-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--teal);
+  box-shadow: 0 0 6px var(--teal);
+}
+
+.ca-h1 {
+  font-family: var(--font-display);
+  font-size: clamp(44px, 5.5vw, 72px);
+  font-weight: 800;
+  line-height: 1.0;
+  letter-spacing: -2px;
+  text-transform: uppercase;
+  margin-bottom: 22px;
+  color: var(--t0);
+}
+.ca-accent {
+  color: transparent;
+  -webkit-text-stroke: 1.5px var(--teal);
+  font-style: italic;
+}
+.ca-bracket { color: var(--teal); font-style: normal; font-weight: 800; }
+
+.ca-hero-sub {
+  font-size: 16px;
+  line-height: 1.65;
+  color: var(--t1);
+  max-width: 420px;
+  margin-bottom: 38px;
+}
+.ca-hero-ctas { display: flex; align-items: center; gap: 12px; }
+
+.ca-btn-main {
+  display: flex; align-items: center; gap: 9px;
+  background: var(--t0);
+  color: var(--bg);
+  padding: 13px 26px;
+  border-radius: 10px;
+  font-size: 14.5px;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  transition: opacity 0.2s, transform 0.2s;
+  font-family: var(--font-sans);
+  text-decoration: none;
+}
+.ca-btn-main:hover { opacity: 0.85; transform: translateY(-1px); }
+.ca-arr { font-size: 17px; display: inline-block; transition: transform 0.2s; }
+.ca-btn-main:hover .ca-arr { transform: translateX(3px); }
+
+.ca-btn-outline {
+  display: flex; align-items: center; gap: 9px;
+  background: color-mix(in srgb, var(--t0) 4%, transparent);
+  border: 1px solid var(--b2);
+  color: var(--t0);
+  padding: 13px 26px;
+  border-radius: 10px;
+  font-size: 14.5px;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.2s;
+  font-family: var(--font-sans);
+  text-decoration: none;
+}
+.ca-btn-outline:hover { background: color-mix(in srgb, var(--t0) 8%, transparent); transform: translateY(-1px); }
+
+/* ── Graph card mock ─────────────────────────────────────────────────────── */
+.ca-hero-right { position: relative; animation: ca-fadeUp 0.9s ease 0.5s both; }
+
+.ca-graph-card {
+  background: color-mix(in srgb, var(--s0) 85%, transparent);
+  border: 1px solid var(--b2);
+  border-radius: 16px;
+  overflow: hidden;
+  backdrop-filter: blur(20px);
+  box-shadow: 0 32px 80px color-mix(in srgb, var(--bg) 40%, rgba(0,0,0,0.4));
+}
+.ca-graph-topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--b1);
+  background: color-mix(in srgb, var(--t0) 2.5%, transparent);
+}
+.ca-traffic-lights { display: flex; gap: 7px; align-items: center; }
+.ca-tl { width: 12px; height: 12px; border-radius: 50%; }
+.ca-tl--r { background: #ff5f56; }
+.ca-tl--y { background: #ffbd2e; }
+.ca-tl--g { background: #27c93f; }
+.ca-graph-title { font-family: var(--font-mono); font-size: 12px; color: var(--t3); letter-spacing: 0.5px; }
+.ca-graph-actions { display: flex; gap: 8px; }
+.ca-graph-btn {
+  width: 26px; height: 26px; border-radius: 6px;
+  background: color-mix(in srgb, var(--t0) 6%, transparent);
+  border: 1px solid var(--b1);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; cursor: pointer; color: var(--t2);
+}
+.ca-graph-body { height: 320px; position: relative; overflow: hidden; }
+.ca-graph-svg { width: 100%; height: 100%; }
+
+.ca-graph-sidebar {
+  position: absolute; bottom: 0; right: 0; width: 200px;
+  background: color-mix(in srgb, var(--s0) 92%, transparent);
+  border-left: 1px solid var(--b1);
+  border-top: 1px solid var(--b1);
+  border-radius: 12px 0 0 0;
+  padding: 14px;
+}
+.ca-sidebar-label {
+  font-size: 10px; color: var(--t3);
+  text-transform: uppercase; letter-spacing: 1px;
+  margin-bottom: 10px; font-family: var(--font-mono);
+}
+.ca-sidebar-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 0; border-bottom: 1px solid var(--b1);
+  font-size: 12px; color: var(--t1);
+}
+.ca-sidebar-row:last-child { border-bottom: none; }
+.ca-sidebar-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.ca-sidebar-count { margin-left: auto; font-family: var(--font-mono); font-size: 11px; color: var(--teal); }
+
+/* Floating elements */
+.ca-graph-tag {
+  position: absolute; bottom: -16px; left: 28px;
+  background: color-mix(in srgb, var(--teal) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--teal) 30%, transparent);
+  border-radius: 8px; padding: 8px 14px;
+  font-family: var(--font-mono); font-size: 11.5px; color: var(--teal);
+  line-height: 1.6; backdrop-filter: blur(10px);
+  animation: ca-float 4s ease-in-out infinite;
+}
+.ca-map-card {
+  position: absolute; bottom: 40px; right: -28px;
+  width: 52px; height: 52px;
+  background: color-mix(in srgb, var(--amber) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--amber) 30%, transparent);
+  border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 22px;
+  animation: ca-float2 5s ease-in-out infinite 1s;
+  backdrop-filter: blur(10px);
+}
+@keyframes ca-float {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-6px); }
+}
+@keyframes ca-float2 {
+  0%, 100% { transform: translateY(0) rotate(2deg); }
+  50%       { transform: translateY(-8px) rotate(-2deg); }
+}
+
+/* ── Footer ──────────────────────────────────────────────────────────────── */
+.ca-footer-bar {
+  padding: 20px 48px;
+  display: flex; align-items: center; justify-content: space-between;
+  border-top: 1px solid var(--b1);
+  position: relative; z-index: 10;
+  animation: ca-fadeUp 0.9s ease 0.7s both;
+}
+.ca-footer-left { display: flex; align-items: center; gap: 16px; }
+.ca-footer-label { font-size: 12.5px; color: var(--t3); }
+.ca-socials { display: flex; gap: 10px; align-items: center; }
+.ca-social-link {
+  width: 34px; height: 34px; border-radius: 8px;
+  border: 1px solid var(--b2);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15px; cursor: pointer; transition: all 0.2s;
+  background: color-mix(in srgb, var(--t0) 3%, transparent);
+  color: var(--t2); text-decoration: none;
+}
+.ca-social-link:hover { background: color-mix(in srgb, var(--t0) 8%, transparent); color: var(--t0); }
+.ca-scroll-cta { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--t3); }
+.ca-scroll-btn {
+  width: 32px; height: 32px;
+  border: 1px solid var(--b2); border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15px; animation: ca-bob 2s ease-in-out infinite;
+}
+@keyframes ca-bob {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(4px); }
+}
+
+/* ── Cookie banner ───────────────────────────────────────────────────────── */
+.ca-cookie-banner {
+  position: fixed; bottom: 24px; left: 50%;
+  transform: translateX(-50%);
+  background: color-mix(in srgb, var(--s0) 95%, transparent);
+  border: 1px solid var(--b2); border-radius: 100px;
+  padding: 12px 20px;
+  display: flex; align-items: center; gap: 14px;
+  font-size: 12.5px; color: var(--t2);
+  backdrop-filter: blur(20px); z-index: 200;
+  max-width: 600px; width: calc(100% - 48px);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+  animation: ca-slideUp 0.5s ease 1.5s both;
+}
+.dark .ca-cookie-banner { box-shadow: 0 8px 32px rgba(0,0,0,0.5); }
+@keyframes ca-slideUp {
+  from { opacity: 0; transform: translateX(-50%) translateY(20px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+.ca-cookie-icon { font-size: 18px; flex-shrink: 0; }
+.ca-cookie-text { flex: 1; line-height: 1.5; }
+.ca-cookie-btn {
+  padding: 7px 16px; border-radius: 100px; font-size: 12px;
+  cursor: pointer; border: none; font-family: var(--font-sans);
+  white-space: nowrap; transition: all 0.2s; flex-shrink: 0;
+}
+.ca-cookie-btn--decline {
+  background: color-mix(in srgb, var(--t0) 6%, transparent);
+  color: var(--t2); border: 1px solid var(--b1);
+}
+.ca-cookie-btn--accept { background: var(--t0); color: var(--bg); font-weight: 500; }
+.ca-cookie-btn--decline:hover { background: color-mix(in srgb, var(--t0) 12%, transparent); }
+.ca-cookie-btn--accept:hover  { opacity: 0.85; }
+
+/* ── Responsive ──────────────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .ca-nav         { padding: 16px 24px; }
+  .ca-nav-links   { display: none; }
+  .ca-hero        { grid-template-columns: 1fr; padding: 48px 24px; gap: 40px; }
+  .ca-hero-right  { display: none; }
+  .ca-footer-bar  { padding: 16px 24px; }
+}

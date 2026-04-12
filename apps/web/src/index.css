@@ -12,17 +12,13 @@
 
 html,
 body {
-  @apply bg-white dark:bg-gray-950;
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-
-  @media (prefers-color-scheme: dark) {
-    color-scheme: dark;
-  }
+  /* Background and text are set via codeatlas-theme.css tokens
+     applied through the .codeatlas-shell class and @layer base below. */
 }
 
-/* ── heading elements use display font ── */
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-display);
 }
@@ -35,71 +31,72 @@ code, kbd, pre, samp {
   --mono: var(--font-mono);
   --radius: 0.625rem;
 
-  --background:           oklch(1 0 0);
-  --foreground:           oklch(0.145 0 0);
-  --card:                 oklch(1 0 0);
-  --card-foreground:      oklch(0.145 0 0);
-  --popover:              oklch(1 0 0);
-  --popover-foreground:   oklch(0.145 0 0);
-  --primary:              oklch(0.205 0 0);
-  --primary-foreground:   oklch(0.985 0 0);
-  --secondary:            oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted:                oklch(0.97 0 0);
-  --muted-foreground:     oklch(0.556 0 0);
-  --accent:               oklch(0.97 0 0);
-  --accent-foreground:    oklch(0.205 0 0);
-  --destructive:          oklch(0.577 0.245 27.325);
-  --border:               oklch(0.922 0 0);
-  --input:                oklch(0.922 0 0);
-  --ring:                 oklch(0.708 0 0);
+  /* shadcn vars — bridged to codeatlas-theme tokens (see codeatlas-theme.css) */
+  --background:           #f4f3f0;
+  --foreground:           #0e0e0c;
+  --card:                 #ffffff;
+  --card-foreground:      #0e0e0c;
+  --popover:              #ffffff;
+  --popover-foreground:   #0e0e0c;
+  --primary:              #6d28d9;
+  --primary-foreground:   #ffffff;
+  --secondary:            #f0efe9;
+  --secondary-foreground: #0e0e0c;
+  --muted:                #f0efe9;
+  --muted-foreground:     #7a7a75;
+  --accent:               #ede9fe;
+  --accent-foreground:    #6d28d9;
+  --destructive:          #b91c1c;
+  --border:               rgba(0,0,0,0.09);
+  --input:                rgba(0,0,0,0.09);
+  --ring:                 rgba(109,40,217,0.4);
   --chart-1:              oklch(0.646 0.222 41.116);
   --chart-2:              oklch(0.6   0.118 184.704);
   --chart-3:              oklch(0.398 0.07  227.392);
   --chart-4:              oklch(0.828 0.189 84.429);
   --chart-5:              oklch(0.769 0.188 70.08);
-  --sidebar:              oklch(0.985 0 0);
-  --sidebar-foreground:   oklch(0.145 0 0);
-  --sidebar-primary:      oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent:             oklch(0.97  0 0);
-  --sidebar-accent-foreground:  oklch(0.205 0 0);
-  --sidebar-border:             oklch(0.922 0 0);
-  --sidebar-ring:               oklch(0.708 0 0);
+  --sidebar:              #ffffff;
+  --sidebar-foreground:   #0e0e0c;
+  --sidebar-primary:      #6d28d9;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent:       #ede9fe;
+  --sidebar-accent-foreground: #6d28d9;
+  --sidebar-border:       rgba(0,0,0,0.09);
+  --sidebar-ring:         rgba(109,40,217,0.4);
 }
 
 .dark {
-  --background:           oklch(0.145 0 0);
-  --foreground:           oklch(0.985 0 0);
-  --card:                 oklch(0.205 0 0);
-  --card-foreground:      oklch(0.985 0 0);
-  --popover:              oklch(0.205 0 0);
-  --popover-foreground:   oklch(0.985 0 0);
-  --primary:              oklch(0.922 0 0);
-  --primary-foreground:   oklch(0.205 0 0);
-  --secondary:            oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted:                oklch(0.269 0 0);
-  --muted-foreground:     oklch(0.708 0 0);
-  --accent:               oklch(0.269 0 0);
-  --accent-foreground:    oklch(0.985 0 0);
-  --destructive:          oklch(0.704 0.191 22.216);
-  --border:               oklch(1 0 0 / 10%);
-  --input:                oklch(1 0 0 / 15%);
-  --ring:                 oklch(0.556 0 0);
+  --background:           #0b0b0a;
+  --foreground:           #f0f0ea;
+  --card:                 #131312;
+  --card-foreground:      #f0f0ea;
+  --popover:              #131312;
+  --popover-foreground:   #f0f0ea;
+  --primary:              #a78bfa;
+  --primary-foreground:   #0b0b0a;
+  --secondary:            #1a1a18;
+  --secondary-foreground: #f0f0ea;
+  --muted:                #1a1a18;
+  --muted-foreground:     #8f8f89;
+  --accent:               #1e1143;
+  --accent-foreground:    #a78bfa;
+  --destructive:          #f87171;
+  --border:               rgba(255,255,255,0.08);
+  --input:                rgba(255,255,255,0.08);
+  --ring:                 rgba(167,139,250,0.4);
   --chart-1:              oklch(0.488 0.243 264.376);
   --chart-2:              oklch(0.696 0.17  162.48);
   --chart-3:              oklch(0.769 0.188  70.08);
   --chart-4:              oklch(0.627 0.265 303.9);
   --chart-5:              oklch(0.645 0.246  16.439);
-  --sidebar:              oklch(0.205 0 0);
-  --sidebar-foreground:   oklch(0.985 0 0);
-  --sidebar-primary:      oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent:             oklch(0.269 0 0);
-  --sidebar-accent-foreground:  oklch(0.985 0 0);
-  --sidebar-border:             oklch(1 0 0 / 10%);
-  --sidebar-ring:               oklch(0.556 0 0);
+  --sidebar:              #131312;
+  --sidebar-foreground:   #f0f0ea;
+  --sidebar-primary:      #a78bfa;
+  --sidebar-primary-foreground: #0b0b0a;
+  --sidebar-accent:       #1e1143;
+  --sidebar-accent-foreground: #a78bfa;
+  --sidebar-border:       rgba(255,255,255,0.08);
+  --sidebar-ring:         rgba(167,139,250,0.4);
 }
 
 @theme inline {
@@ -145,6 +142,7 @@ code, kbd, pre, samp {
     @apply border-border outline-ring/50;
   }
   body {
+    /* Uses the bridged --background / --foreground that match codeatlas tokens */
     @apply bg-background text-foreground;
   }
 }

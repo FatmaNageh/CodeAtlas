@@ -14,7 +14,7 @@ export default defineConfig({
   server: {
     port: 3001,
     proxy: {
-          "/graoh": "http://localhost:3000",
+          "/graph": "http://localhost:3000",
 
       "/trpc": {
         target: "http://localhost:3000",
