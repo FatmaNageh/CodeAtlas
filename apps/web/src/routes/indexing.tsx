@@ -97,7 +97,7 @@ function CheckRow({
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 function IndexingPage() {
-  const [baseUrl,       setBaseUrl]       = useState("");
+  const [baseUrl,       setBaseUrl]       = useState(import.meta.env.VITE_SERVER_URL ?? "");
   const [projectPath,   setProjectPath]   = useState("");
   const [mode,          setMode]          = useState<IndexMode>("full");
   const [saveDebugJson, setSaveDebugJson] = useState(true);

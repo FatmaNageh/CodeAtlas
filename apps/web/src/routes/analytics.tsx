@@ -98,7 +98,9 @@ function Btn({
 
 function AnalyticsPage() {
   const sess = loadSession();
-  const [baseUrl, setBaseUrl] = useState(sess.baseUrl ?? "");
+  const [baseUrl, setBaseUrl] = useState(
+    sess.baseUrl ?? import.meta.env.VITE_SERVER_URL ?? "",
+  );
   const [repoId, setRepoId]   = useState(sess.lastRepoId ?? "");
   const [raw, setRaw]         = useState("");
   const [ir, setIr]           = useState<any>(null);

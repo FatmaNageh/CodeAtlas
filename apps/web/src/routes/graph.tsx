@@ -329,7 +329,9 @@ function shortestPath(
 
 function GraphExplorerPage() {
 	const session = loadSession();
-	const [baseUrl] = useState(session.baseUrl ?? "");
+	const [baseUrl] = useState(
+		session.baseUrl ?? import.meta.env.VITE_SERVER_URL ?? "",
+	);
 	const [repoId] = useState(session.lastRepoId ?? "");
 	const [repoRoot] = useState(session.lastProjectPath ?? "");
 	const [graph, setGraph] = useState<{
