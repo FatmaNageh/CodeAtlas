@@ -1,7 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { Braces } from "lucide-react";
 import { parseIrJson, summarizeIr, findMissingResolutions } from "@/lib/ir";
 import { fetchIr } from "@/lib/api";
 import { loadSession, saveSession } from "@/lib/session";
@@ -11,152 +10,242 @@ export const Route = createFileRoute("/ir")({
   component: IRInspector,
 });
 
+// ── Shared sub-components ────────────────────────────────────────────────────
+
+function PageSection({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+  return (
+    <section
+      className={`mb-5 rounded-[14px] p-6 ${className}`}
+      style={{ background: "var(--s0)", border: "1px solid var(--b1)" }}
+    >
+      {children}
+    </section>
+  );
+}
+
+function FieldLabel({ children, hint }: { children: React.ReactNode; hint?: string }) {
+  return (
+    <label className="mb-1.5 block text-[12px]" style={{ color: "var(--t2)" }}>
+      {children}
+      {hint && <span className="ml-1.5" style={{ color: "var(--t3)", fontWeight: 400 }}>({hint})</span>}
+    </label>
+  );
+}
+
+function TextInput({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <input
+      className="w-full rounded-[8px] px-3 py-2 text-[13px] outline-none transition-colors"
+      style={{ background: "var(--s1)", border: "1px solid var(--b1)", color: "var(--t0)" }}
+      placeholder={placeholder}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onFocus={(e) => { e.currentTarget.style.borderColor = "var(--purple)"; }}
+      onBlur={(e)  => { e.currentTarget.style.borderColor = "var(--b1)"; }}
+    />
+  );
+}
+
+function SummaryRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div
+      className="flex items-center justify-between py-2 text-[12.5px]"
+      style={{ borderBottom: "1px solid var(--b0)" }}
+    >
+      <span style={{ color: "var(--t2)" }}>{label}</span>
+      <span className="font-mono font-medium" style={{ color: "var(--t0)" }}>{value}</span>
+    </div>
+  );
+}
+
+function CodeBlock({ value }: { value: any }) {
+  return (
+    <pre
+      className="max-h-56 overflow-auto rounded-[8px] p-3 font-mono text-[11px] leading-5"
+      style={{ background: "var(--s2)", color: "var(--t1)", border: "1px solid var(--b0)" }}
+    >
+      {JSON.stringify(value, null, 2)}
+    </pre>
+  );
+}
+
+// ── Page ─────────────────────────────────────────────────────────────────────
+
 function IRInspector() {
   const sess = loadSession();
   const [baseUrl, setBaseUrl] = useState(sess.baseUrl ?? "");
-  const [repoId, setRepoId] = useState(sess.lastRepoId ?? "");
-  const [raw, setRaw] = useState("");
-  const [ir, setIr] = useState<any>(null);
+  const [repoId,  setRepoId]  = useState(sess.lastRepoId ?? "");
+  const [raw,     setRaw]     = useState("");
+  const [ir,      setIr]      = useState<any>(null);
 
   const summary = useMemo(() => (ir ? summarizeIr(ir) : null), [ir]);
   const missing = useMemo(() => (ir ? findMissingResolutions(ir) : null), [ir]);
 
   const load = () => {
-    try {
-      const parsed = parseIrJson(raw);
-      setIr(parsed);
-      toast.success("Loaded IR JSON");
-    } catch (e: any) {
-      toast.error(e?.message ?? "Invalid JSON");
-    }
+    try   { setIr(parseIrJson(raw)); toast.success("Loaded IR JSON"); }
+    catch (e: any) { toast.error(e?.message ?? "Invalid JSON"); }
   };
 
   const loadFromBackend = async () => {
-    if (!repoId.trim()) {
-      toast.error("Missing repoId");
-      return;
-    }
+    if (!repoId.trim()) { toast.error("Missing repoId"); return; }
     try {
       const data = await fetchIr(repoId.trim(), baseUrl);
       saveSession({ baseUrl, lastRepoId: repoId.trim() });
       setIr(data);
       toast.success("Loaded IR from backend");
-    } catch (e: any) {
-      toast.error(e?.message ?? "Failed to load IR");
-    }
+    } catch (e: any) { toast.error(e?.message ?? "Failed to load IR"); }
   };
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-8">
-      <Card className="shadow-md border-2 border-primary/10">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-2xl font-bold">
-            <span className="inline-block bg-gradient-to-r from-blue-500 to-violet-500 text-transparent bg-clip-text">IR Inspector (offline)</span>
-            <span className="ml-2 px-2 py-1 rounded bg-primary/10 text-primary text-xs font-semibold tracking-wide">IR Details</span>
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-muted-foreground">Backend base URL <span className="text-xs font-normal">(optional)</span></label>
-              <input
-                className="w-full px-3 py-2 rounded border bg-background focus:outline-none focus:ring-2 focus:ring-primary/30 transition"
-                placeholder="e.g. http://127.0.0.1:3000  (leave empty if same origin)"
-                value={baseUrl}
-                onChange={(e) => setBaseUrl(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-muted-foreground">RepoId <span className="text-xs font-normal">(from last indexRepo run)</span></label>
-              <input
-                className="w-full px-3 py-2 rounded border bg-background focus:outline-none focus:ring-2 focus:ring-primary/30 transition"
-                placeholder="repoId from last indexRepo run"
-                value={repoId}
-                onChange={(e) => setRepoId(e.target.value)}
-              />
-            </div>
+    <div className="mx-auto w-full max-w-[860px] px-6 py-12">
+
+      {/* Page header */}
+      <div className="mb-8">
+        <div
+          className="mb-3 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-medium"
+          style={{ background: "var(--teal-l)", border: "1px solid var(--teal-b)", color: "var(--teal)" }}
+        >
+          <Braces style={{ width: 11, height: 11 }} />
+          IR Inspector · Offline
+        </div>
+        <h1
+          className="text-[26px] font-bold tracking-[-0.5px]"
+          style={{ fontFamily: "var(--font-display)", color: "var(--t0)" }}
+        >
+          IR Inspector
+        </h1>
+        <p className="mt-2 text-[13px] leading-6" style={{ color: "var(--t2)" }}>
+          Inspect and summarise the intermediate representation of your indexed repository.
+        </p>
+      </div>
+
+      {/* Connection */}
+      <PageSection>
+        <h2 className="mb-5 text-[13.5px] font-semibold" style={{ color: "var(--t0)" }}>
+          Connection
+        </h2>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <FieldLabel hint="optional">Backend base URL</FieldLabel>
+            <TextInput value={baseUrl} onChange={setBaseUrl} placeholder="http://127.0.0.1:3000" />
           </div>
-
-          <div className="flex gap-2 flex-wrap">
-            <Button onClick={loadFromBackend} disabled={!repoId.trim()} className="font-semibold">
-              Load IR from backend
-            </Button>
+          <div>
+            <FieldLabel hint="from last indexRepo run">Repo ID</FieldLabel>
+            <TextInput value={repoId} onChange={setRepoId} placeholder="repoId from session" />
           </div>
+        </div>
+        <div className="mt-5 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={loadFromBackend}
+            disabled={!repoId.trim()}
+            className="inline-flex items-center gap-2 rounded-[8px] px-4 py-2 text-[13px] font-medium transition-opacity disabled:cursor-not-allowed disabled:opacity-40"
+            style={{
+              background: "linear-gradient(135deg, var(--purple) 0%, var(--blue) 100%)",
+              color: "#fff",
+              boxShadow: "0 1px 8px color-mix(in srgb, var(--purple) 25%, transparent)",
+            }}
+          >
+            Load IR from backend
+          </button>
+        </div>
+      </PageSection>
 
-          <details>
-            <summary className="text-sm text-muted-foreground cursor-pointer">Advanced: paste IR JSON manually</summary>
-            <textarea
-              className="w-full min-h-[220px] p-3 rounded border bg-background font-mono text-xs mt-2 focus:outline-none focus:ring-2 focus:ring-primary/30 transition"
-              placeholder='Paste IR JSON here...'
-              value={raw}
-              onChange={(e) => setRaw(e.target.value)}
-            />
+      {/* Paste JSON */}
+      <details className="mb-5">
+        <summary
+          className="mb-3 cursor-pointer select-none text-[12px]"
+          style={{ color: "var(--t2)" }}
+        >
+          ▸ Advanced: paste IR JSON manually
+        </summary>
+        <PageSection>
+          <textarea
+            className="mb-4 w-full resize-y rounded-[8px] p-3 font-mono text-[12px] outline-none"
+            style={{ minHeight: 200, background: "var(--s2)", border: "1px solid var(--b1)", color: "var(--t0)" }}
+            placeholder="Paste IR JSON here..."
+            value={raw}
+            onChange={(e) => setRaw(e.target.value)}
+          />
+          <button
+            type="button"
+            onClick={load}
+            disabled={!raw.trim()}
+            className="inline-flex items-center gap-2 rounded-[8px] px-4 py-2 text-[13px] font-medium transition-opacity disabled:cursor-not-allowed disabled:opacity-40"
+            style={{ background: "var(--s2)", border: "1px solid var(--b2)", color: "var(--t1)" }}
+          >
+            Load IR from pasted JSON
+          </button>
+        </PageSection>
+      </details>
 
-            <Button onClick={load} disabled={!raw.trim()} className="mt-2 font-semibold">
-              Load IR from pasted JSON
-            </Button>
-          </details>
-        </CardContent>
-      </Card>
-
+      {/* Results grid */}
       {summary && (
-        <div className="grid gap-4 md:grid-cols-2">
-          <Card className="shadow border border-primary/10">
-            <CardHeader>
-              <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                <span>Summary</span>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm">
-              <div>Nodes: <b>{summary.nodeCount}</b></div>
-              <div>Edges: <b>{summary.edgeCount}</b></div>
+        <div className="grid gap-5 md:grid-cols-2">
 
-              <div className="mt-3 text-xs text-muted-foreground">Top node kinds</div>
-              <ul className="text-xs space-y-1">
-                {summary.nodeKinds.slice(0, 12).map(([k, v]: any) => (
-                  <li key={k} className="flex justify-between">
-                    <span>{k}</span><span>{v}</span>
-                  </li>
-                ))}
-              </ul>
+          {/* Summary */}
+          <PageSection>
+            <h2 className="mb-4 text-[13.5px] font-semibold" style={{ color: "var(--t0)" }}>Summary</h2>
+            <SummaryRow label="Nodes" value={summary.nodeCount} />
+            <SummaryRow label="Edges" value={summary.edgeCount} />
 
-              <div className="mt-3 text-xs text-muted-foreground">Top edge types</div>
-              <ul className="text-xs space-y-1">
-                {summary.edgeTypes.slice(0, 12).map(([k, v]: any) => (
-                  <li key={k} className="flex justify-between">
-                    <span>{k}</span><span>{v}</span>
-                  </li>
-                ))}
-              </ul>
-            </CardContent>
-          </Card>
-
-          <Card className="shadow border border-primary/10">
-            <CardHeader>
-              <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                <span>Missing resolutions</span>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="text-xs text-muted-foreground">
-                Unresolved means the node exists but there is no corresponding RESOLVES_TO (imports) or CALLS (call sites) edge.
+            <p className="mb-2 mt-4 text-[10px] uppercase tracking-[0.06em]" style={{ color: "var(--t3)" }}>
+              Top node kinds
+            </p>
+            {summary.nodeKinds.slice(0, 10).map(([k, v]: any) => (
+              <div
+                key={k}
+                className="flex justify-between py-1 text-[12px]"
+                style={{ borderBottom: "1px solid var(--b0)", color: "var(--t1)" }}
+              >
+                <span>{k}</span>
+                <span className="font-mono" style={{ color: "var(--t0)" }}>{v}</span>
               </div>
+            ))}
 
-              <div className="space-y-2">
-                <div className="text-sm font-semibold">Unresolved Imports</div>
-                <pre className="text-xs whitespace-pre-wrap break-words bg-muted/40 p-3 rounded font-mono max-h-56 overflow-auto">
-                  {JSON.stringify(missing?.unresolvedImports?.slice(0, 50) ?? [], null, 2)}
-                </pre>
+            <p className="mb-2 mt-4 text-[10px] uppercase tracking-[0.06em]" style={{ color: "var(--t3)" }}>
+              Top edge types
+            </p>
+            {summary.edgeTypes.slice(0, 10).map(([k, v]: any) => (
+              <div
+                key={k}
+                className="flex justify-between py-1 text-[12px]"
+                style={{ borderBottom: "1px solid var(--b0)", color: "var(--t1)" }}
+              >
+                <span>{k}</span>
+                <span className="font-mono" style={{ color: "var(--t0)" }}>{v}</span>
               </div>
+            ))}
+          </PageSection>
 
-              <div className="space-y-2">
-                <div className="text-sm font-semibold">Unresolved Calls</div>
-                <pre className="text-xs whitespace-pre-wrap break-words bg-muted/40 p-3 rounded font-mono max-h-56 overflow-auto">
-                  {JSON.stringify(missing?.unresolvedCalls?.slice(0, 50) ?? [], null, 2)}
-                </pre>
-              </div>
-            </CardContent>
-          </Card>
+          {/* Missing resolutions */}
+          <PageSection>
+            <h2 className="mb-2 text-[13.5px] font-semibold" style={{ color: "var(--t0)" }}>
+              Missing resolutions
+            </h2>
+            <p className="mb-4 text-[12px] leading-5" style={{ color: "var(--t3)" }}>
+              Nodes with no corresponding RESOLVES_TO or CALLS edge.
+            </p>
+
+            <p className="mb-1.5 text-[11px] font-semibold" style={{ color: "var(--t1)" }}>
+              Unresolved Imports
+            </p>
+            <CodeBlock value={missing?.unresolvedImports?.slice(0, 50) ?? []} />
+
+            <p className="mb-1.5 mt-4 text-[11px] font-semibold" style={{ color: "var(--t1)" }}>
+              Unresolved Calls
+            </p>
+            <CodeBlock value={missing?.unresolvedCalls?.slice(0, 50) ?? []} />
+          </PageSection>
+
         </div>
       )}
     </div>

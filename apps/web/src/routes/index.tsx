@@ -1,282 +1,350 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowRight, BrainCircuit, GitBranch, Network, Sparkles, Zap } from "lucide-react";
+import { createFileRoute } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 
 export const Route = createFileRoute("/")({
-  component: LandingPage,
+  component: CodeAtlasHomePage,
 });
 
-const stats = [
-  { value: "4,328",  label: "Nodes extracted",     sub: "from demo repo" },
-  { value: "18,763", label: "Relationships mapped", sub: "across the graph" },
-  { value: "6",      label: "Languages supported",  sub: "and counting" },
-  { value: "18ms",   label: "Avg query time",       sub: "path resolution" },
-];
+// ── Types ─────────────────────────────────────────────────────────────────────
 
-const features = [
-  {
-    title:       "Force-directed graph",
-    description: "Live graph exploration for folders, files, functions, and relationships across your entire repository.",
-    icon:        Network,
-    color:       "var(--purple)",
-    bg:          "var(--purple-l)",
-    border:      "var(--purple-b)",
-    gradient:    "from-[#ede9fe] to-[#f5f3ff]",
-    darkGradient:"from-[#1e1143] to-[#2e1065]",
-  },
-  {
-    title:       "Path tracing",
-    description: "Follow the shortest dependency path between any two code entities and understand impact instantly.",
-    icon:        GitBranch,
-    color:       "var(--blue)",
-    bg:          "var(--blue-l)",
-    border:      "var(--blue-b)",
-    gradient:    "from-[#e0f2fe] to-[#f0f9ff]",
-    darkGradient:"from-[#072b41] to-[#0c4a6e]",
-  },
-  {
-    title:       "AI with graph context",
-    description: "Ask questions grounded in selected graph nodes — no whole-repo prompts, just precise semantic answers.",
-    icon:        BrainCircuit,
-    color:       "var(--green)",
-    bg:          "var(--green-l)",
-    border:      "var(--green-b)",
-    gradient:    "from-[#d1fae5] to-[#ecfdf5]",
-    darkGradient:"from-[#01231a] to-[#022c22]",
-  },
-];
+interface StarStyle {
+  width: string;
+  height: string;
+  top: string;
+  left: string;
+  animationDuration: string;
+  animationDelay: string;
+  opacity: number;
+}
 
-function LandingPage() {
+// ── Stars — only mounted on the / route, position:fixed so they fill viewport ─
+
+function Stars() {
+  const [stars, setStars] = useState<StarStyle[]>([]);
+
+  useEffect(() => {
+    setStars(
+      Array.from({ length: 120 }, () => {
+        const size = Math.random() < 0.15 ? 2 : 1;
+        return {
+          width: `${size}px`,
+          height: `${size}px`,
+          top: `${Math.random() * 100}%`,
+          left: `${Math.random() * 100}%`,
+          animationDuration: `${2 + Math.random() * 4}s`,
+          animationDelay: `${Math.random() * 5}s`,
+          opacity: 0.3 + Math.random() * 0.6,
+        };
+      }),
+    );
+  }, []);
+
   return (
-    <section className="codeatlas-shell min-h-[calc(100vh-54px)]">
-      <div className="mx-auto w-full max-w-[1000px] px-6 py-20 md:px-8">
-
-        {/* ── Badge ── */}
+    <div className="ca-stars" aria-hidden="true">
+      {stars.map((s, i) => (
         <div
-          className="mb-7 inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-[11px] font-medium tracking-wide"
+          key={i}
+          className="ca-star"
           style={{
-            background: "var(--purple-l)",
-            border: "1px solid var(--purple-b)",
-            color: "var(--purple)",
+            width: s.width,
+            height: s.height,
+            top: s.top,
+            left: s.left,
+            animationDuration: s.animationDuration,
+            animationDelay: s.animationDelay,
+            ["--op" as string]: s.opacity,
           }}
-        >
-          <span
-            className="h-1.5 w-1.5 rounded-full"
-            style={{ background: "var(--purple)", boxShadow: "0 0 6px var(--purple)" }}
-          />
-          Knowledge Graphs · GraphRAG · Multilingual
-        </div>
-
-        {/* ── Hero ── */}
-        <h1
-          className="max-w-[820px] leading-[1.03] tracking-[-3px]"
-          style={{
-            fontFamily: "var(--font-display, var(--font-sans))",
-            fontSize: "clamp(38px, 5.8vw, 68px)",
-            fontWeight: 700,
-          }}
-        >
-          Understand any codebase.
-          <br />
-          <span style={{ color: "var(--t2)" }}>In minutes, not months.</span>
-        </h1>
-
-        <p
-          className="mt-5 max-w-[580px] leading-[1.75]"
-          style={{ fontSize: "15px", color: "var(--t1)" }}
-        >
-          CodeAtlas builds a semantic knowledge graph from your repository and gives you
-          one place to navigate, query, and understand real code structure — without
-          losing the backend integration you already built.
-        </p>
-
-        {/* ── CTAs ── */}
-        <div className="mt-9 flex flex-wrap gap-3">
-          <Link
-            to="/onboarding"
-            className="inline-flex h-11 items-center gap-2.5 rounded-[11px] px-6 text-[13.5px] font-semibold transition-opacity hover:opacity-90"
-            style={{
-              background: "linear-gradient(135deg, var(--purple) 0%, var(--blue) 100%)",
-              color: "#fff",
-              boxShadow: "0 2px 16px color-mix(in srgb, var(--purple) 28%, transparent), 0 1px 3px rgba(0,0,0,0.15)",
-            }}
-          >
-            Open onboarding <ArrowRight className="h-4 w-4" />
-          </Link>
-          <Link
-            to="/graph"
-            className="inline-flex h-11 items-center gap-2 rounded-[11px] px-6 text-[13.5px] font-medium transition-colors hover:bg-[var(--s1)]"
-            style={{ border: "1px solid var(--b2)", color: "var(--t1)" }}
-          >
-            <Network className="h-4 w-4" style={{ color: "var(--purple)" }} />
-            Open graph viewer
-          </Link>
-        </div>
-
-        {/* ── Stats strip ── */}
-        <div
-          className="mt-14 grid overflow-hidden rounded-[16px] md:grid-cols-4"
-          style={{ border: "1px solid var(--b1)", background: "var(--s0)" }}
-        >
-          {stats.map((stat, i) => (
-            <div
-              key={stat.label}
-              className="px-6 py-5"
-              style={{
-                borderRight: i < stats.length - 1 ? "1px solid var(--b0)" : undefined,
-              }}
-            >
-              <div
-                className="leading-none tracking-[-1.5px]"
-                style={{
-                  fontSize: "30px",
-                  fontWeight: 700,
-                  fontFamily: "var(--font-display, var(--font-sans))",
-                  color: "var(--t0)",
-                }}
-              >
-                {stat.value}
-              </div>
-              <div className="mt-2" style={{ fontSize: "12px", color: "var(--t2)" }}>
-                {stat.label}
-              </div>
-              <div style={{ fontSize: "11px", color: "var(--t3)" }}>{stat.sub}</div>
-            </div>
-          ))}
-        </div>
-
-        {/* ── Feature cards ── */}
-        <div
-          className="mt-10 grid overflow-hidden rounded-[16px] md:grid-cols-3"
-          style={{ border: "1px solid var(--b1)" }}
-        >
-          {features.map((f, i) => {
-            const Icon = f.icon;
-            return (
-              <div
-                key={f.title}
-                className="group cursor-default px-6 py-6 transition-colors hover:bg-[var(--s1)]"
-                style={{
-                  background: "var(--s0)",
-                  borderRight: i < features.length - 1 ? "1px solid var(--b0)" : undefined,
-                }}
-              >
-                <div
-                  className="mb-4 flex h-9 w-9 items-center justify-center rounded-[9px]"
-                  style={{ background: f.bg, border: `1px solid ${f.border}` }}
-                >
-                  <Icon className="h-4.5 w-4.5" style={{ color: f.color, width: 18, height: 18 }} />
-                </div>
-                <div
-                  className="mb-2 leading-snug"
-                  style={{ fontSize: "13.5px", fontWeight: 600, color: "var(--t0)" }}
-                >
-                  {f.title}
-                </div>
-                <div style={{ fontSize: "12px", lineHeight: "1.7", color: "var(--t2)" }}>
-                  {f.description}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* ── Legend / graph preview box ── */}
-        <div
-          className="mt-10 rounded-[16px] p-6"
-          style={{ border: "1px solid var(--b1)", background: "var(--s0)" }}
-        >
-          <div className="mb-4 flex items-center gap-2">
-            <Sparkles className="h-4 w-4" style={{ color: "var(--purple)" }} />
-            <span style={{ fontSize: "12px", fontWeight: 600, color: "var(--t0)" }}>
-              Graph node legend
-            </span>
-          </div>
-          <div className="flex flex-wrap gap-x-8 gap-y-3">
-            {[
-              { label: "Folder", color: "var(--purple)", bg: "var(--purple-l)" },
-              { label: "File",   color: "var(--blue)",   bg: "var(--blue-l)"   },
-              { label: "Class",  color: "var(--amber)",  bg: "var(--amber-l)"  },
-              { label: "Function", color: "var(--green)", bg: "var(--green-l)" },
-            ].map(({ label, color, bg }) => (
-              <div key={label} className="flex items-center gap-2.5">
-                <div
-                  className="h-5 w-5 rounded-full"
-                  style={{
-                    background: color,
-                    boxShadow: `0 0 0 3px ${bg}`,
-                  }}
-                />
-                <span style={{ fontSize: "12px", color: "var(--t1)" }}>{label}</span>
-              </div>
-            ))}
-            <div className="ml-auto flex items-center gap-4" style={{ fontSize: "12px", color: "var(--t3)" }}>
-              <span className="flex items-center gap-1.5">
-                <span
-                  className="block h-px w-6"
-                  style={{ background: "var(--purple)", opacity: 0.6 }}
-                />
-                CONTAINS
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span
-                  className="block h-px w-6"
-                  style={{
-                    background: "var(--blue)",
-                    opacity: 0.6,
-                    backgroundImage: "repeating-linear-gradient(90deg, var(--blue) 0 5px, transparent 5px 8px)",
-                  }}
-                />
-                IMPORTS
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span
-                  className="block h-px w-6"
-                  style={{
-                    background: "var(--green)",
-                    opacity: 0.6,
-                    backgroundImage: "repeating-linear-gradient(90deg, var(--green) 0 3px, transparent 3px 6px)",
-                  }}
-                />
-                CALLS
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* ── Status banner ── */}
-        <div
-          className="mt-8 flex items-start gap-4 rounded-[14px] p-5"
-          style={{ border: "1px solid var(--b1)", background: "var(--s0)" }}
-        >
-          <div
-            className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px]"
-            style={{ background: "var(--green-l)", border: "1px solid var(--green-b)" }}
-          >
-            <Zap className="h-4 w-4" style={{ color: "var(--green)" }} />
-          </div>
-          <div>
-            <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--t0)", marginBottom: 4 }}>
-              React migration active
-            </div>
-            <p style={{ fontSize: "12px", lineHeight: "1.75", color: "var(--t1)", maxWidth: 680 }}>
-              Code Atlas changes the boring code lines into a real{" "}
-              <code
-                className="rounded px-1.5 py-0.5"
-                style={{
-                  background: "var(--s2)",
-                  fontSize: "11px",
-                  fontFamily: "var(--font-mono, monospace)",
-                  color: "var(--purple)",
-                }}
-              >
-                 interactive map
-              </code>{" "}
-              where users can explore the codebase visually.
-            </p>
-          </div>
-        </div>
-
-      </div>
-    </section>
+        />
+      ))}
+    </div>
   );
 }
+
+// ── Beam — golden in dark mode, purple in light mode ──────────────────────────
+
+function Beam() {
+  return (
+    <div className="ca-beam-wrap" aria-hidden="true">
+      <div className="ca-beam" />
+    </div>
+  );
+}
+
+// ── Hero ──────────────────────────────────────────────────────────────────────
+
+function HeroHeadline() {
+  return (
+    <h1 className="ca-h1">
+      EXPLORE
+      <br />
+      YOUR CODE
+      <br />
+      <span className="ca-bracket">{"{"}</span>
+      <span className="ca-accent"> ATLAS</span>
+      <span className="ca-bracket">{" }"}</span>
+    </h1>
+  );
+}
+
+function HeroCTAs() {
+  return (
+    <div className="ca-hero-ctas">
+      <Link to="/onboarding" className="ca-btn-main">
+        Get Started <span className="ca-arr">→</span>
+      </Link>
+      <Link to="/graph" className="ca-btn-outline">
+        Open Graph Viewer
+      </Link>
+    </div>
+  );
+}
+
+// ── Knowledge Graph SVG mock ───────────────────────────────────────────────────
+
+function KnowledgeGraphSVG() {
+  return (
+    <svg
+      className="ca-graph-svg"
+      viewBox="0 0 520 320"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-label="CodeAtlas knowledge graph visualization"
+    >
+      <defs>
+        <filter id="ca-glow-teal">
+          <feGaussianBlur stdDeviation="3" result="blur" />
+          <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+        </filter>
+        <filter id="ca-glow-purple">
+          <feGaussianBlur stdDeviation="4" result="blur" />
+          <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+        </filter>
+        <marker id="ca-arr" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+          <path d="M0,0 L6,3 L0,6 Z" fill="rgba(128,128,128,0.3)" />
+        </marker>
+        <pattern id="ca-grid" width="24" height="24" patternUnits="userSpaceOnUse">
+          <circle cx="12" cy="12" r="0.8" fill="rgba(128,128,128,0.08)" />
+        </pattern>
+      </defs>
+
+      <rect width="520" height="320" fill="url(#ca-grid)" />
+
+      {([
+        [190,120,100,80,  "rgba(45,232,200,0.25)"],
+        [190,120,100,160, "rgba(45,232,200,0.25)"],
+        [190,120,290,80,  "rgba(45,232,200,0.2)"],
+        [290,80, 380,60,  "rgba(167,139,250,0.25)"],
+        [290,80, 380,110, "rgba(167,139,250,0.25)"],
+        [200,210,110,250, "rgba(251,191,36,0.2)"],
+        [200,210,290,240, "rgba(251,191,36,0.2)"],
+        [100,80, 60, 40,  "rgba(128,128,128,0.15)"],
+        [100,160,50, 190, "rgba(128,128,128,0.15)"],
+        [380,60, 440,40,  "rgba(167,139,250,0.15)"],
+        [380,110,450,130, "rgba(167,139,250,0.15)"],
+        [290,240,360,270, "rgba(251,191,36,0.15)"],
+      ] as const).map(([x1,y1,x2,y2,stroke], i) => (
+        <line key={i} x1={x1} y1={y1} x2={x2} y2={y2}
+          stroke={stroke} strokeWidth="1.2" markerEnd="url(#ca-arr)" />
+      ))}
+      <line x1="190" y1="120" x2="200" y2="210"
+        stroke="rgba(251,191,36,0.22)" strokeWidth="1.2" strokeDasharray="4 3" markerEnd="url(#ca-arr)" />
+
+      <g filter="url(#ca-glow-teal)">
+        <circle cx="190" cy="120" r="20" fill="rgba(45,232,200,0.1)" stroke="#2de8c8" strokeWidth="1.5" />
+        <circle cx="190" cy="120" r="6" fill="#2de8c8">
+          <animate attributeName="r" values="6;8;6" dur="2.5s" repeatCount="indefinite" />
+          <animate attributeName="opacity" values="1;0.6;1" dur="2.5s" repeatCount="indefinite" />
+        </circle>
+      </g>
+      <text x="190" y="150" textAnchor="middle" fontFamily="JetBrains Mono,monospace" fontSize="10" fill="#2de8c8">/src</text>
+
+      <circle cx="100" cy="80" r="12" fill="rgba(45,232,200,0.08)" stroke="rgba(45,232,200,0.4)" strokeWidth="1.2" />
+      <circle cx="100" cy="80" r="4.5" fill="rgba(45,232,200,0.7)" />
+      <text x="100" y="64" textAnchor="middle" fontFamily="JetBrains Mono,monospace" fontSize="9.5" fill="rgba(45,232,200,0.8)">api/</text>
+
+      <circle cx="100" cy="160" r="12" fill="rgba(45,232,200,0.08)" stroke="rgba(45,232,200,0.35)" strokeWidth="1.2" />
+      <circle cx="100" cy="160" r="4.5" fill="rgba(45,232,200,0.7)" />
+      <text x="100" y="182" textAnchor="middle" fontFamily="JetBrains Mono,monospace" fontSize="9.5" fill="rgba(45,232,200,0.8)">lib/</text>
+
+      <g filter="url(#ca-glow-purple)">
+        <circle cx="290" cy="80" r="14" fill="rgba(167,139,250,0.1)" stroke="rgba(167,139,250,0.5)" strokeWidth="1.5" />
+        <circle cx="290" cy="80" r="5" fill="rgba(167,139,250,0.85)">
+          <animate attributeName="r" values="5;6.5;5" dur="3s" repeatCount="indefinite" />
+        </circle>
+      </g>
+      <text x="290" y="63" textAnchor="middle" fontFamily="JetBrains Mono,monospace" fontSize="9.5" fill="rgba(167,139,250,0.9)">services/</text>
+
+      <circle cx="380" cy="60" r="9" fill="rgba(167,139,250,0.08)" stroke="rgba(167,139,250,0.35)" strokeWidth="1" />
+      <circle cx="380" cy="60" r="3.5" fill="rgba(167,139,250,0.65)" />
+      <text x="380" y="48" textAnchor="middle" fontFamily="JetBrains Mono,monospace" fontSize="8.5" fill="rgba(167,139,250,0.8)">auth.ts</text>
+
+      <circle cx="380" cy="110" r="9" fill="rgba(167,139,250,0.08)" stroke="rgba(167,139,250,0.35)" strokeWidth="1" />
+      <circle cx="380" cy="110" r="3.5" fill="rgba(167,139,250,0.65)" />
+      <text x="380" y="130" textAnchor="middle" fontFamily="JetBrains Mono,monospace" fontSize="8.5" fill="rgba(167,139,250,0.8)">cart.ts</text>
+
+      <circle cx="200" cy="210" r="13" fill="rgba(251,191,36,0.1)" stroke="rgba(251,191,36,0.45)" strokeWidth="1.3" />
+      <circle cx="200" cy="210" r="4.5" fill="rgba(251,191,36,0.8)">
+        <animate attributeName="r" values="4.5;6;4.5" dur="3.5s" repeatCount="indefinite" />
+      </circle>
+      <text x="200" y="233" textAnchor="middle" fontFamily="JetBrains Mono,monospace" fontSize="9.5" fill="rgba(251,191,36,0.9)">models/</text>
+
+      <circle cx="110" cy="250" r="8" fill="rgba(251,191,36,0.07)" stroke="rgba(251,191,36,0.3)" strokeWidth="1" />
+      <circle cx="110" cy="250" r="3" fill="rgba(251,191,36,0.6)" />
+      <text x="110" y="269" textAnchor="middle" fontFamily="JetBrains Mono,monospace" fontSize="8" fill="rgba(251,191,36,0.7)">User.ts</text>
+
+      <circle cx="290" cy="240" r="8" fill="rgba(251,191,36,0.07)" stroke="rgba(251,191,36,0.3)" strokeWidth="1" />
+      <circle cx="290" cy="240" r="3" fill="rgba(251,191,36,0.6)" />
+      <text x="290" y="259" textAnchor="middle" fontFamily="JetBrains Mono,monospace" fontSize="8" fill="rgba(251,191,36,0.7)">Order.ts</text>
+
+      {([
+        [60,40],[50,190],[440,40],[450,130],[360,270],
+      ] as const).map(([cx,cy], i) => (
+        <circle key={i} cx={cx} cy={cy} r="6"
+          fill="rgba(128,128,128,0.05)" stroke="rgba(128,128,128,0.2)" strokeWidth="0.8" />
+      ))}
+
+      <text x="145" y="92"  fontFamily="JetBrains Mono,monospace" fontSize="8" fill="rgba(45,232,200,0.35)">CONTAINS</text>
+      <text x="230" y="95"  fontFamily="JetBrains Mono,monospace" fontSize="8" fill="rgba(167,139,250,0.35)">IMPORTS</text>
+      <text x="175" y="175" fontFamily="JetBrains Mono,monospace" fontSize="8" fill="rgba(251,191,36,0.35)">CALLS</text>
+    </svg>
+  );
+}
+
+// ── Graph sidebar legend ───────────────────────────────────────────────────────
+
+const LEGEND_ITEMS = [
+  { color: "#2de8c8",               label: "Directories",  count: 12  },
+  { color: "rgba(167,139,250,1)",   label: "Source files", count: 847 },
+  { color: "rgba(251,191,36,1)",    label: "Models/types", count: 134 },
+  { color: "rgba(128,128,128,0.5)", label: "Ext. deps",    count: 22  },
+] as const;
+
+function GraphSidebar() {
+  return (
+    <div className="ca-graph-sidebar">
+      <div className="ca-sidebar-label">Legend</div>
+      {LEGEND_ITEMS.map(({ color, label, count }) => (
+        <div key={label} className="ca-sidebar-row">
+          <span className="ca-sidebar-dot" style={{ background: color }} />
+          {label}
+          <span className="ca-sidebar-count">{count}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function GraphCard() {
+  return (
+    <div className="ca-graph-card">
+      <div className="ca-graph-topbar">
+        <div className="ca-traffic-lights">
+          <div className="ca-tl ca-tl--r" />
+          <div className="ca-tl ca-tl--y" />
+          <div className="ca-tl ca-tl--g" />
+        </div>
+        <div className="ca-graph-title">my-ecommerce-api · knowledge graph</div>
+        <div className="ca-graph-actions">
+          {["⟳", "⊕", "⋯"].map((icon) => (
+            <button key={icon} className="ca-graph-btn" type="button">{icon}</button>
+          ))}
+        </div>
+      </div>
+      <div className="ca-graph-body">
+        <KnowledgeGraphSVG />
+        <GraphSidebar />
+      </div>
+    </div>
+  );
+}
+
+function HeroRight() {
+  return (
+    <div className="ca-hero-right">
+      <GraphCard />
+      <div className="ca-graph-tag">
+        node: <strong style={{ color: "var(--teal)" }}>UserService</strong>
+        <br />
+        type: <span style={{ color: "var(--purple)" }}>class</span>
+        {" "}· calls: <span style={{ color: "var(--amber)" }}>14</span>
+      </div>
+    </div>
+  );
+}
+
+// ── Footer (home-only) ────────────────────────────────────────────────────────
+
+const SOCIAL_LINKS = [
+                                    
+  { label: "in", href: "https://www.linkedin.com/in/mariam-ashraf-40309b247/", style: { fontSize: "13px" } as const },
+  { label: "⚡", href: "https://github.com/FatmaNageh/CodeAtlas.git"                                 },
+] as const;
+
+function FooterBar() {
+  return (
+    <footer className="ca-footer-bar">
+      <div className="ca-footer-left">
+        <span className="ca-footer-label">Follow Us</span>
+        <div className="ca-socials">
+          {SOCIAL_LINKS.map(({ label, href, style }) => (
+            <a key={label} href={href} className="ca-social-link" style={style}
+              target="_blank" rel="noopener noreferrer">
+              {label}
+            </a>
+          ))}
+        </div>
+      </div>
+      <div className="ca-scroll-cta">
+        Scroll to explore
+        <div className="ca-scroll-btn">↓</div>
+      </div>
+    </footer>
+  );
+}
+
+
+
+
+// ── Root ──────────────────────────────────────────────────────────────────────
+
+export function CodeAtlasHomePage() {
+  return (
+    // overflowX hidden prevents the floating graph card from causing x-scroll
+    <div style={{ position: "relative", overflowX: "hidden" }}>
+
+      {/* Background FX — position:fixed, only mounted on the / route */}
+      <Stars />
+      <Beam />
+
+      {/* Content sits above the fixed FX via z-index */}
+      <div
+        style={{
+          position: "relative",
+          zIndex: 1,
+          display: "flex",
+          flexDirection: "column",
+          minHeight: "calc(100vh - 64px)", /* 54px = shared Header height */
+        }}
+      >
+        {/* Hero */}
+        <section className="ca-hero" style={{ flex: 1 }}>
+          <div className="ca-hero-left">
+            <HeroHeadline />
+            <p className="ca-hero-sub">
+              Navigate any codebase like a map. CodeAtlas builds a semantic knowledge
+              graph of your repository — every file, function, class and relationship,
+              instantly traversable.
+            </p>
+            <HeroCTAs />
+          </div>
+          <HeroRight />
+        </section>
+
+        {/* Footer sits at the bottom of the home page */}
+        <FooterBar />
+      </div>
+
+    </div>
+  );
+}
+

@@ -1,13 +1,15 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { ModeToggle } from "./mode-toggle";
+import { color } from "d3";
 
-const links = [
-  { to: "/",          label: "Home"       },
+const NAV_LINKS = [
+  { to: "/",           label: "Home"       },
   { to: "/onboarding", label: "Onboarding" },
-  { to: "/indexing",  label: "Indexing"   },
-  { to: "/ir",        label: "IR"         },
-  { to: "/analytics", label: "Analytics"  },
-  { to: "/graph",     label: "Graph"      },
+  { to: "/indexing",   label: "Indexing"   },
+  { to: "/ir",         label: "IR"         },
+  { to: "/analytics",  label: "Analytics"  },
+  { to: "/faquestions",      label: "FAQ"      },
+
 ] as const;
 
 export default function Header() {
@@ -18,27 +20,29 @@ export default function Header() {
     <header
       className="sticky top-0 z-50 backdrop-blur-md"
       style={{
-        background: "color-mix(in srgb, var(--s0) 92%, transparent)",
+        background: "color-mix(in srgb, var(--bg) 82%, transparent)",
         borderBottom: "1px solid var(--b1)",
+        height: "64px",
       }}
     >
-      <div className="mx-auto flex h-[54px] max-w-[1440px] items-center gap-4 px-5">
-        {/* Logo */}
+      <div className="mx-auto flex h-full max-w-[1440px] items-center justify-between px-6">
+
+        {/* ── Logo ── */}
         <Link
           to="/"
-          className="group flex shrink-0 items-center gap-2.5"
-          style={{ textDecoration: "none" }}
+          style={{ textDecoration: "none", display: "flex", alignItems: "center", gap: 10 }}
         >
-          {/* Logo mark */}
           <div
-            className="relative flex h-7 w-7 items-center justify-center overflow-hidden rounded-[8px]"
             style={{
-              background: "linear-gradient(135deg, var(--purple) 0%, var(--blue) 100%)",
-              boxShadow: "0 1px 6px color-mix(in srgb, var(--purple) 35%, transparent)",
+              width: 34, height: 34,
+              background: 0,
+              borderRadius: 9,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              boxShadow: "0 1px 8px color-mix(in srgb, var(--purple) 35%, transparent)",
+              flexShrink: 0,
             }}
           >
-            {/* Tiny graph icon */}
-            <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4">
+            <svg viewBox="0 0 20 20" fill="none" style={{ width: 16, height: 16 }}>
               <circle cx="6"  cy="10" r="2.2" fill="white" fillOpacity="0.9" />
               <circle cx="14" cy="5"  r="1.8" fill="white" fillOpacity="0.75" />
               <circle cx="14" cy="15" r="1.8" fill="white" fillOpacity="0.75" />
@@ -46,69 +50,96 @@ export default function Header() {
               <line x1="8"  y1="11" x2="12.3" y2="13.9" stroke="white" strokeOpacity="0.6" strokeWidth="1.2" />
             </svg>
           </div>
-
           <span
-            className="text-[15px] font-semibold tracking-[-0.4px]"
-            style={{ fontFamily: "var(--font-display, var(--font-sans))", color: "var(--t0)" }}
+            style={{
+              fontFamily: "var(--font-display)",
+              fontSize: 16,
+              fontWeight: 700,
+              letterSpacing: "-0.3px",
+              color: "var(--t0)",
+            }}
           >
             Code<span style={{ color: "var(--purple)" }}>Atlas</span>
           </span>
         </Link>
 
-        {/* Divider */}
-        <div className="hidden h-[18px] w-px sm:block" style={{ background: "var(--b2)" }} />
-
-        {/* Nav */}
-        <nav className="flex flex-1 items-center gap-0.5 overflow-x-auto">
-          {links.map(({ to, label }) => {
-            const isActive =
-              to === "/"
-                ? activePath === "/"
-                : activePath.startsWith(to);
+        {/* ── Pill nav ── */}
+        <nav
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 3,
+            background: "color-mix(in srgb, var(--t0) 5%, transparent)",
+            border: "1px solid var(--b1)",
+            borderRadius: 100,
+            padding: "5px 6px",
+          }}
+        >
+          {NAV_LINKS.map(({ to, label }) => {
+            const isActive = to === "/" ? activePath === "/" : activePath.startsWith(to);
             return (
               <Link
                 key={to}
                 to={to}
                 activeOptions={{ exact: to === "/" }}
-                className="relative rounded-[7px] px-3 py-1.5 text-[12.5px] font-medium transition-colors"
                 style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "6px 16px",
+                  borderRadius: 100,
+                  fontSize: 13.5,
+                  fontWeight: isActive ? 500 : 400,
                   color: isActive ? "var(--t0)" : "var(--t2)",
-                  background: isActive ? "var(--s1)" : "transparent",
-                }}
-                activeProps={{
-                  style: { color: "var(--t0)", background: "var(--s1)" },
+                  background: isActive ? "color-mix(in srgb, var(--t0) 9%, transparent)" : "transparent",
+                  textDecoration: "none",
+                  whiteSpace: "nowrap",
+                  transition: "color 0.15s, background 0.15s",
                 }}
               >
-                {label}
                 {isActive && (
                   <span
-                    className="absolute bottom-0 left-3 right-3 h-[2px] rounded-full"
-                    style={{ background: "linear-gradient(90deg, var(--purple), var(--blue))" }}
+                    style={{
+                      width: 6, height: 6,
+                      borderRadius: "50%",
+                      background: "var(--teal)",
+                      boxShadow: "0 0 5px var(--teal)",
+                      flexShrink: 0,
+                    }}
                   />
                 )}
+                {label}
               </Link>
             );
           })}
         </nav>
 
-        {/* Right side */}
-        <div className="ml-auto flex shrink-0 items-center gap-2">
+        {/* ── Right actions ── */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <ModeToggle />
           <Link
             to="/onboarding"
-            className="hidden items-center gap-1.5 rounded-[8px] px-3.5 py-1.5 text-[12px] font-medium transition-colors md:inline-flex"
             style={{
-              background: "linear-gradient(135deg, var(--purple) 0%, var(--blue) 100%)",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "8px 20px",
+              borderRadius: 9,
+              fontSize: 13,
+              fontWeight: 600,
               color: "#fff",
-              boxShadow: "0 1px 8px color-mix(in srgb, var(--purple) 30%, transparent)",
+              background: 0,
+              boxShadow: "0 2px 12px color-mix(in srgb, var(--purple) 32%, transparent)",
+              textDecoration: "none",
+              transition: "opacity 0.2s",
             }}
+            onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.85"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.opacity = "1"; }}
           >
-            <svg viewBox="0 0 16 16" fill="none" className="h-3.5 w-3.5">
-              <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
             Get started
           </Link>
-          <ModeToggle />
         </div>
+
       </div>
     </header>
   );

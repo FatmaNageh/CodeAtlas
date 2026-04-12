@@ -1,7 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { BarChart3 } from "lucide-react";
 import { computeUnusedFiles, parseIrJson } from "@/lib/ir";
 import { fetchIr } from "@/lib/api";
 import { loadSession, saveSession } from "@/lib/session";
@@ -11,116 +10,223 @@ export const Route = createFileRoute("/analytics")({
   component: AnalyticsPage,
 });
 
+// ── Shared sub-components ────────────────────────────────────────────────────
+
+function PageSection({ children }: { children: React.ReactNode }) {
+  return (
+    <section
+      className="mb-5 rounded-[14px] p-6"
+      style={{ background: "var(--s0)", border: "1px solid var(--b1)" }}
+    >
+      {children}
+    </section>
+  );
+}
+
+function FieldLabel({ children, hint }: { children: React.ReactNode; hint?: string }) {
+  return (
+    <label className="mb-1.5 block text-[12px]" style={{ color: "var(--t2)" }}>
+      {children}
+      {hint && <span className="ml-1.5" style={{ color: "var(--t3)", fontWeight: 400 }}>({hint})</span>}
+    </label>
+  );
+}
+
+function TextInput({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <input
+      className="w-full rounded-[8px] px-3 py-2 text-[13px] outline-none transition-colors"
+      style={{
+        background: "var(--s1)",
+        border: "1px solid var(--b1)",
+        color: "var(--t0)",
+      }}
+      placeholder={placeholder}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onFocus={(e) => { e.currentTarget.style.borderColor = "var(--purple)"; }}
+      onBlur={(e)  => { e.currentTarget.style.borderColor = "var(--b1)"; }}
+    />
+  );
+}
+
+function Btn({
+  onClick,
+  disabled,
+  primary,
+  children,
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+  primary?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="inline-flex items-center gap-2 rounded-[8px] px-4 py-2 text-[13px] font-medium transition-opacity disabled:cursor-not-allowed disabled:opacity-40"
+      style={
+        primary
+          ? {
+              background: "linear-gradient(135deg, var(--purple) 0%, var(--blue) 100%)",
+              color: "#fff",
+              boxShadow: "0 1px 8px color-mix(in srgb, var(--purple) 25%, transparent)",
+            }
+          : {
+              background: "var(--s1)",
+              border: "1px solid var(--b2)",
+              color: "var(--t1)",
+            }
+      }
+    >
+      {children}
+    </button>
+  );
+}
+
+// ── Page ─────────────────────────────────────────────────────────────────────
+
 function AnalyticsPage() {
   const sess = loadSession();
   const [baseUrl, setBaseUrl] = useState(sess.baseUrl ?? "");
-  const [repoId, setRepoId] = useState(sess.lastRepoId ?? "");
-  const [raw, setRaw] = useState("");
-  const [ir, setIr] = useState<any>(null);
+  const [repoId, setRepoId]   = useState(sess.lastRepoId ?? "");
+  const [raw, setRaw]         = useState("");
+  const [ir, setIr]           = useState<any>(null);
 
   const unused = useMemo(() => (ir ? computeUnusedFiles(ir) : []), [ir]);
 
   const load = () => {
-    try {
-      setIr(parseIrJson(raw));
-      toast.success("Loaded IR JSON");
-    } catch (e: any) {
-      toast.error(e?.message ?? "Invalid JSON");
-    }
+    try   { setIr(parseIrJson(raw)); toast.success("Loaded IR JSON"); }
+    catch (e: any) { toast.error(e?.message ?? "Invalid JSON"); }
   };
 
   const loadFromBackend = async () => {
-    if (!repoId.trim()) {
-      toast.error("Missing repoId");
-      return;
-    }
+    if (!repoId.trim()) { toast.error("Missing repoId"); return; }
     try {
       const data = await fetchIr(repoId.trim(), baseUrl);
       saveSession({ baseUrl, lastRepoId: repoId.trim() });
       setIr(data);
       toast.success("Loaded IR from backend");
-    } catch (e: any) {
-      toast.error(e?.message ?? "Failed to load IR");
-    }
+    } catch (e: any) { toast.error(e?.message ?? "Failed to load IR"); }
   };
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-8">
-      <Card className="shadow-md border-2 border-primary/10">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-2xl font-bold">
-            <span className="inline-block bg-gradient-to-r from-blue-500 to-violet-500 text-transparent bg-clip-text">Analytics (non-LLM)</span>
-            <span className="ml-2 px-2 py-1 rounded bg-primary/10 text-primary text-xs font-semibold tracking-wide">IR Insights</span>
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="text-sm text-muted-foreground">
-            For now this page computes analytics directly from the IR (offline):
-            <b> unused files</b> based on “no inbound IMPORTS/RESOLVES_TO”.
-            Later you can move these computations to Neo4j queries + backend endpoints.
-          </div>
+    <div className="mx-auto w-full max-w-[860px] px-6 py-12">
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-muted-foreground">Backend base URL <span className="text-xs font-normal">(optional)</span></label>
-              <input
-                className="w-full px-3 py-2 rounded border bg-background focus:outline-none focus:ring-2 focus:ring-primary/30 transition"
-                placeholder="e.g. http://127.0.0.1:3000  (leave empty if same origin)"
-                value={baseUrl}
-                onChange={(e) => setBaseUrl(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-muted-foreground">RepoId <span className="text-xs font-normal">(from last indexRepo run)</span></label>
-              <input
-                className="w-full px-3 py-2 rounded border bg-background focus:outline-none focus:ring-2 focus:ring-primary/30 transition"
-                placeholder="repoId from last indexRepo run"
-                value={repoId}
-                onChange={(e) => setRepoId(e.target.value)}
-              />
-            </div>
-          </div>
+      {/* Page header */}
+      <div className="mb-8">
+        <div
+          className="mb-3 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-medium"
+          style={{ background: "var(--purple-l)", border: "1px solid var(--purple-b)", color: "var(--purple)" }}
+        >
+          <BarChart3 style={{ width: 11, height: 11 }} />
+          Analytics · IR Insights
+        </div>
+        <h1
+          className="text-[26px] font-bold tracking-[-0.5px]"
+          style={{ fontFamily: "var(--font-display)", color: "var(--t0)" }}
+        >
+          Analytics
+          <span className="ml-2 text-[20px] font-normal" style={{ color: "var(--t2)" }}>
+            (non-LLM)
+          </span>
+        </h1>
+        <p className="mt-2 text-[13px] leading-6" style={{ color: "var(--t2)" }}>
+          Compute analytics directly from the IR — unused files, import chains, dependency hotspots.
+        </p>
+      </div>
 
-          <div className="flex gap-2 flex-wrap">
-            <Button onClick={loadFromBackend} disabled={!repoId.trim()} className="font-semibold">
-              Load IR from backend
-            </Button>
-          </div>
-
-          <details>
-            <summary className="text-sm text-muted-foreground cursor-pointer">Advanced: paste IR JSON manually</summary>
-            <textarea
-              className="w-full min-h-[200px] p-3 rounded border bg-background font-mono text-xs mt-2 focus:outline-none focus:ring-2 focus:ring-primary/30 transition"
-              placeholder="Paste IR JSON here..."
-              value={raw}
-              onChange={(e) => setRaw(e.target.value)}
+      {/* Connection */}
+      <PageSection>
+        <h2 className="mb-5 text-[13.5px] font-semibold" style={{ color: "var(--t0)" }}>
+          Connection
+        </h2>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <FieldLabel hint="optional">Backend base URL</FieldLabel>
+            <TextInput
+              value={baseUrl}
+              onChange={setBaseUrl}
+              placeholder="http://127.0.0.1:3000"
             />
+          </div>
+          <div>
+            <FieldLabel hint="from last indexRepo run">Repo ID</FieldLabel>
+            <TextInput
+              value={repoId}
+              onChange={setRepoId}
+              placeholder="repoId from session"
+            />
+          </div>
+        </div>
+        <div className="mt-5 flex flex-wrap gap-2">
+          <Btn onClick={loadFromBackend} disabled={!repoId.trim()} primary>
+            Load IR from backend
+          </Btn>
+        </div>
+      </PageSection>
 
-            <Button onClick={load} disabled={!raw.trim()} className="mt-2 font-semibold">
-              Compute analytics from pasted JSON
-            </Button>
-          </details>
-        </CardContent>
-      </Card>
+      {/* Paste JSON */}
+      <details className="mb-5">
+        <summary
+          className="mb-3 cursor-pointer select-none text-[12px]"
+          style={{ color: "var(--t2)" }}
+        >
+          ▸ Advanced: paste IR JSON manually
+        </summary>
+        <PageSection>
+          <textarea
+            className="mb-4 w-full resize-y rounded-[8px] p-3 font-mono text-[12px] outline-none"
+            style={{
+              minHeight: 180,
+              background: "var(--s2)",
+              border: "1px solid var(--b1)",
+              color: "var(--t0)",
+            }}
+            placeholder="Paste IR JSON here..."
+            value={raw}
+            onChange={(e) => setRaw(e.target.value)}
+          />
+          <Btn onClick={load} disabled={!raw.trim()}>
+            Compute analytics from pasted JSON
+          </Btn>
+        </PageSection>
+      </details>
 
+      {/* Results */}
       {ir && (
-        <Card className="shadow border border-primary/10">
-          <CardHeader>
-            <CardTitle className="text-lg font-semibold flex items-center gap-2">
-              <span>Unused files ({unused.length})</span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-xs text-muted-foreground mb-2">
-              Heuristic: files with zero inbound IMPORTS (and no RESOLVES_TO references to the file).
-              Entry points are not yet excluded — treat this as “candidates”.
-            </div>
-
-            <pre className="text-xs whitespace-pre-wrap break-words bg-muted/40 p-3 rounded font-mono max-h-96 overflow-auto">
-              {JSON.stringify(unused.slice(0, 200), null, 2)}
-            </pre>
-          </CardContent>
-        </Card>
+        <PageSection>
+          <div className="mb-4 flex items-center gap-3">
+            <h2 className="text-[13.5px] font-semibold" style={{ color: "var(--t0)" }}>
+              Unused files
+            </h2>
+            <span
+              className="rounded-full px-2 py-0.5 text-[11px] font-medium"
+              style={{ background: "var(--amber-l)", color: "var(--amber)", border: "1px solid var(--amber-b)" }}
+            >
+              {unused.length}
+            </span>
+          </div>
+          <p className="mb-3 text-[12px]" style={{ color: "var(--t3)" }}>
+            Heuristic: files with zero inbound IMPORTS. Entry points not yet excluded — treat as candidates.
+          </p>
+          <pre
+            className="max-h-96 overflow-auto rounded-[8px] p-4 font-mono text-[11px] leading-5"
+            style={{ background: "var(--s2)", color: "var(--t1)", border: "1px solid var(--b0)" }}
+          >
+            {JSON.stringify(unused.slice(0, 200), null, 2)}
+          </pre>
+        </PageSection>
       )}
     </div>
   );
