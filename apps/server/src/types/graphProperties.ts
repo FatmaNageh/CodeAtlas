@@ -84,6 +84,7 @@ export type BaseNodeProps = {
 export type RepoNodeProps = BaseNodeProps & {
   kind: "Repo";
   name: string;
+  path: string;
   rootPath: string;
   defaultBranch?: string | null;
   lastIndexedAt?: string | null;
@@ -93,6 +94,7 @@ export type RepoNodeProps = BaseNodeProps & {
 export type DirectoryNodeProps = BaseNodeProps & {
   kind: "Directory";
   path: string;
+  relPath: string;
   name: string;
   parentPath: string | null;
   depth?: number;
@@ -101,6 +103,7 @@ export type DirectoryNodeProps = BaseNodeProps & {
 export type CodeFileNodeProps = BaseNodeProps & {
   kind: "CodeFile";
   path: string;
+  relPath: string;
   name: string;
   extension: string;
   language: SupportedLanguage;
@@ -113,6 +116,7 @@ export type CodeFileNodeProps = BaseNodeProps & {
 export type TextFileNodeProps = BaseNodeProps & {
   kind: "TextFile";
   path: string;
+  relPath: string;
   name: string;
   extension: string;
   textType?: TextKind | "unknown";
@@ -128,6 +132,7 @@ export type TextChunkNodeProps = BaseNodeProps & {
   chunkIndex: number;
   chunkVersion: string;
   content: string;
+  hash?: string | null;
   startOffset?: number | null;
   endOffset?: number | null;
   startLine?: number | null;
