@@ -929,8 +929,7 @@ export function CodeAtlasHomePage() {
           <div className="ca-hero-bg-glow" />
           <div className="ca-hero-left">
             <div className="ca-hero-tag">
-              <span className="ca-hero-tag-dot" />
-              Graph-powered code intelligence
+             
             </div>
             <HeroHeadline />
             <p className="ca-hero-sub">
