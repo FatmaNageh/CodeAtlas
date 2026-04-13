@@ -41,17 +41,19 @@ function mapRowsToFileMetrics(rows: GraphTourMetricRow[]): GraphTourFileMetric[]
 
 export async function buildGraphTour(repoId: string, requestedLimit: number | undefined): Promise<TourResponse> {
   const metricsRows = await runCypher<GraphTourMetricRow>(
-    `
+    `/*cypher*/
     MATCH (f:CodeFile {repoId: $repoId})
-    OPTIONAL MATCH (f)-[outRel:REFERENCES]->(:CodeFile {repoId: $repoId})
+    OPTIONAL MATCH (f)-[outRel:REFERENCES]->(outTarget {repoId: $repoId})
+      WHERE outTarget:CodeFile OR outTarget:TextFile
     WITH f, count(outRel) AS outDegree
-    OPTIONAL MATCH (:CodeFile {repoId: $repoId})-[inRel:REFERENCES]->(f)
+    OPTIONAL MATCH (inSource {repoId: $repoId})-[inRel:REFERENCES]->(f)
+      WHERE inSource:CodeFile OR inSource:TextFile
     WITH f, outDegree, count(inRel) AS inDegree
     OPTIONAL MATCH p = (root)-[:CONTAINS*0..]->(f)
-      WHERE root.repoId = $repoId AND root:RepoRoot
+      WHERE root.repoId = $repoId AND root:Repo
     WITH f, inDegree, outDegree, min(length(p)) AS depth
     RETURN
-      f.relPath AS filePath,
+      f.path AS filePath,
       inDegree,
       outDegree,
       coalesce(depth, 99) AS depth,
