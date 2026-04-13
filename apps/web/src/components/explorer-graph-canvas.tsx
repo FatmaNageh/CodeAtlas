@@ -257,8 +257,7 @@ type Theme = (typeof C)[keyof typeof C];
 const getTheme = (): Theme =>
 	document.documentElement.classList.contains("dark") ? C.dark : C.light;
 
-// ─── Lucide icon SVG paths (24×24 viewBox, stroke-only) ──────────────────────
-// Rendered inside node circles — clean, recognizable at small sizes
+
 type LucideIconWithRender = LucideIcon & {
 	render: (
 		props: Record<string, never>,
@@ -405,12 +404,7 @@ function radialLayout(nodes: SimNode[], W: number, H: number) {
 	});
 }
 
-/**
- * HIERARCHICAL LAYOUT
- * Each kind is a horizontal layer. Nodes WRAP into multiple rows
- * so they never get squashed into one long line.
- * Generous spacing between nodes and between layers.
- */
+
 function hierarchicalLayout(nodes: SimNode[], links: SimLink[], W: number, H: number) {
 	const nodeById = new Map(nodes.map((node) => [String(node.id), node]));
 	const children = new Map<string, string[]>();
@@ -667,7 +661,6 @@ export const ExplorerGraphCanvas = forwardRef<
 		return { simNodes, simLinks, nodeMap };
 	}, [nodes, edges]);
 
-	// ── EFFECT 1: build simulation + draw (no selectedNodeId dep) ──────────
 	useEffect(() => {
 		if (!containerRef.current || !svgRef.current) return;
 		const { width: W, height: H } =
@@ -1086,11 +1079,9 @@ export const ExplorerGraphCanvas = forwardRef<
 			);
 			simulation.stop();
 		};
-		// selectedNodeId intentionally NOT in deps — selection is updated by Effect 2
-		// eslint-disable-next-line react-hooks/exhaustive-deps
+	
 	}, [prepared]);
 
-	// ── EFFECT 2: update selection rings WITHOUT re-running simulation ─────
 	useEffect(() => {
 		if (!svgRef.current) return;
 		const T = getTheme();

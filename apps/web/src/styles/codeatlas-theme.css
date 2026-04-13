@@ -410,7 +410,7 @@
 /* ── Headline ───────────────────────────────────────────────────────────────── */
 .ca-h1 {
   font-family: var(--font-display);
-  font-size: clamp(48px, 6vw, 80px);
+  font-size: clamp(32px, 4vw, 52px);
   font-weight: 900;
   line-height: 0.95;
   letter-spacing: -2.5px;

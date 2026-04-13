@@ -821,7 +821,7 @@ function GraphExplorerPage() {
 		}
 		setReIndexing(true);
 		try {
-			toast.info("Re-indexing repository… this may take a moment.");
+			toast.info("Re-indexing repository… this may take a moment please wait.");
 			const data = await indexRepo(
 				{
 					projectPath: repoRoot,
@@ -841,7 +841,6 @@ function GraphExplorerPage() {
 				toast.success(
 					`Indexing complete — repoId: ${data.repoId}. Reloading graph…`,
 				);
-				// Trigger graph reload by refreshing the page (repoId may have changed)
 				setTimeout(() => window.location.reload(), 1200);
 			} else {
 				toast.success("Indexing complete. Reloading graph…");
@@ -854,7 +853,6 @@ function GraphExplorerPage() {
 		}
 	};
 
-	// Whether the graph looks suspiciously sparse (likely incomplete indexing)
 	const graphLooksSparse =
 		!loading && graph.nodes.length > 0 && graph.nodes.length < 10;
 
@@ -1034,7 +1032,6 @@ function GraphExplorerPage() {
 		try {
 			const { text: cleanedText, mentionedNodes } = parseMentions(text);
 
-			// Include ALL multi-selected nodes as context, not just the single selected one
 			const contextNodes: ExplorerNode[] =
 				mentionedNodes.length > 0
 					? mentionedNodes
@@ -1061,7 +1058,6 @@ function GraphExplorerPage() {
 					path: getNodePath(node),
 				}));
 			}
-			// const answer = await complete(text, { body } as any);
 			const answer = await complete(text, {
 				body: { repoId: repoId.trim(), question: text },
 			});
