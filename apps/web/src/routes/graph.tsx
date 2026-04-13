@@ -63,6 +63,7 @@ type AskSource = {
 	file?: string;
 	symbol?: string;
 	score?: number;
+	sourceKind?: string;
 };
 
 type AskSuccessResponse = {
@@ -483,7 +484,7 @@ function GraphExplorerPage() {
 					...(init?.headers ?? {}),
 					"Content-Type": "application/json",
 				},
-				body: JSON.stringify({ repoId: requestRepoId, question }),
+				body: JSON.stringify({ ...reqBody, repoId: requestRepoId, question }),
 			});
 			const data: object | null = await response.json().catch(() => null);
 
@@ -1033,33 +1034,39 @@ function GraphExplorerPage() {
 			const { text: cleanedText, mentionedNodes } = parseMentions(text);
 
 			const contextNodes: ExplorerNode[] =
-				mentionedNodes.length > 0
-					? mentionedNodes
-					: selectedNodeIds.length > 0
-						? (selectedNodeIds
-								.map((id) => filteredNodes.find((n) => String(n.id) === id))
-								.filter(Boolean) as ExplorerNode[])
-						: selectedNode
-							? [selectedNode]
-							: [];
+				selectedNodeIds.length > 0
+					? (selectedNodeIds
+							.map((id) => filteredNodes.find((n) => String(n.id) === id))
+							.filter(Boolean) as ExplorerNode[])
+					: selectedNode
+						? [selectedNode]
+						: [];
 
 			const body: {
 				repoId: string;
 				question: string;
 				mentionedNodes?: { id: string; name: string; path: string }[];
+				selectedNodes?: { id: string; name: string; path: string }[];
 			} = {
 				repoId: repoId.trim(),
 				question: cleanedText,
 			};
-			if (contextNodes.length > 0) {
-				body.mentionedNodes = contextNodes.map((node) => ({
+			if (mentionedNodes.length > 0) {
+				body.mentionedNodes = mentionedNodes.map((node) => ({
 					id: String(node.id),
 					name: nodeDisplayLabel(node),
 					path: getNodePath(node),
 				}));
 			}
-			const answer = await complete(text, {
-				body: { repoId: repoId.trim(), question: text },
+			if (contextNodes.length > 0) {
+				body.selectedNodes = contextNodes.map((node) => ({
+					id: String(node.id),
+					name: nodeDisplayLabel(node),
+					path: getNodePath(node),
+				}));
+			}
+			const answer = await complete(cleanedText, {
+				body,
 			});
 			const contextFiles = pendingContextFilesRef.current;
 			pendingContextFilesRef.current = [];

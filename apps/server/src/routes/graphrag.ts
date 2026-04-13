@@ -16,6 +16,20 @@ import { buildGraphTour } from "@/tour/buildGraphTour";
 
 export const graphragRoute = new Hono();
 
+type AskNodeRef = {
+  id: string;
+  name?: string;
+  path?: string;
+};
+
+type AskRequestBody = {
+  repoId?: string;
+  question?: string;
+  contextNodeId?: string;
+  mentionedNodes?: AskNodeRef[];
+  selectedNodes?: AskNodeRef[];
+};
+
 type SummaryRow = {
   path: string;
   summary: string;
@@ -37,6 +51,165 @@ type StatusRow = {
   textChunks: number;
   embeddedTextChunks: number;
 };
+
+type FileSummaryRow = {
+  summary: string | null;
+  fileKind: string;
+};
+
+type ContextNodeRow = {
+  id: string;
+  labels: string[];
+  path: string | null;
+  filePath: string | null;
+  name: string | null;
+  qname: string | null;
+  text: string | null;
+  content: string | null;
+  summary: string | null;
+};
+
+type AskSource = {
+  file: string;
+  symbol: string;
+  score: number;
+  sourceKind: string;
+};
+
+function uniqueNodeRefs(...groups: (AskNodeRef[] | undefined)[]): AskNodeRef[] {
+  const out: AskNodeRef[] = [];
+  const seen = new Set<string>();
+
+  for (const group of groups) {
+    for (const ref of group ?? []) {
+      const id = typeof ref?.id === "string" ? ref.id.trim() : "";
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      out.push({
+        id,
+        name: typeof ref.name === "string" ? ref.name : undefined,
+        path: typeof ref.path === "string" ? ref.path : undefined,
+      });
+    }
+  }
+
+  return out;
+}
+
+async function getFileSummary(filePath: string, repoId: string): Promise<string> {
+  const rows = await runCypher<FileSummaryRow>(
+    `/*cypher*/
+    MATCH (f {repoId: $repoId, path: $filePath})
+    WHERE f:CodeFile OR f:TextFile
+    RETURN f.summary AS summary,
+           CASE WHEN f:CodeFile THEN 'CodeFile' ELSE 'TextFile' END AS fileKind
+    LIMIT 1`,
+    { repoId, filePath },
+  );
+
+  const row = rows[0];
+  if (!row?.summary) return "";
+
+  return `File: ${filePath}\nType: ${row.fileKind}\nSummary:\n${row.summary}`;
+}
+
+async function gatherNodeContext(
+  repoId: string,
+  refs: AskNodeRef[],
+): Promise<{ context: string; sources: AskSource[] }> {
+  if (refs.length === 0) {
+    return { context: "", sources: [] };
+  }
+
+  const rows = await runCypher<ContextNodeRow>(
+    `/*cypher*/
+    UNWIND $nodeIds AS nodeId
+    MATCH (n {repoId: $repoId, id: nodeId})
+    RETURN n.id AS id,
+           labels(n) AS labels,
+           n.path AS path,
+           n.filePath AS filePath,
+           n.name AS name,
+           n.qname AS qname,
+           n.text AS text,
+           n.content AS content,
+           n.summary AS summary`,
+    { repoId, nodeIds: refs.map((ref) => ref.id) },
+  );
+
+  const rowById = new Map(rows.map((row) => [row.id, row] as const));
+  const filePaths = new Set<string>();
+  const sections: string[] = [];
+  const sources: AskSource[] = [];
+
+  for (const ref of refs) {
+    const row = rowById.get(ref.id);
+    const label = row?.labels?.[0] ?? "Node";
+    const symbol = row?.qname ?? row?.name ?? ref.name ?? label;
+    const filePath = row?.path ?? row?.filePath ?? ref.path ?? "";
+    const nodeText = row?.text ?? row?.content ?? "";
+    const summary = row?.summary ?? "";
+
+    if (filePath) filePaths.add(filePath);
+
+    sources.push({
+      file: filePath || "unknown",
+      symbol,
+      score: 1,
+      sourceKind: `node:${label}`,
+    });
+
+    const parts = [
+      `Selected context node: ${symbol}`,
+      `Type: ${label}`,
+      filePath ? `Path: ${filePath}` : "",
+      summary ? `Summary:\n${summary}` : "",
+      nodeText ? `Relevant content:\n${nodeText.slice(0, 2400)}` : "",
+    ].filter(Boolean);
+
+    if (parts.length > 0) {
+      sections.push(parts.join("\n"));
+    }
+  }
+
+  const fileContextSections = await Promise.all(
+    Array.from(filePaths).map(async (filePath) => {
+      const [fileContext, fileSummary] = await Promise.all([
+        assembleFileContext(filePath, repoId).catch(() => null),
+        getFileSummary(filePath, repoId).catch(() => ""),
+      ]);
+
+      const chunkText =
+        fileContext?.fileChunks
+          .map((chunk) => chunk.text ?? "")
+          .filter((text) => text.trim().length > 0)
+          .slice(0, 6)
+          .join("\n\n") ?? "";
+      const relatedSymbols =
+        fileContext?.relatedASTNodes
+          .map((node) => node.symbol)
+          .filter((value): value is string => typeof value === "string" && value.length > 0)
+          .slice(0, 12)
+          .join(", ") ?? "";
+      const references = fileContext?.references.slice(0, 12).join(", ") ?? "";
+
+      const parts = [
+        `Context file: ${filePath}`,
+        fileSummary,
+        chunkText ? `File content:\n${chunkText.slice(0, 3200)}` : "",
+        relatedSymbols ? `Symbols: ${relatedSymbols}` : "",
+        references ? `References: ${references}` : "",
+      ].filter(Boolean);
+
+      return parts.length > 1 ? parts.join("\n") : "";
+    }),
+  );
+
+  return {
+    context: [...sections, ...fileContextSections.filter(Boolean)].join("\n\n"),
+    sources,
+  };
+}
 
 // Helper: Convert absolute Windows/macOS paths to repo-relative POSIX paths
 function normalizeToRepoPath(filePath: string, repoRoot: string): string {
@@ -185,13 +358,26 @@ graphragRoute.get("/tour", async (c) => {
 
 // POST /graphrag/ask - Q&A about code using RAG
 graphragRoute.post("/ask", async (c) => {
-  const { repoId, question } = await c.req.json().catch(() => ({}));
+  const {
+    repoId,
+    question,
+    contextNodeId,
+    mentionedNodes,
+    selectedNodes,
+  }: AskRequestBody = await c.req.json().catch(() => ({}));
 
   if (!repoId || !question) {
     return c.json({ ok: false, error: "Missing repoId or question" }, 400);
   }
 
   try {
+    const contextNodeRefs = uniqueNodeRefs(
+      contextNodeId ? [{ id: contextNodeId }] : undefined,
+      mentionedNodes,
+      selectedNodes,
+    );
+    const nodeContextResult = await gatherNodeContext(repoId, contextNodeRefs);
+
     // Embed question
     const embeddingResult = await generateSingleEmbed(question);
     if (!isValidEmbeddingVector(embeddingResult, embedDimensions)) {
@@ -200,6 +386,12 @@ graphragRoute.post("/ask", async (c) => {
 
     // Find relevant chunks
     const chunks = await findSimilarChunks(embeddingResult, repoId, 5);
+    const vectorSources: AskSource[] = chunks.map((chunk: SimilarASTNodeRow) => ({
+      file: chunk.filePath ?? "unknown",
+      symbol: chunk.symbol ?? "",
+      score: chunk.score ?? 0,
+      sourceKind: chunk.sourceKind,
+    }));
 
     // Build code context if any chunks exist
     let codeContext =
@@ -264,23 +456,26 @@ graphragRoute.post("/ask", async (c) => {
       }
     }
 
-    if (!codeContext && !summaryContext) {
+    const combinedContext = [nodeContextResult.context, codeContext, summaryContext]
+      .filter(Boolean)
+      .join("\n\n");
+
+    if (!combinedContext) {
       return c.json(
         {
           ok: false,
           error:
-            "No relevant code chunks or file summaries found for this repository.",
+            "No relevant node context, code chunks, or file summaries found for this repository.",
         },
         400,
       );
     }
 
-    const combinedContext = [codeContext, summaryContext]
-      .filter(Boolean)
-      .join("\n\n");
     console.log(
       "[GRAPHRAG] Context lengths -> code:",
       codeContext ? codeContext.length : 0,
+      "node:",
+      nodeContextResult.context ? nodeContextResult.context.length : 0,
       "summary:",
       summaryContext ? summaryContext.length : 0,
       "combined:",
@@ -290,6 +485,8 @@ graphragRoute.post("/ask", async (c) => {
     console.log(
       "[GRAPHRAG] Prompt prepared. length:",
       prompt.length,
+      "nodeCtx",
+      nodeContextResult.context ? nodeContextResult.context.length : 0,
       "codeCtx",
       codeContext ? codeContext.length : 0,
       "sumCtx",
@@ -308,12 +505,7 @@ graphragRoute.post("/ask", async (c) => {
     return c.json({
       ok: true,
       answer,
-      sources: chunks.map((chunk: SimilarASTNodeRow) => ({
-        file: chunk.filePath ?? "unknown",
-        symbol: chunk.symbol ?? "",
-        score: chunk.score ?? 0,
-        sourceKind: chunk.sourceKind,
-      })),
+      sources: [...nodeContextResult.sources, ...vectorSources],
     });
   } catch (err) {
     return c.json({ ok: false, error: String(err) }, 500);
