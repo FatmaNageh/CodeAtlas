@@ -34,6 +34,7 @@ import {
 	type ExplorerNodeKind,
 	type GraphCanvasHandle,
 } from "@/components/explorer-graph-canvas";
+import { AnimatedMarkdown } from "@/components/animated-markdown";
 
 export const Route = createFileRoute("/graph")({
 	component: GraphExplorerPage,
@@ -420,7 +421,7 @@ function GraphExplorerPage() {
 			filepath = getNodePath(parentFile);
 		}
 		setSummarizing(true);
-		setSummaryText("Generating summary...");
+		setSummaryText("");
 		try {
 			const res = await fetch(`${baseUrl}/graphrag/summarize`, {
 				method: "POST",
@@ -1894,9 +1895,12 @@ function GraphExplorerPage() {
 														<div className="mb-2 text-[10px] font-medium uppercase tracking-[0.07em] text-[var(--t3)]">
 															Summary
 														</div>
-														<div className="rounded-[8px] bg-[var(--s1)] p-3 text-[11px] leading-5 whitespace-pre-wrap text-[var(--t1)]">
-															{activeTourStep.summary}
-														</div>
+									<div className="rounded-[8px] bg-[var(--s1)] p-3">
+										<AnimatedMarkdown
+											markdown={activeTourStep.summary}
+											emptyText="No summary available for this step."
+										/>
+									</div>
 													</div>
 
 													<div className="mt-4">
@@ -2108,9 +2112,13 @@ function GraphExplorerPage() {
 															{summarizing ? "Generating..." : "Summarize"}
 														</button>
 													</div>
-													<div className="rounded-[8px] bg-[var(--s1)] p-3 text-[11px] leading-5 text-[var(--t1)]">
-														{summaryText || "No summary generated yet."}
-													</div>
+									<div className="rounded-[8px] bg-[var(--s1)] p-3">
+										<AnimatedMarkdown
+											markdown={summaryText}
+											loading={summarizing}
+											emptyText="No summary generated yet."
+										/>
+									</div>
 												</div>
 
 												<div className="mt-5">
