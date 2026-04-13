@@ -873,7 +873,6 @@ function FullFooter() {
       <div className="ca-footer-inner">
         <div className="ca-footer-brand">
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div className="ca-logo-icon">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                 <circle cx="8" cy="8" r="3" fill="white" opacity="0.9" />
                 <circle cx="2" cy="3" r="1.5" fill="white" opacity="0.5" />
@@ -885,7 +884,6 @@ function FullFooter() {
                 <line x1="8" y1="11" x2="2" y2="13" stroke="white" strokeOpacity="0.4" strokeWidth="0.8" />
                 <line x1="8" y1="11" x2="14" y2="13" stroke="white" strokeOpacity="0.4" strokeWidth="0.8" />
               </svg>
-            </div>
             <span style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 17, color: "var(--t0)", letterSpacing: "-0.3px" }}>
               CodeAtlas
             </span>
