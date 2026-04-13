@@ -6,11 +6,36 @@ import { buildSummaryPrompt } from '../prompts/summary';
 import { runCypher } from '../db/cypher';
 import { repoRoots } from '../state/repoRoots';
 
+type FileNodeLabel = 'CodeFile' | 'TextFile';
+
+type FileNodeKindRow = {
+  label: FileNodeLabel;
+};
+
+async function getFileNodeLabel(filePath: string, repoId: string): Promise<FileNodeLabel> {
+  const rows = await runCypher<FileNodeKindRow>(
+    `/*cypher*/
+    MATCH (f {repoId: $repoId, path: $filePath})
+    WHERE f:CodeFile OR f:TextFile
+    RETURN CASE WHEN f:CodeFile THEN 'CodeFile' ELSE 'TextFile' END AS label
+    LIMIT 1`,
+    { repoId, filePath },
+  );
+
+  const label = rows[0]?.label;
+  if (label === 'CodeFile' || label === 'TextFile') {
+    return label;
+  }
+
+  throw new Error(`[SUMMARY] Could not find file node for ${filePath} in repo ${repoId}`);
+}
+
 // Pure function to generate file summary
 export async function generateFileSummary(filePath: string, repoId: string) {
   console.log(`[SUMMARY] Generating for ${filePath}`);
 
   const context = await assembleFileContext(filePath, repoId);
+  const fileLabel = await getFileNodeLabel(filePath, repoId);
   
   let code = context.fileChunks
     .map((chunk) => chunk.text ?? "")
@@ -55,10 +80,11 @@ export async function generateFileSummary(filePath: string, repoId: string) {
   });
   
   const result = await runCypher(
-    `MERGE (f:CodeFile {repoId: $repoId, relPath: $filePath})
+    `/*cypher*/
+     MATCH (f:${fileLabel} {repoId: $repoId, path: $filePath})
      SET f.summary = $summary,
-         f.summaryAt = datetime(),
-         f.summaryModel = 'meta-llama/llama-3.1-8b-instruct'
+          f.summaryAt = datetime(),
+          f.summaryModel = 'meta-llama/llama-3.1-8b-instruct'
      RETURN f`,
     { repoId, filePath, summary }
   );

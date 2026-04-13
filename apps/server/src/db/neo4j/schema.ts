@@ -52,25 +52,25 @@ function createVectorIndexQueries(embeddingDimension: number): string[] {
   return [
     `/*cypher*/
     CREATE VECTOR INDEX codefile_embedding IF NOT EXISTS
-      FOR (n:CodeFile) ON (n.embedding)
+      FOR (n:CodeFile) ON (n.embeddings)
       OPTIONS { indexConfig: {\`vector.dimensions\`: ${embeddingDimension}, \`vector.similarity_function\`: 'cosine' } }
       `,
 
     `/*cypher*/
     CREATE VECTOR INDEX textfile_embedding IF NOT EXISTS
-      FOR (n:TextFile) ON (n.embedding)
+      FOR (n:TextFile) ON (n.embeddings)
       OPTIONS { indexConfig: {\`vector.dimensions\`: ${embeddingDimension}, \`vector.similarity_function\`: 'cosine' } }
       `,
 
     `/*cypher*/
     CREATE VECTOR INDEX textchunk_embedding IF NOT EXISTS
-      FOR (n:TextChunk) ON (n.embedding)
+      FOR (n:TextChunk) ON (n.embeddings)
       OPTIONS { indexConfig: {\`vector.dimensions\`: ${embeddingDimension}, \`vector.similarity_function\`: 'cosine' } }
       `,
 
     `/*cypher*/
     CREATE VECTOR INDEX astnode_embedding IF NOT EXISTS
-      FOR (n:AstNode) ON (n.embedding)
+      FOR (n:AstNode) ON (n.embeddings)
       OPTIONS { indexConfig: {\`vector.dimensions\`: ${embeddingDimension}, \`vector.similarity_function\`: 'cosine' } }
       `,
   ];

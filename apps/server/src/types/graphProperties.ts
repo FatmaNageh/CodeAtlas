@@ -84,7 +84,7 @@ export type BaseNodeProps = {
 export type RepoNodeProps = BaseNodeProps & {
   kind: "Repo";
   name: string;
-  path: string;
+  path?: string;
   rootPath: string;
   defaultBranch?: string | null;
   lastIndexedAt?: string | null;
@@ -94,7 +94,7 @@ export type RepoNodeProps = BaseNodeProps & {
 export type DirectoryNodeProps = BaseNodeProps & {
   kind: "Directory";
   path: string;
-  relPath: string;
+  relPath?: string;
   name: string;
   parentPath: string | null;
   depth?: number;
@@ -103,7 +103,6 @@ export type DirectoryNodeProps = BaseNodeProps & {
 export type CodeFileNodeProps = BaseNodeProps & {
   kind: "CodeFile";
   path: string;
-  relPath: string;
   name: string;
   extension: string;
   language: SupportedLanguage;
@@ -111,18 +110,25 @@ export type CodeFileNodeProps = BaseNodeProps & {
   hash?: string | null;
   lastModifiedAt?: string | null;
   parseStatus?: ParseStatus;
+  summary?: string | null;
+  summaryAt?: string | null;
+  summaryModel?: string | null;
+  embeddings?: number[] | null;
 };
 
 export type TextFileNodeProps = BaseNodeProps & {
   kind: "TextFile";
   path: string;
-  relPath: string;
   name: string;
   extension: string;
   textType?: TextKind | "unknown";
   sizeBytes?: number;
   hash?: string | null;
   lastModifiedAt?: string | null;
+  summary?: string | null;
+  summaryAt?: string | null;
+  summaryModel?: string | null;
+  embeddings?: number[] | null;
 };
 
 export type TextChunkNodeProps = BaseNodeProps & {
@@ -139,6 +145,7 @@ export type TextChunkNodeProps = BaseNodeProps & {
   endLine?: number | null;
   tokenCount?: number | null;
   charCount?: number | null;
+  embeddings?: number[] | null;
   embeddingModel?: string | null;
   embeddingStatus?: EmbeddingStatus | null;
 };
@@ -170,6 +177,9 @@ export type AstNodeProps = BaseNodeProps & {
   extractionMethod?: ExtractionMethod;
   confidence?: number | null;
   hash?: string | null;
+  text?: string | null;
+  embeddings?: number[] | null;
+  embeddingUpdatedAt?: string | null;
 };
 
 export type GraphNodeProps =

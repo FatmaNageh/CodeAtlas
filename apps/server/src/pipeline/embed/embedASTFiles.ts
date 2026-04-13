@@ -44,19 +44,19 @@ export async function embedASTFiles(
   const filePathRows =
     normalizedMaxFiles === null
       ? await runCypher<{ relPath: string }>(
-          `
-    MATCH (f:CodeFile {repoId: $repoId})-[:DECLARES]->(a:ASTNode)
+          `/*cypher*/
+    MATCH (f:CodeFile {repoId: $repoId})-[:DECLARES]->(a:AstNode)
     WHERE a.startLine IS NOT NULL AND a.endLine IS NOT NULL
-    RETURN DISTINCT f.relPath AS relPath
+    RETURN DISTINCT f.path AS relPath
     ORDER BY relPath
     `,
           { repoId },
         )
       : await runCypher<{ relPath: string }>(
-          `
-    MATCH (f:CodeFile {repoId: $repoId})-[:DECLARES]->(a:ASTNode)
+          `/*cypher*/
+    MATCH (f:CodeFile {repoId: $repoId})-[:DECLARES]->(a:AstNode)
     WHERE a.startLine IS NOT NULL AND a.endLine IS NOT NULL
-    RETURN DISTINCT f.relPath AS relPath
+    RETURN DISTINCT f.path AS relPath
     ORDER BY relPath
     LIMIT $maxFiles
     `,
@@ -71,13 +71,13 @@ export async function embedASTFiles(
 
   // Now fetch AST nodes only for those capped files
   const rows = await runCypher<ASTNodeRow>(
-    `
-    MATCH (f:CodeFile {repoId: $repoId})-[:DECLARES]->(a:ASTNode)
-    WHERE f.relPath IN $relPaths
+    `/*cypher*/
+    MATCH (f:CodeFile {repoId: $repoId})-[:DECLARES]->(a:AstNode)
+    WHERE f.path IN $relPaths
       AND a.startLine IS NOT NULL AND a.endLine IS NOT NULL
     RETURN
       a.id AS astNodeId,
-      f.relPath AS relPath,
+      f.path AS relPath,
       coalesce(a.qname, a.name) AS symbolName,
       a.startLine AS startLine,
       a.endLine AS endLine
@@ -142,11 +142,11 @@ export async function embedASTFiles(
           if (!job || !embedding) continue;
 
           await runCypher(
-            `
-            MATCH (a:ASTNode {id: $astNodeId, repoId: $repoId})
+            `/*cypher*/
+            MATCH (a:AstNode {id: $astNodeId, repoId: $repoId})
             SET
               a.text = $text,
-              a.embedding = $embedding,
+              a.embeddings = $embedding,
               a.embeddingStartLine = $startLine,
               a.embeddingEndLine = $endLine,
               a.embeddingUpdatedAt = datetime()

@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import path from "path";
 import { embedASTFiles } from "@/pipeline/embed/embedASTFiles";
+import { embedTextChunks } from "@/pipeline/embed/embedTextChunks";
 import { generateBatchSummaries } from "@/pipeline/generateSummary";
 import { assembleFileContext } from "@/retrieval/context";
 import { generateTextWithContext } from "@/ai/generation";
@@ -18,6 +19,7 @@ export const graphragRoute = new Hono();
 type SummaryRow = {
   path: string;
   summary: string;
+  fileKind: string;
 };
 
 type FilePathRow = {
@@ -32,6 +34,8 @@ type StatusRow = {
   path: string;
   astNodes: number;
   embeddedAstNodes: number;
+  textChunks: number;
+  embeddedTextChunks: number;
 };
 
 // Helper: Convert absolute Windows/macOS paths to repo-relative POSIX paths
@@ -60,7 +64,12 @@ function normalizeToRepoPath(filePath: string, repoRoot: string): string {
 
 // POST /graphrag/embedRepo - Generate embeddings for entire repo
 graphragRoute.post("/embedRepo", async (c) => {
-  const { repoId, repoRoot } = await c.req.json().catch(() => ({}));
+  const { repoId, repoRoot: reqRepoRoot } = await c.req.json().catch(() => ({}));
+  const repoRoot = typeof reqRepoRoot === "string" && reqRepoRoot.trim().length > 0
+    ? reqRepoRoot.trim()
+    : repoId
+      ? repoRoots.get(repoId)
+      : undefined;
 
   if (!repoId || !repoRoot) {
     return c.json({ ok: false, error: "Missing repoId or repoRoot" }, 400);
@@ -71,8 +80,16 @@ graphragRoute.post("/embedRepo", async (c) => {
     repoRoots.set(repoId, repoRoot);
     console.log(`[EMBED] Stored repoRoot for ${repoId}: ${repoRoot}`);
 
-    const result = await embedASTFiles(repoId, repoRoot);
-    return c.json({ ...result, ok: true });
+    const [astResult, textChunkResult] = await Promise.all([
+      embedASTFiles(repoId, repoRoot),
+      embedTextChunks(repoId),
+    ]);
+
+    return c.json({
+      ok: astResult.ok && textChunkResult.ok,
+      ast: astResult,
+      textChunks: textChunkResult,
+    });
   } catch (err) {
     return c.json({ ok: false, error: String(err) }, 500);
   }
@@ -224,14 +241,19 @@ graphragRoute.post("/ask", async (c) => {
     let summaryContext = "";
     if (!codeContext) {
       const sums = await runCypher<SummaryRow>(
-        "MATCH (f:CodeFile {repoId: $repoId}) WHERE f.summary IS NOT NULL RETURN f.relPath AS path, f.summary AS summary",
+        `/*cypher*/
+        MATCH (f {repoId: $repoId})
+        WHERE (f:CodeFile OR f:TextFile) AND f.summary IS NOT NULL
+        RETURN f.path AS path,
+               f.summary AS summary,
+               CASE WHEN f:CodeFile THEN 'CodeFile' ELSE 'TextFile' END AS fileKind`,
         { repoId },
       );
       if (Array.isArray(sums) && sums.length > 0) {
         summaryContext = sums
           .map(
             (summaryRow) =>
-              `File: ${summaryRow.path}\nSummary:\n${summaryRow.summary}`,
+              `File: ${summaryRow.path}\nType: ${summaryRow.fileKind}\nSummary:\n${summaryRow.summary}`,
           )
           .join("\n\n");
         // Cap length to avoid overly long prompts
@@ -290,6 +312,7 @@ graphragRoute.post("/ask", async (c) => {
         file: chunk.filePath ?? "unknown",
         symbol: chunk.symbol ?? "",
         score: chunk.score ?? 0,
+        sourceKind: chunk.sourceKind,
       })),
     });
   } catch (err) {
@@ -357,35 +380,64 @@ graphragRoute.get("/status", async (c) => {
           { repoId },
         )
       )?.[0]?.n ?? 0;
+    const totalTextFiles =
+      (
+        await runCypher<CountRow>(
+          "/*cypher*/MATCH (f:TextFile {repoId: $repoId}) RETURN count(f) AS n",
+          { repoId },
+        )
+      )?.[0]?.n ?? 0;
     const summarizedFiles =
       (
         await runCypher<CountRow>(
-          "/*cypher*/MATCH (f:CodeFile {repoId: $repoId}) WHERE f.summary IS NOT NULL RETURN count(f) AS n",
+          `/*cypher*/
+          MATCH (f {repoId: $repoId})
+          WHERE (f:CodeFile OR f:TextFile) AND f.summary IS NOT NULL
+          RETURN count(f) AS n`,
           { repoId },
         )
       )?.[0]?.n ?? 0;
     const totalChunks =
       (
         await runCypher<CountRow>(
-          "/*cypher*/MATCH (a:ASTNode {repoId: $repoId}) RETURN count(a) AS n",
+          "/*cypher*/MATCH (a:AstNode {repoId: $repoId}) RETURN count(a) AS n",
+          { repoId },
+        )
+      )?.[0]?.n ?? 0;
+    const totalTextChunks =
+      (
+        await runCypher<CountRow>(
+          "/*cypher*/MATCH (c:TextChunk {repoId: $repoId}) RETURN count(c) AS n",
           { repoId },
         )
       )?.[0]?.n ?? 0;
     const embeddedChunks =
       (
         await runCypher<CountRow>(
-          "/*cypher*/MATCH (a:ASTNode {repoId: $repoId}) WHERE a.embedding IS NOT NULL RETURN count(a) AS n",
+          "/*cypher*/MATCH (a:AstNode {repoId: $repoId}) WHERE a.embeddings IS NOT NULL RETURN count(a) AS n",
+          { repoId },
+        )
+      )?.[0]?.n ?? 0;
+    const embeddedTextChunks =
+      (
+        await runCypher<CountRow>(
+          "/*cypher*/MATCH (c:TextChunk {repoId: $repoId}) WHERE c.embeddings IS NOT NULL RETURN count(c) AS n",
           { repoId },
         )
       )?.[0]?.n ?? 0;
 
     const perFile = await runCypher<StatusRow>(
       `/*cypher*/
-      MATCH (f:CodeFile {repoId: $repoId})
-       OPTIONAL MATCH (f)-[:DECLARES]->(a:ASTNode {repoId: $repoId})
-       WITH coalesce(f.fileRelPath, f.relPath) AS path, count(a) AS astNodes,
-            sum(CASE WHEN a.embedding IS NOT NULL THEN 1 ELSE 0 END) AS embeddedAstNodes
-       RETURN path, astNodes, embeddedAstNodes`,
+      MATCH (f {repoId: $repoId})
+      WHERE f:CodeFile OR f:TextFile
+       OPTIONAL MATCH (f)-[:DECLARES]->(a:AstNode {repoId: $repoId})
+       OPTIONAL MATCH (f)-[:HAS_CHUNK]->(c:TextChunk {repoId: $repoId})
+       WITH f.path AS path,
+            count(DISTINCT a) AS astNodes,
+            sum(CASE WHEN a.embeddings IS NOT NULL THEN 1 ELSE 0 END) AS embeddedAstNodes,
+            count(DISTINCT c) AS textChunks,
+            sum(CASE WHEN c.embeddings IS NOT NULL THEN 1 ELSE 0 END) AS embeddedTextChunks
+       RETURN path, astNodes, embeddedAstNodes, textChunks, embeddedTextChunks`,
       { repoId },
     );
 
@@ -393,9 +445,12 @@ graphragRoute.get("/status", async (c) => {
       ok: true,
       repoId,
       totalFiles,
+      totalTextFiles,
       summarizedFiles,
       totalChunks,
       embeddedChunks,
+      totalTextChunks,
+      embeddedTextChunks,
       perFile,
     });
   } catch (err) {
@@ -413,7 +468,11 @@ graphragRoute.get("/status", async (c) => {
 // Helper function
 async function getAllFiles(repoId: string) {
   return runCypher<FilePathRow>(
-    "MATCH (f:CodeFile {repoId: $repoId}) RETURN f.relPath as filePath",
+    `/*cypher*/
+    MATCH (f {repoId: $repoId})
+    WHERE f:CodeFile OR f:TextFile
+    RETURN f.path as filePath
+    ORDER BY filePath`,
     { repoId },
   );
 }

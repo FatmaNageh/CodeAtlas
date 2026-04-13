@@ -11,7 +11,7 @@ export type FileContext = {
 
 export async function assembleFileContext(filePath: string, repoId: string): Promise<FileContext> {
   const fileChunks = await getFileChunks(filePath, repoId);
-  const sampleText = fileChunks[0]?.text ?? "";
+  const sampleText = fileChunks.map((chunk) => chunk.text ?? "").find(Boolean) ?? "";
   let similarChunks: SimilarASTNodeRow[] = [];
   
   if (sampleText) {
