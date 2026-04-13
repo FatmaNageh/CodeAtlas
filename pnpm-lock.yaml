@@ -433,6 +433,9 @@ importers:
       dotenv:
         specifier: 'catalog:'
         version: 17.2.3
+      drizzle-orm:
+        specifier: ^0.44.2
+        version: 0.44.7(@libsql/client@0.14.0)(@opentelemetry/api@1.9.0)
       hono:
         specifier: 'catalog:'
         version: 4.10.6
