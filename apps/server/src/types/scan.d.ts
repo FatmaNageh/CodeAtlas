@@ -1,11 +1,17 @@
 export type SupportedLanguage =
-  | "javascript"
-  | "typescript"
-  | "python"
-  | "java"
+  | "c"
+  | "csharp"
   | "cpp"
   | "go"
-  | "ruby";
+  | "java"
+  | "javascript"
+  | "kotlin"
+  | "php"
+  | "python"
+  | "ruby"
+  | "rust"
+  | "swift"
+  | "typescript";
 
 export type TextKind = "markdown" | "plaintext" | "rst" | "adoc" | "latex";
 
