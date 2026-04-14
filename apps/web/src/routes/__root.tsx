@@ -18,7 +18,7 @@ export const Route = createRootRouteWithContext<RouterAppContext>()({
   component: RootComponent,
   head: () => ({
     meta: [
-      { title: "CodeAtlas — Navigate Your Codebase" },
+      { title: "CodeAtlas" },
       {
         name: "description",
         content:
@@ -31,7 +31,6 @@ export const Route = createRootRouteWithContext<RouterAppContext>()({
 function RootComponent() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
-  // Only the full-screen graph explorer hides the shared header
   const hideHeader = pathname === "/graph";
 
   return (

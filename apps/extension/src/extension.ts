@@ -3,18 +3,12 @@ import { ServerManager, type ServerState } from "./server/serverManager";
 import { getGraphHtml } from "./panels/graphPanel";
 import { getChatHtml } from "./panels/chatProvider";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Types
-// ─────────────────────────────────────────────────────────────────────────────
 interface IndexRepoResponse {
   ok: boolean;
   repoId?: string | number;
   error?: string;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Module-level singletons
-// ─────────────────────────────────────────────────────────────────────────────
 let serverManager: ServerManager;
 let chatProvider: ChatViewProvider | undefined;
 let statusBarItem: vscode.StatusBarItem;
@@ -23,11 +17,10 @@ let statusBarItem: vscode.StatusBarItem;
 // Activate
 // ─────────────────────────────────────────────────────────────────────────────
 export async function activate(context: vscode.ExtensionContext) {
-  // ── Server Manager ──────────────────────────────────────────────────────
   serverManager = new ServerManager(context);
   context.subscriptions.push(serverManager);
 
-  // ── Status Bar ──────────────────────────────────────────────────────────
+  // Status bar
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 10);
   statusBarItem.command = "codeatlas.serverMenu";
   statusBarItem.show();
@@ -37,17 +30,18 @@ export async function activate(context: vscode.ExtensionContext) {
   serverManager.onStatusChange((state) => {
     updateStatusBar(state);
     if (state.status === "running") {
-      GraphPanel.currentPanel?.sendSettings({ serverUrl: state.url, repoId: getRepoId() });
-      chatProvider?.sendSettings({ serverUrl: state.url, repoId: getRepoId() });
+      const cfg = getCfg();
+      GraphPanel.currentPanel?.sendSettings({ serverUrl: state.url, repoId: cfg.repoId, neo4jBrowserUrl: cfg.neo4jBrowserUrl });
+      chatProvider?.sendSettings({ serverUrl: state.url, repoId: cfg.repoId });
     }
   });
 
   // ── Commands ─────────────────────────────────────────────────────────────
 
-  // Open Graph
   context.subscriptions.push(
     vscode.commands.registerCommand("codeatlas.openGraph", async () => {
-      if (serverManager.state.status === "stopped" || serverManager.state.status === "error") {
+      const state = serverManager.state;
+      if (state.status === "stopped" || state.status === "error") {
         vscode.window.withProgress(
           { location: vscode.ProgressLocation.Notification, title: "CodeAtlas: Starting backend…", cancellable: false },
           () => serverManager.start()
@@ -57,7 +51,6 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  // Server menu
   context.subscriptions.push(
     vscode.commands.registerCommand("codeatlas.serverMenu", async () => {
       const state = serverManager.state;
@@ -68,6 +61,7 @@ export async function activate(context: vscode.ExtensionContext) {
         { label: "$(sync) Restart Server" },
         { label: "$(output) Show Server Log" },
         { label: "$(settings-gear) Configure…" },
+        { label: "$(browser) Open Neo4j Browser" },
       ];
       const pick = await vscode.window.showQuickPick(items, { placeHolder: "CodeAtlas Server" });
       if (!pick) return;
@@ -76,28 +70,68 @@ export async function activate(context: vscode.ExtensionContext) {
       if (pick.label.includes("Restart")) serverManager.restart();
       if (pick.label.includes("Log"))     serverManager.showLog();
       if (pick.label.includes("Configure")) vscode.commands.executeCommand("codeatlas.configure");
+      if (pick.label.includes("Neo4j"))   vscode.commands.executeCommand("codeatlas.openNeo4jBrowser");
     })
   );
 
-  // Configure
   context.subscriptions.push(
     vscode.commands.registerCommand("codeatlas.configure", async () => {
       const cfg = vscode.workspace.getConfiguration("codeatlas");
-      const newRepoId = await vscode.window.showInputBox({
-        prompt: "Repository ID (shown after indexing — see /diagnostics/repos)",
-        value: cfg.get<string>("repoId") || "",
-        placeHolder: "e.g. a3f9b2c1d4e5",
-      });
-      if (newRepoId === undefined) return;
-      await cfg.update("repoId", newRepoId.trim(), vscode.ConfigurationTarget.Workspace);
-      const url = getServerUrl();
-      GraphPanel.currentPanel?.sendSettings({ serverUrl: url, repoId: newRepoId.trim() });
-      chatProvider?.sendSettings({ serverUrl: url, repoId: newRepoId.trim() });
-      vscode.window.showInformationMessage(`CodeAtlas: Repo ID set to "${newRepoId.trim()}"`);
+      const items = [
+        { label: "$(key) Set Repo ID", description: cfg.get<string>("repoId") || "(not set)" },
+        { label: "$(server) Set Server URL", description: cfg.get<string>("serverUrl") || "http://localhost:3000" },
+        { label: "$(database) Set Neo4j Browser URL", description: cfg.get<string>("neo4jBrowserUrl") || "http://localhost:7474" },
+        { label: "$(gear) Open Settings UI" },
+      ];
+      const pick = await vscode.window.showQuickPick(items, { placeHolder: "CodeAtlas Settings" });
+      if (!pick) return;
+
+      if (pick.label.includes("Repo ID")) {
+        const val = await vscode.window.showInputBox({
+          prompt: "Repository ID (shown after indexing)",
+          value: cfg.get<string>("repoId") || "",
+          placeHolder: "e.g. a3f9b2c1d4e5",
+        });
+        if (val === undefined) return;
+        await cfg.update("repoId", val.trim(), vscode.ConfigurationTarget.Workspace);
+        broadcastSettings();
+        vscode.window.showInformationMessage(`CodeAtlas: Repo ID set to "${val.trim()}"`);
+      } else if (pick.label.includes("Server URL")) {
+        const val = await vscode.window.showInputBox({
+          prompt: "Backend server URL",
+          value: cfg.get<string>("serverUrl") || "http://localhost:3000",
+        });
+        if (val === undefined) return;
+        await cfg.update("serverUrl", val.trim(), vscode.ConfigurationTarget.Workspace);
+        broadcastSettings();
+      } else if (pick.label.includes("Neo4j")) {
+        const val = await vscode.window.showInputBox({
+          prompt: "Neo4j Browser URL",
+          value: cfg.get<string>("neo4jBrowserUrl") || "http://localhost:7474",
+        });
+        if (val === undefined) return;
+        await cfg.update("neo4jBrowserUrl", val.trim(), vscode.ConfigurationTarget.Workspace);
+        broadcastSettings();
+      } else if (pick.label.includes("Settings UI")) {
+        vscode.commands.executeCommand("workbench.action.openSettings", "codeatlas");
+      }
     })
   );
 
-  // Index repo
+  context.subscriptions.push(
+    vscode.commands.registerCommand("codeatlas.openNeo4jBrowser", () => {
+      const url = vscode.workspace.getConfiguration("codeatlas").get<string>("neo4jBrowserUrl") || "http://localhost:7474";
+      vscode.env.openExternal(vscode.Uri.parse(url));
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("codeatlas.clearHistory", () => {
+      chatProvider?.clearHistory();
+      vscode.window.showInformationMessage("CodeAtlas: Chat history cleared.");
+    })
+  );
+
   context.subscriptions.push(
     vscode.commands.registerCommand("codeatlas.indexRepo", async () => {
       const folder = await vscode.window.showOpenDialog({
@@ -108,10 +142,11 @@ export async function activate(context: vscode.ExtensionContext) {
       const projectPath = folder[0].fsPath;
       await ensureServerRunning();
       vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Notification, title: `Indexing ${projectPath}…`, cancellable: false },
+        { location: vscode.ProgressLocation.Notification, title: `CodeAtlas: Indexing ${projectPath}…`, cancellable: false },
         async () => {
           try {
-            const res = await fetch(`${serverManager.state.url}/indexRepo`, {
+            const url = getServerUrl();
+            const res = await fetch(`${url}/indexRepo`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ projectPath, mode: "full", saveDebugJson: true }),
@@ -121,23 +156,25 @@ export async function activate(context: vscode.ExtensionContext) {
               const repoId = String(data.repoId);
               await vscode.workspace.getConfiguration("codeatlas")
                 .update("repoId", repoId, vscode.ConfigurationTarget.Workspace);
-              const url = getServerUrl();
-              GraphPanel.currentPanel?.sendSettings({ serverUrl: url, repoId });
-              chatProvider?.sendSettings({ serverUrl: url, repoId });
-              vscode.window.showInformationMessage(`CodeAtlas: Indexed! Repo ID: ${repoId}`, "Open Graph")
-                .then(c => { if (c === "Open Graph") vscode.commands.executeCommand("codeatlas.openGraph"); });
+              broadcastSettings();
+              const choice = await vscode.window.showInformationMessage(
+                `CodeAtlas: Indexed! Repo ID: ${repoId}`, "Open Graph", "Copy ID"
+              );
+              if (choice === "Open Graph") vscode.commands.executeCommand("codeatlas.openGraph");
+              if (choice === "Copy ID") vscode.env.clipboard.writeText(repoId);
             } else {
               vscode.window.showErrorMessage(`CodeAtlas indexing failed: ${data.error}`);
             }
-          } catch (err: any) {
-            vscode.window.showErrorMessage(`CodeAtlas indexing error: ${err?.message}`);
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            vscode.window.showErrorMessage(`CodeAtlas indexing error: ${msg}`);
           }
         }
       );
     })
   );
 
-  // ── Chat Sidebar ────────────────────────────────────────────────────────
+  // Chat sidebar
   chatProvider = new ChatViewProvider(context.extensionUri);
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider("codeatlas.chatView", chatProvider, {
@@ -145,20 +182,17 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  // React to VS Code config changes
+  // Config change listener
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration("codeatlas")) {
-        const url = getServerUrl();
-        const repoId = getRepoId();
-        GraphPanel.currentPanel?.sendSettings({ serverUrl: url, repoId });
-        chatProvider?.sendSettings({ serverUrl: url, repoId });
-      }
+      if (e.affectsConfiguration("codeatlas")) broadcastSettings();
     })
   );
 
-  // Auto-start if apps/server is present in workspace
-  autoStartIfAvailable();
+  // Auto-start
+  if (vscode.workspace.getConfiguration("codeatlas").get<boolean>("autoStartServer", true)) {
+    autoStartIfAvailable();
+  }
 }
 
 export function deactivate() {
@@ -168,13 +202,26 @@ export function deactivate() {
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
-function getRepoId(): string {
-  return vscode.workspace.getConfiguration("codeatlas").get<string>("repoId") || "";
+function getCfg() {
+  const cfg = vscode.workspace.getConfiguration("codeatlas");
+  return {
+    repoId: cfg.get<string>("repoId") || "",
+    serverUrl: getServerUrl(),
+    neo4jBrowserUrl: cfg.get<string>("neo4jBrowserUrl") || "http://localhost:7474",
+    nodeLimit: cfg.get<number>("graphNodeLimit") || 500,
+    autoRefresh: cfg.get<boolean>("autoRefreshGraph") || false,
+  };
 }
 
 function getServerUrl(): string {
   if (serverManager?.state.status === "running") return serverManager.state.url;
   return vscode.workspace.getConfiguration("codeatlas").get<string>("serverUrl") || "http://localhost:3000";
+}
+
+function broadcastSettings() {
+  const cfg = getCfg();
+  GraphPanel.currentPanel?.sendSettings({ serverUrl: cfg.serverUrl, repoId: cfg.repoId, neo4jBrowserUrl: cfg.neo4jBrowserUrl, nodeLimit: cfg.nodeLimit, autoRefresh: cfg.autoRefresh });
+  chatProvider?.sendSettings({ serverUrl: cfg.serverUrl, repoId: cfg.repoId });
 }
 
 async function ensureServerRunning(): Promise<void> {
@@ -197,7 +244,11 @@ function autoStartIfAvailable() {
   const fs  = require("fs")   as typeof import("fs");
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const pth = require("path") as typeof import("path");
-  if (fs.existsSync(pth.join(wsRoot, "apps", "server", "package.json"))) {
+  const candidates = [
+    pth.join(wsRoot, "apps", "server", "package.json"),
+    pth.join(wsRoot, "server", "package.json"),
+  ];
+  if (candidates.some(c => fs.existsSync(c))) {
     serverManager.start().catch(() => {/* shown in status bar */});
   }
 }
@@ -215,7 +266,7 @@ function updateStatusBar(state: ServerState) {
       statusBarItem.backgroundColor = undefined;
       break;
     case "running":
-      statusBarItem.text = `$(check) CodeAtlas ${state.url}`;
+      statusBarItem.text = `$(check) CodeAtlas`;
       statusBarItem.tooltip = `Server running on ${state.url} — click for options`;
       statusBarItem.backgroundColor = undefined;
       break;
@@ -246,16 +297,17 @@ class GraphPanel {
 
   private constructor(panel: vscode.WebviewPanel, _uri: vscode.Uri, private _manager: ServerManager) {
     this._panel = panel;
-    this._panel.webview.html = getGraphHtml(this._panel.webview, getServerUrl(), getRepoId());
+    const cfg = getCfg();
+    this._panel.webview.html = getGraphHtml(this._panel.webview, cfg.serverUrl, cfg.repoId, cfg.neo4jBrowserUrl, cfg.nodeLimit, cfg.autoRefresh);
 
     this._panel.webview.onDidReceiveMessage(async (msg) => {
       switch (msg?.type) {
         case "settings/save": {
           const { serverUrl, repoId } = msg.payload || {};
-          const cfg = vscode.workspace.getConfiguration("codeatlas");
-          if (serverUrl) await cfg.update("serverUrl", serverUrl, vscode.ConfigurationTarget.Workspace);
-          if (repoId)    await cfg.update("repoId",    repoId,    vscode.ConfigurationTarget.Workspace);
-          chatProvider?.sendSettings({ serverUrl: serverUrl || getServerUrl(), repoId: repoId || getRepoId() });
+          const c = vscode.workspace.getConfiguration("codeatlas");
+          if (serverUrl) await c.update("serverUrl", serverUrl, vscode.ConfigurationTarget.Workspace);
+          if (repoId)    await c.update("repoId",    repoId,    vscode.ConfigurationTarget.Workspace);
+          chatProvider?.sendSettings({ serverUrl: serverUrl || getServerUrl(), repoId: repoId || getCfg().repoId });
           break;
         }
         case "nodeSelected":
@@ -273,35 +325,38 @@ class GraphPanel {
         case "server/start":
           serverManager.start();
           break;
+        case "openNeo4jBrowser":
+          vscode.commands.executeCommand("codeatlas.openNeo4jBrowser");
+          break;
       }
     }, null, this._disposables);
 
-    // Forward server state to graph webview
     this._disposables.push(
       this._manager.onStatusChange((state) => {
         this._panel.webview.postMessage({ type: "server/status", payload: state });
         if (state.status === "running") {
+          const cfg = getCfg();
           this._panel.webview.postMessage({
             type: "settings/update",
-            payload: { serverUrl: state.url, repoId: getRepoId() },
+            payload: { serverUrl: state.url, repoId: cfg.repoId, neo4jBrowserUrl: cfg.neo4jBrowserUrl, nodeLimit: cfg.nodeLimit, autoRefresh: cfg.autoRefresh },
           });
         }
       })
     );
 
-    // Send current state shortly after load
     setTimeout(() => {
       const s = this._manager.state;
       this._panel.webview.postMessage({ type: "server/status", payload: s });
       if (s.status === "running") {
-        this._panel.webview.postMessage({ type: "settings/update", payload: { serverUrl: s.url, repoId: getRepoId() } });
+        const cfg = getCfg();
+        this._panel.webview.postMessage({ type: "settings/update", payload: { serverUrl: s.url, repoId: cfg.repoId, neo4jBrowserUrl: cfg.neo4jBrowserUrl, nodeLimit: cfg.nodeLimit, autoRefresh: cfg.autoRefresh } });
       }
     }, 600);
 
     this._panel.onDidDispose(() => this._dispose(), null, this._disposables);
   }
 
-  public sendSettings(s: { serverUrl: string; repoId: string }) {
+  public sendSettings(s: { serverUrl: string; repoId: string; neo4jBrowserUrl?: string; nodeLimit?: number; autoRefresh?: boolean }) {
     this._panel.webview.postMessage({ type: "settings/update", payload: s });
   }
 
@@ -327,15 +382,22 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
     webviewView.webview.options = {
       enableScripts: true, localResourceRoots: [this._extensionUri],
     };
-    webviewView.webview.html = getChatHtml(webviewView.webview, getServerUrl(), getRepoId());
+    const cfg = getCfg();
+    webviewView.webview.html = getChatHtml(webviewView.webview, cfg.serverUrl, cfg.repoId);
 
     webviewView.webview.onDidReceiveMessage(async (msg) => {
       if (msg?.type === "settings/save") {
         const { serverUrl, repoId } = msg.payload || {};
-        const cfg = vscode.workspace.getConfiguration("codeatlas");
-        if (serverUrl) await cfg.update("serverUrl", serverUrl, vscode.ConfigurationTarget.Workspace);
-        if (repoId)    await cfg.update("repoId",    repoId,    vscode.ConfigurationTarget.Workspace);
-        GraphPanel.currentPanel?.sendSettings({ serverUrl: serverUrl || getServerUrl(), repoId: repoId || getRepoId() });
+        const c = vscode.workspace.getConfiguration("codeatlas");
+        if (serverUrl) await c.update("serverUrl", serverUrl, vscode.ConfigurationTarget.Workspace);
+        if (repoId)    await c.update("repoId",    repoId,    vscode.ConfigurationTarget.Workspace);
+        GraphPanel.currentPanel?.sendSettings({ serverUrl: serverUrl || getServerUrl(), repoId: repoId || getCfg().repoId });
+      }
+      if (msg?.type === "openGraph") {
+        vscode.commands.executeCommand("codeatlas.openGraph");
+      }
+      if (msg?.type === "indexRepo") {
+        vscode.commands.executeCommand("codeatlas.indexRepo");
       }
     });
 
@@ -343,7 +405,8 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
       serverManager.onStatusChange((state) => {
         webviewView.webview.postMessage({ type: "server/status", payload: state });
         if (state.status === "running") {
-          webviewView.webview.postMessage({ type: "settings/update", payload: { serverUrl: state.url, repoId: getRepoId() } });
+          const cfg = getCfg();
+          webviewView.webview.postMessage({ type: "settings/update", payload: { serverUrl: state.url, repoId: cfg.repoId } });
         }
       })
     );
@@ -352,9 +415,14 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
       const s = serverManager.state;
       webviewView.webview.postMessage({ type: "server/status", payload: s });
       if (s.status === "running") {
-        webviewView.webview.postMessage({ type: "settings/update", payload: { serverUrl: s.url, repoId: getRepoId() } });
+        const cfg = getCfg();
+        webviewView.webview.postMessage({ type: "settings/update", payload: { serverUrl: s.url, repoId: cfg.repoId } });
       }
     }, 300);
+  }
+
+  clearHistory() {
+    this._view?.webview.postMessage({ type: "clearHistory" });
   }
 
   sendContextNode(node: object, allNodes?: object[]) {
