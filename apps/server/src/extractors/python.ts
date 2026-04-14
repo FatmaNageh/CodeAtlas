@@ -3,6 +3,12 @@ import type { SymbolKind } from "@/types/facts";
 import type { ExtractorFn } from "./types";
 import { extractName, nodeRange } from "./common";
 
+type PythonScope = {
+  kind: "class" | "function";
+  name: string;
+  qname: string;
+};
+
 function parseBaseClasses(classNodeText: string): string[] {
   const m = classNodeText.match(/^class\s+[A-Za-z_][\w]*\s*\(([^)]*)\)/);
   if (!m) return [];
@@ -15,13 +21,19 @@ function parseBaseClasses(classNodeText: string): string[] {
     .map((s) => s.replace(/\s+as\s+.*/i, ""));
 }
 
+function joinQualifiedName(stack: PythonScope[], name: string): string {
+  const prefix = stack.map((scope) => scope.name);
+  return prefix.length > 0 ? `${prefix.join(".")}.${name}` : name;
+}
+
 export const extractPython: ExtractorFn = (root) => {
   const imports: ReturnType<ExtractorFn>["imports"] = [];
   const symbols: ReturnType<ExtractorFn>["symbols"] = [];
   const callSites: ReturnType<ExtractorFn>["callSites"] = [];
 
-  const stack: string[] = [];
-  const currentQname = () => (stack.length ? stack[stack.length - 1] : undefined);
+  const stack: PythonScope[] = [];
+  const currentScope = () => (stack.length > 0 ? stack[stack.length - 1] : undefined);
+  const currentClassScope = () => [...stack].reverse().find((scope) => scope.kind === "class");
 
   const walk = (node: SyntaxNode) => {
     if (node.type === "import_statement" || node.type === "import_from_statement") {
@@ -32,10 +44,10 @@ export const extractPython: ExtractorFn = (root) => {
     if (node.type === "class_definition") {
       const name = extractName(node);
       if (name) {
-        const qname = name;
+        const qname = joinQualifiedName(stack, name);
         const bases = parseBaseClasses(node.text);
         symbols.push({ kind: "class", name, qname, range: nodeRange(node), extendsNames: bases });
-        stack.push(qname);
+        stack.push({ kind: "class", name, qname });
         for (let i = 0; i < node.childCount; i++) {
           const child = node.child(i);
           if (child) walk(child);
@@ -48,11 +60,11 @@ export const extractPython: ExtractorFn = (root) => {
     if (node.type === "function_definition") {
       const name = extractName(node);
       if (name) {
-        const parent = currentQname();
+        const parent = currentClassScope();
         const kind: SymbolKind = parent ? "method" : "function";
-        const qname = parent ? `${parent}.${name}` : name;
-        symbols.push({ kind, name, qname, range: nodeRange(node), parentName: parent });
-        stack.push(qname);
+        const qname = joinQualifiedName(stack, name);
+        symbols.push({ kind, name, qname, range: nodeRange(node), parentName: parent?.name });
+        stack.push({ kind: "function", name, qname });
         for (let i = 0; i < node.childCount; i++) {
           const child = node.child(i);
           if (child) walk(child);
@@ -64,7 +76,9 @@ export const extractPython: ExtractorFn = (root) => {
 
     if (node.type === "call") {
       const fn = node.child(0);
-      if (fn?.text) callSites.push({ calleeText: fn.text, range: nodeRange(node), enclosingSymbolQname: currentQname() });
+      if (fn?.text) {
+        callSites.push({ calleeText: fn.text, range: nodeRange(node), enclosingSymbolQname: currentScope()?.qname });
+      }
     }
 
     for (let i = 0; i < node.childCount; i++) {
