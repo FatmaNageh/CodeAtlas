@@ -8,7 +8,7 @@ export async function generateEmbeddings(texts: string[]): Promise<(number[] | n
   
   console.log(`[EMBEDDINGS] Generating embeddings for ${texts.length} texts...`);
   
-  const embeddings: number[][] = [];
+  const embeddings: Array<number[] | null> = [];
   for (let i = 0; i < texts.length; i++) {
     const text = texts[i]!;
     try {
@@ -22,8 +22,7 @@ export async function generateEmbeddings(texts: string[]): Promise<(number[] | n
       console.log(`[EMBEDDINGS] ✓ Text ${i + 1} done`);
     } catch (error) {
       console.error(`[EMBEDDINGS] ✗ Failed to embed text ${i + 1}:`, error);
-      // Push a zero vector as fallback
-      embeddings.push(new Array(1536).fill(null));
+      embeddings.push(null);
     }
   }
   

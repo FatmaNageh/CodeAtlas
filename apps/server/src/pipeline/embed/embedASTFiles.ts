@@ -2,12 +2,17 @@ import fs from "fs/promises";
 import path from "path";
 
 import { generateEmbeddings } from "../../ai/embeddings";
-import { runCypher } from "../../db/cypher";
+import { runCypher, writeCypher } from "../../db/cypher";
 
 type ASTNodeRow = {
   astNodeId: string;
   relPath: string;
   symbolName: string;
+  unitKind: string;
+  summaryCandidate: string | null;
+  segmentReason: string | null;
+  keywords: string[] | null;
+  topLevelSymbols: string[] | null;
   startLine: number;
   endLine: number;
 };
@@ -18,8 +23,42 @@ type EmbeddingJob = {
   symbolName: string;
   startLine: number;
   endLine: number;
+  embeddingText: string;
   text: string;
 };
+
+function buildEmbeddingText(job: {
+  symbolName: string;
+  unitKind: string;
+  summaryCandidate: string | null;
+  segmentReason: string | null;
+  keywords: string[] | null;
+  topLevelSymbols: string[] | null;
+  text: string;
+}): string {
+  const parts = [
+    `Label: ${job.symbolName}`,
+    `Unit kind: ${job.unitKind}`,
+  ];
+
+  if (job.segmentReason) {
+    parts.push(`Segment reason: ${job.segmentReason}`);
+  }
+  if (job.topLevelSymbols && job.topLevelSymbols.length > 0) {
+    parts.push(`Top-level symbols: ${job.topLevelSymbols.join(", ")}`);
+  }
+  if (job.keywords && job.keywords.length > 0) {
+    parts.push(`Keywords: ${job.keywords.join(", ")}`);
+  }
+  if (job.summaryCandidate) {
+    parts.push(`Summary: ${job.summaryCandidate}`);
+  }
+
+  parts.push("Code:");
+  parts.push(job.text);
+
+  return parts.join("\n");
+}
 
 export async function embedASTFiles(
   repoId: string,
@@ -45,7 +84,7 @@ export async function embedASTFiles(
     normalizedMaxFiles === null
       ? await runCypher<{ relPath: string }>(
           `/*cypher*/
-    MATCH (f:CodeFile {repoId: $repoId})-[:DECLARES]->(a:AstNode)
+    MATCH (f:CodeFile {repoId: $repoId})-[:HAS_AST]->(a:AstNode)
     WHERE a.startLine IS NOT NULL AND a.endLine IS NOT NULL
     RETURN DISTINCT f.path AS relPath
     ORDER BY relPath
@@ -54,7 +93,7 @@ export async function embedASTFiles(
         )
       : await runCypher<{ relPath: string }>(
           `/*cypher*/
-    MATCH (f:CodeFile {repoId: $repoId})-[:DECLARES]->(a:AstNode)
+    MATCH (f:CodeFile {repoId: $repoId})-[:HAS_AST]->(a:AstNode)
     WHERE a.startLine IS NOT NULL AND a.endLine IS NOT NULL
     RETURN DISTINCT f.path AS relPath
     ORDER BY relPath
@@ -72,13 +111,18 @@ export async function embedASTFiles(
   // Now fetch AST nodes only for those capped files
   const rows = await runCypher<ASTNodeRow>(
     `/*cypher*/
-    MATCH (f:CodeFile {repoId: $repoId})-[:DECLARES]->(a:AstNode)
+    MATCH (f:CodeFile {repoId: $repoId})-[:HAS_AST]->(a:AstNode)
     WHERE f.path IN $relPaths
       AND a.startLine IS NOT NULL AND a.endLine IS NOT NULL
     RETURN
       a.id AS astNodeId,
       f.path AS relPath,
-      coalesce(a.qname, a.name) AS symbolName,
+      coalesce(a.label, a.displayName, a.qname, a.name) AS symbolName,
+      a.unitKind AS unitKind,
+      a.summaryCandidate AS summaryCandidate,
+      a.segmentReason AS segmentReason,
+      a.keywords AS keywords,
+      a.topLevelSymbols AS topLevelSymbols,
       a.startLine AS startLine,
       a.endLine AS endLine
     ORDER BY relPath, startLine
@@ -124,6 +168,15 @@ export async function embedASTFiles(
           symbolName: row.symbolName,
           startLine: Number(row.startLine),
           endLine: Number(row.endLine),
+          embeddingText: buildEmbeddingText({
+            symbolName: row.symbolName,
+            unitKind: row.unitKind,
+            summaryCandidate: row.summaryCandidate,
+            segmentReason: row.segmentReason,
+            keywords: row.keywords,
+            topLevelSymbols: row.topLevelSymbols,
+            text: snippet,
+          }),
           text: snippet,
         };
       })
@@ -135,13 +188,13 @@ export async function embedASTFiles(
       const batch = jobs.slice(index, index + batchSize);
       try {
         const embeddings = await generateEmbeddings(
-          batch.map((job) => job.text),
+          batch.map((job) => job.embeddingText),
         );
         for (const [batchIndex, job] of batch.entries()) {
           const embedding = embeddings[batchIndex];
           if (!job || !embedding) continue;
 
-          await runCypher(
+          await writeCypher(
             `/*cypher*/
             MATCH (a:AstNode {id: $astNodeId, repoId: $repoId})
             SET

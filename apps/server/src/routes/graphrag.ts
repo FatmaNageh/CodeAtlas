@@ -13,6 +13,7 @@ import fs from "fs/promises";
 import { repoRoots } from "@/state/repoRoots";
 import { embedDimensions } from "@/config/openrouter";
 import { buildGraphTour } from "@/tour/buildGraphTour";
+import { getAdjacentASTChunks } from "@/retrieval/graph";
 
 export const graphragRoute = new Hono();
 
@@ -75,6 +76,41 @@ type AskSource = {
   score: number;
   sourceKind: string;
 };
+
+function formatRetrievedChunk(chunk: SimilarASTNodeRow): string {
+  const parts: string[] = [];
+
+  if (chunk.filePath) {
+    parts.push(`File: ${chunk.filePath}`);
+  }
+  if (chunk.symbol) {
+    parts.push(`Label: ${chunk.symbol}`);
+  }
+  if (chunk.unitKind) {
+    parts.push(`Unit kind: ${chunk.unitKind}`);
+  }
+  if (chunk.segmentReason) {
+    parts.push(`Segment reason: ${chunk.segmentReason}`);
+  }
+  if (chunk.topLevelSymbols && chunk.topLevelSymbols.length > 0) {
+    parts.push(`Top-level symbols: ${chunk.topLevelSymbols.join(", ")}`);
+  }
+  if (chunk.keywords && chunk.keywords.length > 0) {
+    parts.push(`Keywords: ${chunk.keywords.join(", ")}`);
+  }
+  if (chunk.summaryCandidate) {
+    parts.push(`Summary: ${chunk.summaryCandidate}`);
+  }
+  if (chunk.startLine != null || chunk.endLine != null) {
+    parts.push(`Lines: ${chunk.startLine ?? "?"}-${chunk.endLine ?? "?"}`);
+  }
+  if (chunk.chunkText) {
+    parts.push("Code:");
+    parts.push(chunk.chunkText);
+  }
+
+  return parts.join("\n");
+}
 
 function uniqueNodeRefs(...groups: (AskNodeRef[] | undefined)[]): AskNodeRef[] {
   const out: AskNodeRef[] = [];
@@ -385,7 +421,7 @@ graphragRoute.post("/ask", async (c) => {
     }
 
     // Find relevant chunks
-    const chunks = await findSimilarChunks(embeddingResult, repoId, 5);
+    const chunks = await findSimilarChunks(embeddingResult, repoId, 5, question);
     const vectorSources: AskSource[] = chunks.map((chunk: SimilarASTNodeRow) => ({
       file: chunk.filePath ?? "unknown",
       symbol: chunk.symbol ?? "",
@@ -393,10 +429,27 @@ graphragRoute.post("/ask", async (c) => {
       sourceKind: chunk.sourceKind,
     }));
 
+    const adjacentAstChunks = await getAdjacentASTChunks(
+      chunks
+        .filter((chunk) => chunk.sourceKind === "ast" && typeof chunk.id === "string" && chunk.id.length > 0)
+        .map((chunk) => chunk.id as string),
+      repoId,
+    );
+
+    const adjacentChunkMap = new Map(
+      adjacentAstChunks.map((chunk) => [chunk.id, { ...chunk, score: 0, id: chunk.id }] as const),
+    );
+    const expandedChunks = [
+      ...chunks,
+      ...Array.from(adjacentChunkMap.values()).filter(
+        (chunk) => !chunks.some((existing) => existing.id === chunk.id),
+      ),
+    ];
+
     // Build code context if any chunks exist
     let codeContext =
-      chunks && chunks.length > 0
-        ? chunks.map((chunk) => chunk.chunkText ?? "").join("\n\n")
+      expandedChunks.length > 0
+        ? expandedChunks.map((chunk) => formatRetrievedChunk(chunk)).join("\n\n")
         : "";
     // Trim excessively long code context to avoid huge prompts
     const MAX_CODE_CONTEXT = 8000; // characters
@@ -404,12 +457,12 @@ graphragRoute.post("/ask", async (c) => {
       codeContext = codeContext.slice(-MAX_CODE_CONTEXT);
     }
     // Fallback: if code context is empty, try reading from disk (for a best-effort context)
-    if (!codeContext && chunks && chunks.length > 0) {
+    if (!codeContext && expandedChunks.length > 0) {
       const repoRoot = repoRoots.get(repoId);
       if (repoRoot) {
         try {
           const texts = await Promise.all(
-            chunks.slice(0, 5).map(async (chunk) => {
+            expandedChunks.slice(0, 5).map(async (chunk) => {
               const rel = normalizeToRepoPath(chunk.filePath, repoRoot);
               const absPath = path.resolve(repoRoot, rel);
               const t = await fs.readFile(absPath, "utf8");
@@ -492,7 +545,7 @@ graphragRoute.post("/ask", async (c) => {
       "sumCtx",
       summaryContext ? summaryContext.length : 0,
       "chunks",
-      chunks ? chunks.length : 0,
+      expandedChunks.length,
     );
     if (codeContext) {
       const preview = codeContext.substring(0, 120).replace(/\n/g, " ");
@@ -622,7 +675,7 @@ graphragRoute.get("/status", async (c) => {
       `/*cypher*/
       MATCH (f {repoId: $repoId})
       WHERE f:CodeFile OR f:TextFile
-       OPTIONAL MATCH (f)-[:DECLARES]->(a:AstNode {repoId: $repoId})
+       OPTIONAL MATCH (f)-[:HAS_AST]->(a:AstNode {repoId: $repoId})
        OPTIONAL MATCH (f)-[:HAS_CHUNK]->(c:TextChunk {repoId: $repoId})
        WITH f.path AS path,
             count(DISTINCT a) AS astNodes,

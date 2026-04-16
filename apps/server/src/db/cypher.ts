@@ -30,6 +30,7 @@ async function executeCypher<T extends object>(
 
 /**
  * Lightweight Cypher runner that returns each record as a plain JS object.
+ * Read-only queries only: do not use for SET/MERGE/CREATE/DELETE/REMOVE.
  *
  * Note: Neo4j integers may come back as Neo4j Integer objects depending on driver config.
  */
@@ -40,6 +41,9 @@ export async function runCypher<T extends object = Record<string, CypherValue>>(
   return executeCypher<T>("read", cypher, params);
 }
 
+/**
+ * Cypher runner for any query that mutates Neo4j state.
+ */
 export async function writeCypher<T extends object = Record<string, CypherValue>>(
   cypher: string,
   params: Record<string, CypherValue> = {},

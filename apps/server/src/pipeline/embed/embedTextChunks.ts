@@ -1,5 +1,5 @@
 import { generateEmbeddings } from "@/ai/embeddings";
-import { runCypher } from "@/db/cypher";
+import { runCypher, writeCypher } from "@/db/cypher";
 
 type TextChunkRow = {
   textChunkId: string;
@@ -43,7 +43,7 @@ export async function embedTextChunks(
         const embedding = embeddings[batchIndex];
         if (!embedding) continue;
 
-        await runCypher(
+        await writeCypher(
           `/*cypher*/
           MATCH (c:TextChunk {id: $textChunkId, repoId: $repoId})
           SET
