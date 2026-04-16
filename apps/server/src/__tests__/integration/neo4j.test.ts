@@ -63,7 +63,8 @@ describe('Integration tests (requires Neo4j)', () => {
       'MATCH (n {repoId: $repoId}) RETURN count(n) as count',
       { repoId: result.repoId },
     );
-    expect(Number(nodeCount[0].count)).toBeGreaterThan(0);
+    expect(nodeCount[0]).toBeDefined();
+    expect(Number(nodeCount[0]?.count)).toBeGreaterThan(0);
 
     const fileNodes = await runCypher(
       'MATCH (f:CodeFile {repoId: $repoId}) RETURN f.relPath as relPath',
@@ -129,11 +130,12 @@ describe('Integration tests (requires Neo4j)', () => {
 
     if (embedResult.totalEmbedded > 0) {
       const chunkNodes = await runCypher(
-        'MATCH (c:CodeChunk {repoId: $repoId}) RETURN c.symbol as symbol, c.relPath as relPath, size(c.embedding) as dim',
+        'MATCH (a:ASTNode {repoId: $repoId}) WHERE a.embedding IS NOT NULL RETURN a.name as symbol, a.fileRelPath as relPath, size(a.embedding) as dim',
         { repoId: indexResult.repoId },
       );
       expect(chunkNodes.length).toBeGreaterThanOrEqual(1);
-      expect(Number(chunkNodes[0].dim)).toBe(1536);
+      expect(chunkNodes[0]).toBeDefined();
+      expect(Number(chunkNodes[0]?.dim)).toBe(1536);
     }
   });
 
@@ -154,7 +156,8 @@ describe('Integration tests (requires Neo4j)', () => {
       'MATCH (f:CodeFile {repoId: $repoId, relPath: $relPath}) RETURN count(f) as count',
       { repoId: fullResult.repoId, relPath: 'delete-me.js' },
     );
-    expect(Number(beforeDelete[0].count)).toBe(1);
+    expect(beforeDelete[0]).toBeDefined();
+    expect(Number(beforeDelete[0]?.count)).toBe(1);
 
     await fs.rm(toDelete, { force: true });
 
@@ -171,7 +174,8 @@ describe('Integration tests (requires Neo4j)', () => {
       'MATCH (f:CodeFile {repoId: $repoId, relPath: $relPath}) RETURN count(f) as count',
       { repoId: fullResult.repoId, relPath: 'delete-me.js' },
     );
-    expect(Number(afterDelete[0].count)).toBe(0);
+    expect(afterDelete[0]).toBeDefined();
+    expect(Number(afterDelete[0]?.count)).toBe(0);
   });
 
   it('consecutive full runs replace nodes without duplicates', async () => {
@@ -199,7 +203,8 @@ describe('Integration tests (requires Neo4j)', () => {
       'MATCH (f:CodeFile {repoId: $repoId, relPath: $relPath}) RETURN count(f) as count',
       { repoId: result1.repoId, relPath: 'app.js' },
     );
-    expect(Number(fileCount[0].count)).toBe(1);
+    expect(fileCount[0]).toBeDefined();
+    expect(Number(fileCount[0]?.count)).toBe(1);
   });
 
   it('indexes multi-language project correctly', async () => {
@@ -234,6 +239,7 @@ describe('Integration tests (requires Neo4j)', () => {
       'MATCH (d:Directory {repoId: $repoId}) RETURN count(d) as count',
       { repoId: result.repoId },
     );
-    expect(Number(dirNodes[0].count)).toBeGreaterThanOrEqual(1);
+    expect(dirNodes[0]).toBeDefined();
+    expect(Number(dirNodes[0]?.count)).toBeGreaterThanOrEqual(1);
   });
 });

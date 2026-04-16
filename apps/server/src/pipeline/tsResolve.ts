@@ -2,9 +2,10 @@ import path from "node:path";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 
+import type * as TypeScript from "typescript";
 import type { ScanResult } from "../types/scan";
 
-type Ts = any;
+type Ts = typeof TypeScript;
 
 type Resolver = {
   /**
@@ -40,7 +41,7 @@ export function createTsModuleResolver(scan: ScanResult, filesByRel: Map<string,
   const tsconfigPath = findNearestTsConfig(repoRoot);
 
   let basePath = repoRoot;
-  let compilerOptions: any = {
+  let compilerOptions: TypeScript.CompilerOptions = {
     allowJs: true,
     checkJs: false,
     jsx: ts.JsxEmit.Preserve,
@@ -66,7 +67,7 @@ export function createTsModuleResolver(scan: ScanResult, filesByRel: Map<string,
     }
   }
 
-  const host: any = {
+  const host: TypeScript.ModuleResolutionHost = {
     fileExists: ts.sys.fileExists,
     readFile: ts.sys.readFile,
     directoryExists: ts.sys.directoryExists,

@@ -8,7 +8,11 @@ import { buildIR } from "./ir";
 import { ensureSchema } from "../db/neo4j/schema";
 import { ingestIR } from "../db/neo4j/ingest";
 import { cleanupStaleByRunId } from "../db/neo4j/cleanup";
-import { deleteFile, deleteFileDerived } from "../db/neo4j/delete";
+import {
+  deleteFile,
+  deleteCodeFileDerived,
+  deleteTextFileDerived,
+} from "../db/neo4j/delete";
 import { repoIdFromPath } from "./id";
 import { saveDebug } from "./debug";
 import { findImportDependents } from "./invalidate";
@@ -36,39 +40,43 @@ export async function indexRepository(input: {
   const mode: IndexMode = input.mode ?? "incremental";
   const isFirstRun = !prev;
   const effectiveMode: IndexMode = isFirstRun ? "full" : mode;
-  
-// Phase 2: dependency-aware incremental invalidation.
-// In incremental mode, re-process changed/added files PLUS dependents that import changed/removed files.
-let filesToProcess =
-  effectiveMode === "full" ? scan.entries : [...diff.added, ...diff.changed];
 
-let impactedDependents: string[] = [];
-if (effectiveMode !== "full" && !input.dryRun) {
-  const targets = [
-    ...diff.changed.map((e) => e.relPath),
-    ...diff.removed.map((e) => e.relPath),
-  ];
+  // Phase 2: dependency-aware incremental invalidation.
+  // In incremental mode, re-process changed/added files PLUS dependents that import changed/removed files.
+  let filesToProcess =
+    effectiveMode === "full" ? scan.entries : [...diff.added, ...diff.changed];
 
-  try {
-    impactedDependents = await findImportDependents({ repoId, targetRelPaths: targets });
-  } catch {
-    // If Neo4j isn't reachable, we still can proceed with basic incremental.
-    impactedDependents = [];
+  let impactedDependents: string[] = [];
+  if (effectiveMode !== "full" && !input.dryRun) {
+    const targets = [
+      ...diff.changed.map((e) => e.relPath),
+      ...diff.removed.map((e) => e.relPath),
+    ];
+
+    try {
+      impactedDependents = await findImportDependents({ repoId, targetRelPaths: targets });
+    } catch {
+      // If Neo4j isn't reachable, we still can proceed with basic incremental.
+      impactedDependents = [];
+    }
+
+    const byRel = new Map(scan.entries.map((e) => [e.relPath, e] as const));
+
+    for (const relPath of impactedDependents) {
+      const entry = byRel.get(relPath);
+      if (!entry) continue;
+
+      const already = filesToProcess.some((f) => f.relPath === relPath);
+      if (!already) filesToProcess.push(entry);
+    }
   }
 
-  const byRel = new Map(scan.entries.map((e) => [e.relPath, e] as const));
-
-  for (const relPath of impactedDependents) {
-    const entry = byRel.get(relPath);
-    if (!entry) continue;
-    // Skip if already scheduled or if it was removed in this scan
-    const already = filesToProcess.some((f) => f.relPath === relPath);
-    if (!already) filesToProcess.push(entry);
-  }
-}
-
-  const codeFilesToProcess = filesToProcess.filter((e): e is CodeFileIndexEntry => e.kind === "code");
-  const textFilesToProcess = filesToProcess.filter((e): e is TextFileIndexEntry => e.kind === "text");
+  const codeFilesToProcess = filesToProcess.filter(
+    (e): e is CodeFileIndexEntry => e.kind === "code",
+  );
+  const textFilesToProcess = filesToProcess.filter(
+    (e): e is TextFileIndexEntry => e.kind === "text",
+  );
 
   const codeFacts = await parseAndExtract(codeFilesToProcess);
   const textFacts = await extractTextFacts(textFilesToProcess);
@@ -85,15 +93,27 @@ if (effectiveMode !== "full" && !input.dryRun) {
       // Remove any nodes/relationships from older runs for this repo.
       await cleanupStaleByRunId({ repoId, runId });
     } else {
-      // Incremental (Phase 1 requirement):
+      // Incremental:
       // - delete removed file nodes
       // - delete & replace derived subgraphs for added/changed files
+
+      const prevByRel = new Map(
+        Object.entries(prev?.files ?? {}).map(([relPath, meta]) => [relPath, meta] as const),
+      );
+
       for (const rm of diff.removed) {
-        await deleteFile(repoId, rm.relPath);
+        const previousEntry = prevByRel.get(rm.relPath);
+        if (!previousEntry) continue;
+
+        await deleteFile(repoId, rm.relPath, previousEntry.kind);
       }
 
       for (const f of filesToProcess) {
-        await deleteFileDerived(repoId, f.relPath);
+        if (f.kind === "code") {
+          await deleteCodeFileDerived(repoId, f.relPath);
+        } else {
+          await deleteTextFileDerived(repoId, f.relPath);
+        }
       }
 
       // Ingest structure for current scan + derived facts for processed files.
@@ -105,7 +125,9 @@ if (effectiveMode !== "full" && !input.dryRun) {
   await saveIndexState(repoRoot, scan);
 
   let debugDir: string | null = null;
-  if (input.saveDebugJson) debugDir = await saveDebug(repoRoot, repoId, facts, ir);
+  if (input.saveDebugJson) {
+    debugDir = await saveDebug(repoRoot, repoId, facts, ir);
+  }
 
   return {
     repoId,

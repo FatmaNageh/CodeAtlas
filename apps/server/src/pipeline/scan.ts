@@ -9,22 +9,28 @@ import type {
 import { normalizePath } from "./id";
 
 const CODE_EXT: Record<string, SupportedLanguage> = {
+  ".c": "c",
+  ".cs": "csharp",
   ".js": "javascript",
   ".jsx": "javascript",
-  ".ts": "typescript",
-  ".tsx": "typescript",
-  ".py": "python",
-  ".java": "java",
   ".cpp": "cpp",
   ".cc": "cpp",
   ".cxx": "cpp",
   ".hpp": "cpp",
-  ".h": "cpp",
   ".hh": "cpp",
   ".hxx": "cpp",
   ".go": "go",
+  ".h": "c",
+  ".java": "java",
+  ".kt": "kotlin",
+  ".kts": "kotlin",
+  ".php": "php",
+  ".py": "python",
   ".rb": "ruby",
-  ".c": "cpp",
+  ".rs": "rust",
+  ".swift": "swift",
+  ".ts": "typescript",
+  ".tsx": "typescript",
 };
 
 const TEXT_EXT: Record<string, TextKind> = {
@@ -71,7 +77,8 @@ export async function scanRepo(
   const entries: FileIndexEntry[] = [];
 
   async function walk(absDir: string, relDir: string) {
-    const dirents = await fs.readdir(absDir, { withFileTypes: true }).catch(() => []);
+    const dirents = (await fs.readdir(absDir, { withFileTypes: true }).catch(() => []))
+      .sort((left, right) => left.name.localeCompare(right.name));
     for (const d of dirents) {
       const abs = path.join(absDir, d.name);
       const rel = relDir ? path.join(relDir, d.name) : d.name;

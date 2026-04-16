@@ -3,7 +3,6 @@ import type { CodeNode, D3Node, D3Link } from "@CodeAtlas/api/types/codeNode";
 import * as d3 from 'd3';
 import type { Simulation, D3DragEvent, D3ZoomEvent } from 'd3';
 
-// add simulation-aware local types
 type SimNode = D3Node & d3.SimulationNodeDatum;
 type SimLink = D3Link & d3.SimulationLinkDatum<SimNode>;
 
@@ -13,10 +12,8 @@ interface KnowledgeGraphProps {
   selectedNodePath: string | null;
 }
 
-// change flattenData to populate SimNode/SimLink arrays
 const flattenData = (node: CodeNode, parentId: string | null, nodes: SimNode[], links: D3Link[]): void => {
   const nodeId = node.path;
-  // node object from CodeNode meets SimNode (SimulationNodeDatum props added by d3 at runtime)
   nodes.push({ ...node, id: nodeId } as SimNode);
 
   if (parentId) {
@@ -39,11 +36,9 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ data, onNodeClic
     const links: D3Link[] = [];
     flattenData(data, null, nodes, links);
 
-    // build a stable map id -> original CodeNode so we can call onNodeClick with correct type
     const nodeById = new Map<string, CodeNode>();
     nodes.forEach(n => {
       const id = String(n.id);
-      // SimNode contains the same fields as the original CodeNode; assert safely
       nodeById.set(id, n as unknown as CodeNode);
     });
 
@@ -57,7 +52,6 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ data, onNodeClic
     const { width, height } = containerRef.current.getBoundingClientRect();
     svg.attr('viewBox', `0 0 ${width} ${height}`);
 
-    // cast links to SimLink[] only where d3 needs SimulationLinkDatum generics
     const simulation = d3.forceSimulation<SimNode>(nodes)
       .force("link", d3.forceLink<SimNode, SimLink>(links as unknown as SimLink[]).id((d: SimNode) => d.id as string).distance(60).strength(0.5))
       .force("charge", d3.forceManyBody<SimNode>().strength(-200))

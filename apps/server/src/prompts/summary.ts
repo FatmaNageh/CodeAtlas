@@ -13,7 +13,7 @@ ${params.code.slice(0, 3000)}
 \`\`\`
 
 SYMBOLS: ${params.symbols.slice(0, 20).join(', ')}
-IMPORTS: ${params.imports.slice(0, 10).join(', ')}
+REFERENCES: ${params.imports.slice(0, 10).join(', ')}
 
 Provide a brief functional summary (2-3 sentences) covering:
 1. What this file does

@@ -1,13 +1,22 @@
 import fs from "fs/promises";
 import path from "path";
-import type { ScanResult, ScanDiff } from "../types/scan";
+import type { ScanResult, ScanDiff } from "@/types/scan";
 import { normalizePath } from "./id";
+
+export type { ScanResult } from "@/types/scan";
+
+export type IndexStateFileMeta = {
+  kind: "code" | "text";
+  mtimeMs: number;
+  size: number;
+  hash?: string;
+};
 
 export type IndexState = {
   version: 1;
   repoRoot: string;
   scannedAt: string;
-  files: Record<string, { mtimeMs: number; size: number; hash?: string }>;
+  files: Record<string, IndexStateFileMeta>;
 };
 
 const STATE_DIR = ".codeatlas";
@@ -17,6 +26,7 @@ export async function loadIndexState(repoRoot: string): Promise<IndexState | nul
   const p = path.join(repoRoot, STATE_DIR, STATE_FILE);
   const txt = await fs.readFile(p, "utf-8").catch(() => null);
   if (!txt) return null;
+
   try {
     const obj = JSON.parse(txt);
     if (obj?.version !== 1) return null;
@@ -35,38 +45,64 @@ export async function saveIndexState(repoRoot: string, scan: ScanResult): Promis
   };
 
   for (const e of scan.entries) {
-    state.files[normalizePath(e.relPath)] = { mtimeMs: e.mtimeMs, size: e.size, hash: e.hash };
+    state.files[normalizePath(e.relPath)] = {
+      kind: e.kind,
+      mtimeMs: e.mtimeMs,
+      size: e.size,
+      hash: e.hash,
+    };
   }
 
   const dir = path.join(repoRoot, STATE_DIR);
   await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(path.join(dir, STATE_FILE), JSON.stringify(state, null, 2), "utf-8");
+  await fs.writeFile(
+    path.join(dir, STATE_FILE),
+    JSON.stringify(state, null, 2),
+    "utf-8",
+  );
+
   return state;
 }
 
 export function diffScan(prev: IndexState | null, curr: ScanResult): ScanDiff {
   const prevFiles = prev?.files ?? {};
-  const currFiles: Record<string, { mtimeMs: number; size: number; hash?: string }> = {};
-  for (const e of curr.entries) currFiles[normalizePath(e.relPath)] = { mtimeMs: e.mtimeMs, size: e.size, hash: e.hash };
+  const currFiles: Record<string, IndexStateFileMeta> = {};
 
-  const added = [];
-  const changed = [];
-  const unchanged = [];
-  const removed = [];
+  for (const e of curr.entries) {
+    currFiles[normalizePath(e.relPath)] = {
+      kind: e.kind,
+      mtimeMs: e.mtimeMs,
+      size: e.size,
+      hash: e.hash,
+    };
+  }
+
+  const added: ScanDiff["added"] = [];
+  const changed: ScanDiff["changed"] = [];
+  const unchanged: ScanDiff["unchanged"] = [];
+  const removed: ScanDiff["removed"] = [];
 
   for (const e of curr.entries) {
     const key = normalizePath(e.relPath);
     const prevMeta = prevFiles[key];
+
     if (!prevMeta) {
       added.push(e);
     } else {
-      const same = prevMeta.mtimeMs === e.mtimeMs && prevMeta.size === e.size && (prevMeta.hash ? prevMeta.hash === e.hash : true);
+      const same =
+        prevMeta.kind === e.kind &&
+        prevMeta.mtimeMs === e.mtimeMs &&
+        prevMeta.size === e.size &&
+        (prevMeta.hash ? prevMeta.hash === e.hash : true);
+
       (same ? unchanged : changed).push(e);
     }
   }
 
   for (const key of Object.keys(prevFiles)) {
-    if (!currFiles[key]) removed.push({ relPath: key });
+    if (!currFiles[key]) {
+      removed.push({ relPath: key });
+    }
   }
 
   return { added, changed, removed, unchanged };

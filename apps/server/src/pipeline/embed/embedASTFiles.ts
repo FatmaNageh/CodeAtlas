@@ -1,213 +1,186 @@
-import { runCypher } from "../../db/cypher";
-import { generateEmbeddings } from "../../ai/embeddings";
-import path from "path";
 import fs from "fs/promises";
+import path from "path";
 
-type SymbolRow = {
+import { generateEmbeddings } from "../../ai/embeddings";
+import { runCypher } from "../../db/cypher";
+
+type ASTNodeRow = {
+  astNodeId: string;
   relPath: string;
   symbolName: string;
   startLine: number;
   endLine: number;
 };
 
-type ChunkData = {
+type EmbeddingJob = {
+  astNodeId: string;
+  relPath: string;
+  symbolName: string;
+  startLine: number;
+  endLine: number;
   text: string;
-  metadata: {
-    repoId: string;
-    relPath: string;
-    symbol: string;
-    startLine: number;
-    endLine: number;
-  };
 };
 
-/**
- * Embeds AST symbols as CodeChunk nodes in Neo4j with real embeddings.
- * @param repoId - The Neo4j repo ID
- * @param repoRoot - Absolute path to the repo folder (like fzf-master)
- * @param batchSize - Number of embeddings to process at once (default: 10)
- * @param maxFiles - Maximum number of files to process (default: Infinity for no limit)
- */
 export async function embedASTFiles(
-  repoId: string, 
+  repoId: string,
   repoRoot: string,
-  batchSize: number = 10,
-  maxFiles: number = Infinity
+  batchSize = 10,
+  maxFiles = Number.POSITIVE_INFINITY,
 ) {
   if (batchSize < 1) {
     throw new Error(`batchSize must be >= 1, got ${batchSize}`);
   }
-  if (maxFiles < 1) {
+  const normalizedMaxFiles = Number.isFinite(maxFiles)
+    ? Math.floor(maxFiles)
+    : null;
+
+  if (normalizedMaxFiles !== null && normalizedMaxFiles < 1) {
     throw new Error(`maxFiles must be >= 1, got ${maxFiles}`);
   }
 
-  console.log(`[AST-EMBED] Starting embedding for repo: ${repoId}`);
-  console.log(`[AST-EMBED] Starting embedding for repo: ${repoId}`);
-  console.log(`[AST-EMBED] Repo root: ${repoRoot}`);
-  console.log(`[AST-EMBED] Batch size: ${batchSize}, Max files: ${maxFiles === Infinity ? 'unlimited' : maxFiles}`);
-  
-  // Resolve and canonicalize repo root for path traversal checks
   const repoRootResolved = path.resolve(repoRoot);
-  
-  // Fetch AST symbols from Neo4j
-  console.log(`[AST-EMBED] Querying Neo4j for symbols...`);
-  const rows = await runCypher<SymbolRow>(
-    `
-    MATCH (f:CodeFile {repoId: $repoId})-[:DECLARES|:DEFINED_IN]->(s:Symbol)
-    WHERE s.startLine IS NOT NULL AND s.endLine IS NOT NULL
-    RETURN
-      f.relPath AS relPath,
-      coalesce(s.qname, s.name) AS symbolName,
-      s.startLine AS startLine,
-      s.endLine AS endLine
-    ORDER BY relPath, startLine
+
+  // First, get the capped list of file paths
+  const filePathRows =
+    normalizedMaxFiles === null
+      ? await runCypher<{ relPath: string }>(
+          `/*cypher*/
+    MATCH (f:CodeFile {repoId: $repoId})-[:DECLARES]->(a:AstNode)
+    WHERE a.startLine IS NOT NULL AND a.endLine IS NOT NULL
+    RETURN DISTINCT f.path AS relPath
+    ORDER BY relPath
     `,
-    { repoId }
-  );
+          { repoId },
+        )
+      : await runCypher<{ relPath: string }>(
+          `/*cypher*/
+    MATCH (f:CodeFile {repoId: $repoId})-[:DECLARES]->(a:AstNode)
+    WHERE a.startLine IS NOT NULL AND a.endLine IS NOT NULL
+    RETURN DISTINCT f.path AS relPath
+    ORDER BY relPath
+    LIMIT $maxFiles
+    `,
+          { repoId, maxFiles: normalizedMaxFiles },
+        );
 
-  console.log(`[AST-EMBED] Found ${rows.length} symbols`);
-
-  if (rows.length === 0) {
-    console.log(`[AST-EMBED] No symbols found for repo ${repoId}`);
+  if (filePathRows.length === 0) {
     return { ok: true, files: 0, totalEmbedded: 0, failedBatches: 0 };
   }
 
-  // Group symbols by file
-  const byFile = new Map<string, SymbolRow[]>();
+  const relPaths = filePathRows.map((row) => row.relPath);
+
+  // Now fetch AST nodes only for those capped files
+  const rows = await runCypher<ASTNodeRow>(
+    `/*cypher*/
+    MATCH (f:CodeFile {repoId: $repoId})-[:DECLARES]->(a:AstNode)
+    WHERE f.path IN $relPaths
+      AND a.startLine IS NOT NULL AND a.endLine IS NOT NULL
+    RETURN
+      a.id AS astNodeId,
+      f.path AS relPath,
+      coalesce(a.qname, a.name) AS symbolName,
+      a.startLine AS startLine,
+      a.endLine AS endLine
+    ORDER BY relPath, startLine
+    `,
+    { repoId, relPaths },
+  );
+
+  const rowsByFile = new Map<string, ASTNodeRow[]>();
   for (const row of rows) {
-    if (!byFile.has(row.relPath)) byFile.set(row.relPath, []);
-    byFile.get(row.relPath)!.push(row);
+    const entries = rowsByFile.get(row.relPath) ?? [];
+    entries.push(row);
+    rowsByFile.set(row.relPath, entries);
   }
 
-  let totalEmbedded = 0;
   let filesProcessed = 0;
+  let totalEmbedded = 0;
   let failedBatches = 0;
   const failedBatchDetails: string[] = [];
 
-  console.log(`[AST-EMBED] Processing ${byFile.size} files...`);
-
-  // Process each file
-  for (const [relPath, symbols] of byFile.entries()) {
-    if (filesProcessed >= maxFiles) {
-      console.log(`[AST-EMBED] Reached max files limit (${maxFiles}), stopping...`);
-      break;
-    }
-    
-    console.log(`[AST-EMBED] Processing file ${filesProcessed + 1}/${Math.min(byFile.size, maxFiles)}: ${relPath}`);
-    
-    // Validate path to prevent traversal attacks
-    const absPath = path.resolve(repoRoot, relPath);
-    if (!absPath.startsWith(repoRootResolved + path.sep) && absPath !== repoRootResolved) {
-      console.warn(`[AST-EMBED] ⚠ Path traversal detected for ${relPath}, skipping...`);
+  for (const [relPath, astRows] of rowsByFile.entries()) {
+    const absPath = path.resolve(repoRootResolved, relPath);
+    if (
+      !absPath.startsWith(repoRootResolved + path.sep) &&
+      absPath !== repoRootResolved
+    ) {
       continue;
     }
-    
-    console.log(`[AST-EMBED] Reading file: ${absPath}`);
-    
-    const text = await fs.readFile(absPath, "utf8").catch((err) => {
-      console.warn(`[AST-EMBED] Failed to read file ${relPath}:`, err.message);
-      return "";
-    });
 
-    if (!text) {
-      console.warn(`[AST-EMBED] Skipping empty/missing file: ${relPath}`);
-      continue;
-    }
+    const text = await fs.readFile(absPath, "utf8").catch(() => "");
+    if (!text) continue;
 
     const lines = text.split(/\r?\n/);
-    const chunks: ChunkData[] = [];
+    const jobs: EmbeddingJob[] = astRows
+      .map((row) => {
+        const snippet = lines
+          .slice(row.startLine - 1, row.endLine)
+          .join("\n")
+          .trim();
+        if (!snippet) return null;
+        return {
+          astNodeId: row.astNodeId,
+          relPath: row.relPath,
+          symbolName: row.symbolName,
+          startLine: Number(row.startLine),
+          endLine: Number(row.endLine),
+          text: snippet,
+        };
+      })
+      .filter((job): job is EmbeddingJob => job !== null);
 
-    // Prepare chunks
-    console.log(`[AST-EMBED] Preparing ${symbols.length} chunks...`);
-    for (const sym of symbols) {
-      const chunkText = lines
-        .slice(sym.startLine - 1, sym.endLine)
-        .join("\n");
+    if (jobs.length === 0) continue;
 
-      if (!chunkText.trim()) continue;
-
-      chunks.push({
-        text: chunkText,
-        metadata: {
-          repoId,
-          relPath,
-          symbol: sym.symbolName,
-          startLine: Number(sym.startLine),
-          endLine: Number(sym.endLine),
-        },
-      });
-    }
-
-    console.log(`[AST-EMBED] Have ${chunks.length} chunks to embed`);
-
-    // Generate real embeddings in batches
-    for (let i = 0; i < chunks.length; i += batchSize) {
-      const batch = chunks.slice(i, i + batchSize);
-      const texts = batch.map((c) => c.text);
-
-      console.log(`[AST-EMBED] Processing batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(chunks.length/batchSize)} (${texts.length} texts)...`);
-
+    for (let index = 0; index < jobs.length; index += batchSize) {
+      const batch = jobs.slice(index, index + batchSize);
       try {
-        const embeddings = await generateEmbeddings(texts);
-        console.log(`[AST-EMBED] Generated ${embeddings.length} embeddings`);
-
-        // Store in Neo4j with real embeddings, filtering out null embeddings
-        for (let j = 0; j < batch.length; j++) {
-          const chunk = batch[j];
-          const embedding = embeddings[j];
-
-          if (!chunk || !embedding) {
-            if (!embedding) {
-              console.warn(`[AST-EMBED] Skipping chunk ${j} in batch due to failed embedding`);
-            }
-            continue;
-          }
+        const embeddings = await generateEmbeddings(
+          batch.map((job) => job.text),
+        );
+        for (const [batchIndex, job] of batch.entries()) {
+          const embedding = embeddings[batchIndex];
+          if (!job || !embedding) continue;
 
           await runCypher(
-            `
-            MERGE (c:CodeChunk { repoId: $repoId, relPath: $relPath, symbol: $symbol })
+            `/*cypher*/
+            MATCH (a:AstNode {id: $astNodeId, repoId: $repoId})
             SET
-              c.startLine = $startLine,
-              c.endLine = $endLine,
-              c.text = $text,
-              c.embedding = $embedding,
-              c.generatedAt = datetime()
+              a.text = $text,
+              a.embeddings = $embedding,
+              a.embeddingStartLine = $startLine,
+              a.embeddingEndLine = $endLine,
+              a.embeddingUpdatedAt = datetime()
+            RETURN a.id AS id
             `,
             {
-              repoId: chunk.metadata.repoId,
-              relPath: chunk.metadata.relPath,
-              symbol: chunk.metadata.symbol,
-              startLine: chunk.metadata.startLine,
-              endLine: chunk.metadata.endLine,
-              text: chunk.text,
-              embedding: embedding,
-            }
+              astNodeId: job.astNodeId,
+              repoId,
+              text: job.text,
+              embedding,
+              startLine: job.startLine,
+              endLine: job.endLine,
+            },
           );
           totalEmbedded++;
         }
-        console.log(`[AST-EMBED] ✓ Batch ${Math.floor(i/batchSize) + 1} stored in Neo4j`);
-      } catch (err) {
+      } catch (error) {
         failedBatches++;
-        const batchNum = Math.floor(i/batchSize) + 1;
-        const errorMsg = `Batch ${batchNum} in ${relPath}: ${err instanceof Error ? err.message : String(err)}`;
-        failedBatchDetails.push(errorMsg);
-        console.error(
-          `[AST-EMBED] Failed to embed batch in ${relPath}:`,
-          err
+        const message = error instanceof Error ? error.message : String(error);
+        failedBatchDetails.push(
+          `Batch ${Math.floor(index / batchSize) + 1} in ${relPath}: ${message}`,
         );
       }
     }
 
-    console.log(`[AST-EMBED] ✓ File ${relPath} complete (${symbols.length} symbols processed)`);
     filesProcessed++;
   }
 
-  console.log(`[AST-EMBED] Total embedded: ${totalEmbedded} symbols from ${filesProcessed} files, ${failedBatches} failed batches`);
-  return { 
-    ok: failedBatches === 0, 
-    files: filesProcessed, 
+  return {
+    ok: failedBatches === 0,
+    files: filesProcessed,
     totalEmbedded,
     failedBatches,
-    failedBatchDetails: failedBatches > 0 ? failedBatchDetails : undefined
+    failedBatchDetails:
+      failedBatchDetails.length > 0 ? failedBatchDetails : undefined,
   };
 }

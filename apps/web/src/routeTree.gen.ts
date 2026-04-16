@@ -13,6 +13,7 @@ import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as IrRouteImport } from './routes/ir'
 import { Route as IndexingRouteImport } from './routes/indexing'
 import { Route as GraphRouteImport } from './routes/graph'
+import { Route as FaquestionsRouteImport } from './routes/faquestions'
 import { Route as AnalyticsRouteImport } from './routes/analytics'
 import { Route as IndexRouteImport } from './routes/index'
 
@@ -36,6 +37,11 @@ const GraphRoute = GraphRouteImport.update({
   path: '/graph',
   getParentRoute: () => rootRouteImport,
 } as any)
+const FaquestionsRoute = FaquestionsRouteImport.update({
+  id: '/faquestions',
+  path: '/faquestions',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AnalyticsRoute = AnalyticsRouteImport.update({
   id: '/analytics',
   path: '/analytics',
@@ -50,6 +56,7 @@ const IndexRoute = IndexRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/analytics': typeof AnalyticsRoute
+  '/faquestions': typeof FaquestionsRoute
   '/graph': typeof GraphRoute
   '/indexing': typeof IndexingRoute
   '/ir': typeof IrRoute
@@ -58,6 +65,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/analytics': typeof AnalyticsRoute
+  '/faquestions': typeof FaquestionsRoute
   '/graph': typeof GraphRoute
   '/indexing': typeof IndexingRoute
   '/ir': typeof IrRoute
@@ -67,6 +75,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/analytics': typeof AnalyticsRoute
+  '/faquestions': typeof FaquestionsRoute
   '/graph': typeof GraphRoute
   '/indexing': typeof IndexingRoute
   '/ir': typeof IrRoute
@@ -74,13 +83,28 @@ export interface FileRoutesById {
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/analytics' | '/graph' | '/indexing' | '/ir' | '/onboarding'
+  fullPaths:
+    | '/'
+    | '/analytics'
+    | '/faquestions'
+    | '/graph'
+    | '/indexing'
+    | '/ir'
+    | '/onboarding'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/analytics' | '/graph' | '/indexing' | '/ir' | '/onboarding'
+  to:
+    | '/'
+    | '/analytics'
+    | '/faquestions'
+    | '/graph'
+    | '/indexing'
+    | '/ir'
+    | '/onboarding'
   id:
     | '__root__'
     | '/'
     | '/analytics'
+    | '/faquestions'
     | '/graph'
     | '/indexing'
     | '/ir'
@@ -90,6 +114,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AnalyticsRoute: typeof AnalyticsRoute
+  FaquestionsRoute: typeof FaquestionsRoute
   GraphRoute: typeof GraphRoute
   IndexingRoute: typeof IndexingRoute
   IrRoute: typeof IrRoute
@@ -126,6 +151,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof GraphRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/faquestions': {
+      id: '/faquestions'
+      path: '/faquestions'
+      fullPath: '/faquestions'
+      preLoaderRoute: typeof FaquestionsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/analytics': {
       id: '/analytics'
       path: '/analytics'
@@ -146,6 +178,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AnalyticsRoute: AnalyticsRoute,
+  FaquestionsRoute: FaquestionsRoute,
   GraphRoute: GraphRoute,
   IndexingRoute: IndexingRoute,
   IrRoute: IrRoute,

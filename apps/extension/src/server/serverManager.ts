@@ -12,12 +12,10 @@ export interface ServerState {
   url: string;
   pid?: number;
   error?: string;
-  repoId?: string;
 }
 
 type StatusListener = (state: ServerState) => void;
 
-/** Finds a free TCP port by binding to :0 and releasing. */
 function findFreePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const srv = net.createServer();
@@ -30,33 +28,47 @@ function findFreePort(): Promise<number> {
   });
 }
 
-/** Locates `apps/server` relative to a workspace root. */
 function findServerDir(workspaceRoot: string): string | null {
   const candidates = [
     path.join(workspaceRoot, "apps", "server"),
+    path.join(workspaceRoot, "server"),
     path.join(workspaceRoot, "..", "server"),
     path.join(workspaceRoot, "..", "apps", "server"),
     path.join(workspaceRoot, "..", "..", "apps", "server"),
   ];
   for (const c of candidates) {
-    if (fs.existsSync(path.join(c, "package.json"))) return c;
+    if (fs.existsSync(path.join(c, "package.json"))) return path.resolve(c);
   }
   return null;
 }
 
-/** Returns the path to tsx / node runner for the server. */
 function resolveRunner(serverDir: string): { cmd: string; args: string[] } {
-  // Prefer local tsx if available
   const tsxLocal = path.join(serverDir, "node_modules", ".bin", "tsx");
-  const tsxLocalCmd = process.platform === "win32" ? `${tsxLocal}.CMD` : tsxLocal;
-
-  if (fs.existsSync(tsxLocalCmd) || fs.existsSync(tsxLocal)) {
-    return { cmd: tsxLocalCmd.replace(".CMD", ""), args: ["watch", "src/index.ts"] };
+  const tsxCmd   = process.platform === "win32" ? `${tsxLocal}.CMD` : tsxLocal;
+  if (fs.existsSync(tsxCmd) || fs.existsSync(tsxLocal)) {
+    return { cmd: tsxCmd, args: ["watch", "src/index.ts"] };
   }
-
-  // Fall back to pnpm/npm run dev
   const pm = fs.existsSync(path.join(serverDir, "..", "..", "pnpm-lock.yaml")) ? "pnpm" : "npm";
   return { cmd: pm, args: ["run", "dev"] };
+}
+
+/** Parse a .env file into key→value pairs, supporting quoted values and comments. */
+function parseEnv(raw: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq < 1) continue;
+    const key = trimmed.slice(0, eq).trim();
+    let val   = trimmed.slice(eq + 1).trim();
+    // Strip surrounding quotes
+    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+      val = val.slice(1, -1);
+    }
+    out[key] = val;
+  }
+  return out;
 }
 
 export class ServerManager implements vscode.Disposable {
@@ -64,18 +76,14 @@ export class ServerManager implements vscode.Disposable {
   private _state: ServerState = { status: "stopped", port: 0, url: "" };
   private _listeners: StatusListener[] = [];
   private _output: vscode.OutputChannel;
-  private _startupTimer: NodeJS.Timeout | null = null;
+  private _startupTimer: ReturnType<typeof setTimeout> | null = null;
   private _workspaceRoot: string;
 
   constructor(private readonly _context: vscode.ExtensionContext) {
     this._output = vscode.window.createOutputChannel("CodeAtlas Server");
     _context.subscriptions.push(this._output);
-
-    this._workspaceRoot =
-      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? "";
+    this._workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? "";
   }
-
-  // ── Public API ────────────────────────────────────────────────────────────
 
   get state(): ServerState {
     return { ...this._state };
@@ -88,16 +96,12 @@ export class ServerManager implements vscode.Disposable {
     });
   }
 
-  /** Start the server. If already running, resolves immediately. */
   async start(): Promise<void> {
     if (this._state.status === "running") return;
     if (this._state.status === "starting") {
       return new Promise((resolve) => {
         const unsub = this.onStatusChange((s) => {
-          if (s.status === "running" || s.status === "error") {
-            unsub.dispose();
-            resolve();
-          }
+          if (s.status === "running" || s.status === "error") { unsub.dispose(); resolve(); }
         });
       });
     }
@@ -108,51 +112,39 @@ export class ServerManager implements vscode.Disposable {
     const serverDir = findServerDir(this._workspaceRoot);
     if (!serverDir) {
       this._setState({
-        status: "error",
-        port: 0,
-        url: "",
-        error:
-          "Could not locate apps/server directory. Open the CodeAtlas workspace root in VS Code.",
+        status: "error", port: 0, url: "",
+        error: "Could not locate apps/server directory. Open the CodeAtlas workspace root in VS Code.",
       });
-      vscode.window.showErrorMessage(
-        "CodeAtlas: Cannot find apps/server directory. Open the CodeAtlas project root as your workspace."
-      );
+      vscode.window
+        .showErrorMessage("CodeAtlas: Cannot find apps/server. Open the CodeAtlas project root as your workspace.", "Open Docs")
+        .then((c) => { if (c === "Open Docs") vscode.env.openExternal(vscode.Uri.parse("https://github.com/codeatlas/codeatlas")); });
       return;
     }
 
     this._output.appendLine(`[CodeAtlas] Server dir: ${serverDir}`);
 
-    // Check for .env and required vars
     const envPath = path.join(serverDir, ".env");
-    const envOk = this._checkEnv(envPath);
-    if (!envOk) return;
+    this._checkEnv(envPath);
 
     const port = await findFreePort();
     const { cmd, args } = resolveRunner(serverDir);
-
     this._output.appendLine(`[CodeAtlas] Runner: ${cmd} ${args.join(" ")}`);
     this._output.appendLine(`[CodeAtlas] Port: ${port}`);
 
     this._setState({ status: "starting", port, url: `http://127.0.0.1:${port}` });
 
-    const env: NodeJS.ProcessEnv = {
-      ...process.env,
-      PORT: String(port),
-      CORS_ORIGIN: "*", // ← allow VS Code webview origin
-    };
-
-    // Inherit OPENROUTER_API_KEY / NEO4J_* from workspace .env if set
+    // Build env: start from process env, overlay .env file, then force PORT
+    const env: NodeJS.ProcessEnv = { ...process.env };
     try {
       const raw = fs.readFileSync(envPath, "utf8");
-      for (const line of raw.split(/\r?\n/)) {
-        const m = line.match(/^([A-Z0-9_]+)=(.*)$/);
-        if (m && m[1] && m[2] && !env[m[1]]) {
-          env[m[1]] = m[2].trim().replace(/^["']|["']$/g, "");
-        }
+      const parsed = parseEnv(raw);
+      for (const [k, v] of Object.entries(parsed)) {
+        if (!env[k]) env[k] = v;   // don't overwrite system env vars
       }
-    } catch {
-      // .env read failed — that's OK
-    }
+    } catch { /* .env absent — OK */ }
+
+    env["PORT"]        = String(port);
+    env["CORS_ORIGIN"] = "*";
 
     const opts: cp.SpawnOptions = {
       cwd: serverDir,
@@ -163,21 +155,16 @@ export class ServerManager implements vscode.Disposable {
 
     try {
       this._proc = cp.spawn(cmd, args, opts);
-    } catch (err: any) {
-      this._setState({
-        status: "error",
-        port,
-        url: "",
-        error: `Failed to spawn server: ${err?.message ?? String(err)}`,
-      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this._setState({ status: "error", port, url: "", error: `Failed to spawn server: ${msg}` });
       return;
     }
 
     this._proc.stdout?.on("data", (chunk: Buffer) => {
       const line = chunk.toString();
       this._output.append(line);
-
-      // Detect ready signal: "Server is running on http://localhost:PORT"
+      // Detect "Server is running on http://…:PORT"
       const m = line.match(/running on http[s]?:\/\/[^:]+:(\d+)/i);
       if (m) {
         const actualPort = parseInt(m[1], 10) || port;
@@ -193,9 +180,7 @@ export class ServerManager implements vscode.Disposable {
     });
 
     this._proc.on("exit", (code, signal) => {
-      this._output.appendLine(
-        `[CodeAtlas] Server process exited (code=${code ?? "—"} signal=${signal ?? "—"})`
-      );
+      this._output.appendLine(`[CodeAtlas] Server process exited (code=${code ?? "—"} signal=${signal ?? "—"})`);
       if (this._state.status !== "stopped") {
         this._setState({ status: "error", port, url: "", error: `Server exited with code ${code}` });
       }
@@ -203,15 +188,14 @@ export class ServerManager implements vscode.Disposable {
     });
 
     this._proc.on("error", (err) => {
-      this._output.appendLine(`[CodeAtlas] Server spawn error: ${err.message}`);
+      this._output.appendLine(`[CodeAtlas] Spawn error: ${err.message}`);
       this._setState({ status: "error", port, url: "", error: err.message });
     });
 
-    // Timeout if server doesn't become ready in 60 s
+    // 60 s optimistic timeout
     this._startupTimer = setTimeout(() => {
       if (this._state.status === "starting") {
-        this._output.appendLine("[CodeAtlas] ⚠ Startup timeout (60 s) — server may still be booting");
-        // Don't error out — just bump to running optimistically
+        this._output.appendLine("[CodeAtlas] ⚠ Startup timeout (60 s) — marking as running optimistically");
         this._setState({ status: "running", port, url: `http://127.0.0.1:${port}`, pid: this._proc?.pid });
       }
     }, 60_000);
@@ -220,19 +204,15 @@ export class ServerManager implements vscode.Disposable {
   stop(): void {
     if (this._startupTimer) { clearTimeout(this._startupTimer); this._startupTimer = null; }
     if (!this._proc) { this._setState({ status: "stopped", port: 0, url: "" }); return; }
-
     this._output.appendLine("[CodeAtlas] Stopping server…");
     this._setState({ status: "stopped", port: 0, url: "" });
-
     try {
       if (process.platform === "win32") {
         cp.spawn("taskkill", ["/pid", String(this._proc.pid), "/f", "/t"], { shell: true });
       } else {
         this._proc.kill("SIGTERM");
       }
-    } catch {
-      // ignore
-    }
+    } catch { /* ignore */ }
     this._proc = null;
   }
 
@@ -242,17 +222,9 @@ export class ServerManager implements vscode.Disposable {
     await this.start();
   }
 
-  /** Show the output channel. */
-  showLog(): void {
-    this._output.show();
-  }
+  showLog(): void { this._output.show(); }
 
-  dispose(): void {
-    this.stop();
-    this._output.dispose();
-  }
-
-  // ── Private helpers ───────────────────────────────────────────────────────
+  dispose(): void { this.stop(); this._output.dispose(); }
 
   private _setState(patch: Partial<ServerState>): void {
     this._state = { ...this._state, ...patch };
@@ -261,47 +233,28 @@ export class ServerManager implements vscode.Disposable {
     }
   }
 
-  private _checkEnv(envPath: string): boolean {
+  private _checkEnv(envPath: string): void {
     if (!fs.existsSync(envPath)) {
       vscode.window
-        .showWarningMessage(
-          "CodeAtlas: No .env found in apps/server. The server needs NEO4J_* and OPENROUTER_API_KEY.",
-          "Open Docs"
-        )
-        .then((choice) => {
-          if (choice === "Open Docs") {
-            vscode.env.openExternal(vscode.Uri.parse("https://github.com/codeatlas/codeatlas"));
-          }
-        });
-      // Still attempt to start — env vars might be set system-wide
-      return true;
+        .showWarningMessage("CodeAtlas: No .env found in apps/server. The server needs NEO4J_* and OPENROUTER_API_KEY.", "Open Docs")
+        .then((c) => { if (c === "Open Docs") vscode.env.openExternal(vscode.Uri.parse("https://github.com/codeatlas/codeatlas")); });
+      return;
     }
 
     let raw = "";
-    try { raw = fs.readFileSync(envPath, "utf8"); } catch { return true; }
-
-    const missing: string[] = [];
-    for (const key of ["NEO4J_URI", "NEO4J_USERNAME", "NEO4J_PASSWORD", "OPENROUTER_API_KEY"]) {
-      const m = raw.match(new RegExp(`^${key}=(.+)$`, "m"));
-      if (!m || !m[1]?.trim()) missing.push(key);
-    }
+    try { raw = fs.readFileSync(envPath, "utf8"); } catch { return; }
+    const parsed = parseEnv(raw);
+    const required = ["NEO4J_URI", "NEO4J_USERNAME", "NEO4J_PASSWORD", "OPENROUTER_API_KEY"];
+    const missing = required.filter(k => !parsed[k]?.trim());
 
     if (missing.length > 0) {
       vscode.window
-        .showWarningMessage(
-          `CodeAtlas: Missing env vars in apps/server/.env: ${missing.join(", ")}`,
-          "Open .env",
-          "Continue anyway"
-        )
-        .then((choice) => {
-          if (choice === "Open .env") {
-            vscode.workspace.openTextDocument(envPath).then((doc) =>
-              vscode.window.showTextDocument(doc)
-            );
+        .showWarningMessage(`CodeAtlas: Missing env vars in apps/server/.env: ${missing.join(", ")}`, "Open .env", "Continue anyway")
+        .then((c) => {
+          if (c === "Open .env") {
+            vscode.workspace.openTextDocument(envPath).then(doc => vscode.window.showTextDocument(doc));
           }
         });
     }
-
-    return true;
   }
 }

@@ -14,8 +14,6 @@ export default defineConfig({
   server: {
     port: 3001,
     proxy: {
-          "/graoh": "http://localhost:3000",
-
       "/trpc": {
         target: "http://localhost:3000",
         changeOrigin: true,
@@ -32,8 +30,6 @@ export default defineConfig({
         target: "http://localhost:3000",
         changeOrigin: true,
       },
-
-      // ✅ add GraphRAG
       "/graphrag": {
         target: "http://localhost:3000",
         changeOrigin: true,

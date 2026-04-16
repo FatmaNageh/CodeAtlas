@@ -2,13 +2,16 @@ import crypto from "node:crypto";
 import os from "node:os";
 
 import type { CodeFileIndexEntry } from "../types/scan";
-import type { CodeFacts, FactsByFile } from "../types/facts";
+import type { CodeFacts, FactsByFile, RawCallSite, RawImport, RawSymbol } from "../types/facts";
+import type { SyntaxNode } from "tree-sitter";
 
 import { parseFile } from "./parse";
 import { Extractors } from "../extractors";
 import { extractTsJsWithTsCompiler } from "../extractors/tsCompiler";
 import { uniq } from "../extractors/common";
+import { extractTextFallback } from "../extractors/textFallback";
 import { WorkerPool } from "./parallel/workerPool";
+import type { TreeSitterTree } from "./treeSitterTypes";
 
 function safePreview(text: string, max = 4000): string {
   return text.length <= max ? text : text.slice(0, max);
@@ -24,43 +27,50 @@ async function parseAndExtractSequential(files: CodeFileIndexEntry[]): Promise<F
     const textPreview = safePreview(text);
     const textHash = text ? crypto.createHash("sha1").update(text).digest("hex") : undefined;
 
-    const tree: any = parsed.tree as any;
-    const root: any = tree?.rootNode;
+    const tree = parsed.tree as TreeSitterTree | undefined;
+    const root: SyntaxNode | undefined = tree?.rootNode;
     const extractor = Extractors[f.language];
 
-    let imports: any[] = [];
-    let symbols: any[] = [];
-    let callSites: any[] = [];
+    let imports: RawImport[] = [];
+    let symbols: RawSymbol[] = [];
+    let callSites: RawCallSite[] = [];
 
     // Phase 2 enhancement: prefer TypeScript Compiler API for JS/TS when available.
     if (f.language === "javascript" || f.language === "typescript") {
       const res = await extractTsJsWithTsCompiler({ language: f.language, ext: f.ext, relPath: f.relPath, text });
       if (res) {
-        imports = res.imports;
-        symbols = res.symbols;
-        callSites = res.callSites;
+        imports = [...imports, ...res.imports];
+        symbols = [...symbols, ...res.symbols];
+        callSites = [...callSites, ...res.callSites];
       }
     }
 
-    if (!imports.length && !symbols.length && !callSites.length && root && extractor) {
+    if (root && extractor) {
       const res = extractor(root, { language: f.language, ext: f.ext, relPath: f.relPath, text });
-      imports = res.imports;
-      symbols = res.symbols;
-      callSites = res.callSites;
+      imports = [...imports, ...res.imports];
+      symbols = [...symbols, ...res.symbols];
+      callSites = [...callSites, ...res.callSites];
     }
 
+    const fallback = extractTextFallback({ language: f.language, ext: f.ext, relPath: f.relPath, text });
+    imports = [...imports, ...fallback.imports];
+    symbols = [...symbols, ...fallback.symbols];
+    callSites = [...callSites, ...fallback.callSites];
+
     // De-dupe (tree-sitter nodes can be reached multiple ways)
-    imports = uniq(imports, (i: any) => `${i.kind || ""}:${i.raw}`);
-    symbols = uniq(symbols, (s: any) => `${s.kind}:${s.qname || s.name}:${s.range?.startLine || 0}:${s.range?.startCol || 0}`);
-    callSites = uniq(callSites, (c: any) => `${c.calleeText}:${c.range?.startLine || 0}:${c.range?.startCol || 0}:${c.enclosingSymbolQname || ""}`);
+    imports = uniq(imports, (i) => `${i.kind || ""}:${i.raw}`);
+    symbols = uniq(symbols, (s) => `${s.kind}:${s.qname || s.name}:${s.range?.startLine || 0}:${s.range?.startCol || 0}`);
+    callSites = uniq(callSites, (c) => `${c.calleeText}:${c.range?.startLine || 0}:${c.range?.startCol || 0}:${c.enclosingSymbolQname || ""}`);
 
     out[f.relPath] = {
       kind: "code",
       fileRelPath: f.relPath,
       language: f.language,
       imports,
-      symbols,
+      astNodes: symbols,
       callSites,
+      parseStatus: parsed.parseStatus,
+      parser: parsed.parser,
       parseErrors: parsed.parseErrors,
       lineCount,
       textPreview,
@@ -94,7 +104,7 @@ async function parseAndExtractParallel(files: CodeFileIndexEntry[], workers: num
   try {
     // Sorting improves determinism and reduces tail-latency if you later switch to size-based scheduling.
     const ordered = [...files].sort((a, b) => a.relPath.localeCompare(b.relPath));
-    const results = await Promise.all(ordered.map((f) => pool.run<CodeFacts>({ file: f })));
+    const results = await Promise.all(ordered.map((f) => pool.run<{ file: CodeFileIndexEntry }, CodeFacts>({ file: f })));
     for (const fact of results) {
       out[fact.fileRelPath] = fact;
     }

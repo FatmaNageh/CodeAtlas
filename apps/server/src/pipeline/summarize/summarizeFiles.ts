@@ -8,12 +8,10 @@ export interface SummarizeResult {
   errors: string[];
 }
 
-// Pure functional pipeline - replaces fake implementation
 export async function summarizeFiles(repoId: string): Promise<SummarizeResult> {
   console.log(`[SUMMARIZE] Starting for repo: ${repoId}`);
 
   try {
-    // Get files
     const files = await runCypher(
       `MATCH (f:CodeFile {repoId: $repoId})
        RETURN f.relPath as filePath
@@ -23,8 +21,9 @@ export async function summarizeFiles(repoId: string): Promise<SummarizeResult> {
 
     console.log(`[SUMMARIZE] Found ${files.length} files`);
 
-    // Generate summaries
-    const filePaths = files.map((f: any) => f.filePath);
+    const filePaths = files
+      .map((file) => file.filePath)
+      .filter((filePath): filePath is string => typeof filePath === "string" && filePath.length > 0);
     const { results, errors } = await generateBatchSummaries(filePaths, repoId);
 
     return {

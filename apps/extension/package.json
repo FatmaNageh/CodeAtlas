@@ -1,20 +1,43 @@
 {
   "name": "codeatlas-extension",
-  "displayName": "CodeAtlas",
-  "description": "Knowledge graph explorer + AI chat \u2014 with embedded backend server manager",
-  "version": "0.2.0",
+  "displayName": "CodeAtlas — Knowledge Graph + AI Chat",
+  "description": "Explore your codebase as an interactive Neo4j knowledge graph with an AI chat assistant. Index any repository, visualise connections, and ask AI questions about your code.",
+  "version": "0.3.0",
   "publisher": "codeatlas",
+  "icon": "icon.png",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/codeatlas/codeatlas"
+  },
+  "bugs": {
+    "url": "https://github.com/codeatlas/codeatlas/issues"
+  },
+  "homepage": "https://github.com/codeatlas/codeatlas#readme",
+  "galleryBanner": {
+    "color": "#1e1e2e",
+    "theme": "dark"
+  },
   "engines": {
     "vscode": "^1.90.0"
   },
   "categories": [
+    "Visualization",
     "Other",
-    "Visualization"
+    "AI"
+  ],
+  "keywords": [
+    "knowledge graph",
+    "neo4j",
+    "code graph",
+    "AI",
+    "graphrag",
+    "dependency graph",
+    "call graph",
+    "codebase explorer"
   ],
   "activationEvents": [
-    "onCommand:codeatlas.openGraph",
-    "onView:codeatlas.chatView",
-    "workspaceContains:apps/server/package.json"
+    "onStartupFinished"
   ],
   "main": "./dist/extension.cjs",
   "type": "commonjs",
@@ -27,7 +50,7 @@
       },
       {
         "command": "codeatlas.configure",
-        "title": "CodeAtlas: Set Repo ID"
+        "title": "CodeAtlas: Settings"
       },
       {
         "command": "codeatlas.indexRepo",
@@ -37,6 +60,22 @@
       {
         "command": "codeatlas.serverMenu",
         "title": "CodeAtlas: Server Options"
+      },
+      {
+        "command": "codeatlas.openNeo4jBrowser",
+        "title": "CodeAtlas: Open Neo4j Browser"
+      },
+      {
+        "command": "codeatlas.clearHistory",
+        "title": "CodeAtlas: Clear Chat History"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "codeatlas.openGraph",
+        "key": "ctrl+shift+g",
+        "mac": "cmd+shift+g",
+        "when": "!terminalFocus"
       }
     ],
     "viewsContainers": {
@@ -77,12 +116,34 @@
         "codeatlas.serverUrl": {
           "type": "string",
           "default": "http://localhost:3000",
-          "description": "Fallback server URL (used when extension-managed server is not running)"
+          "description": "Fallback server URL (used when the extension-managed server is not running)"
         },
         "codeatlas.repoId": {
           "type": "string",
           "default": "",
           "description": "Repository ID returned by /indexRepo (12-char hex string)"
+        },
+        "codeatlas.neo4jBrowserUrl": {
+          "type": "string",
+          "default": "http://localhost:7474",
+          "description": "URL of your Neo4j Browser for direct graph inspection"
+        },
+        "codeatlas.autoStartServer": {
+          "type": "boolean",
+          "default": true,
+          "description": "Auto-start the CodeAtlas backend when a matching workspace is detected"
+        },
+        "codeatlas.graphNodeLimit": {
+          "type": "number",
+          "default": 500,
+          "minimum": 50,
+          "maximum": 2000,
+          "description": "Maximum number of nodes to fetch and display in the graph"
+        },
+        "codeatlas.autoRefreshGraph": {
+          "type": "boolean",
+          "default": false,
+          "description": "Periodically refresh the knowledge graph (every 30 s)"
         }
       }
     }
@@ -95,8 +156,8 @@
   "devDependencies": {
     "@types/node": "^22.13.11",
     "@types/vscode": "^1.90.0",
-    "esbuild": "^0.25.0",
-    "typescript": "^5.7.3",
-    "@vscode/vsce": "^3.0.0"
+    "@vscode/vsce": "^3.7.1",
+    "esbuild": "^0.25.12",
+    "typescript": "^5.7.3"
   }
 }

@@ -18,11 +18,11 @@ export const Route = createRootRouteWithContext<RouterAppContext>()({
   component: RootComponent,
   head: () => ({
     meta: [
-      { title: "CodeAtlas — React Frontend" },
+      { title: "CodeAtlas" },
       {
         name: "description",
         content:
-          "CodeAtlas frontend with landing page, onboarding flow, graph exploration, indexing tools, and analytics.",
+          "CodeAtlas builds a semantic knowledge graph from your repository — navigate, query, and understand real code structure instantly.",
       },
     ],
   }),
@@ -30,14 +30,21 @@ export const Route = createRootRouteWithContext<RouterAppContext>()({
 
 function RootComponent() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const hideGlobalHeader = pathname === "/graph";
+
+  const hideHeader = pathname === "/graph";
+
   return (
     <>
       <HeadContent />
-      <ThemeProvider attribute="class" defaultTheme="dark" disableTransitionOnChange storageKey="vite-ui-theme">
+      <ThemeProvider
+        attribute="class"
+        defaultTheme="dark"
+        disableTransitionOnChange
+        storageKey="vite-ui-theme"
+      >
         <div className="codeatlas-shell min-h-screen">
-          {!hideGlobalHeader && <Header />}
-          <main className={hideGlobalHeader ? "min-h-screen overflow-auto" : "min-h-[calc(100vh-50px)] overflow-auto"}>
+          {!hideHeader && <Header />}
+          <main className={hideHeader ? "min-h-screen overflow-auto" : "min-h-[calc(100vh-64px)] overflow-auto"}>
             <Outlet />
           </main>
         </div>

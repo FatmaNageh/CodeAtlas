@@ -1,16 +1,18 @@
-import { findSimilarChunks, getFileChunks } from './vector';
-import { getRelatedSymbols, getFileImports } from './graph';
-import { generateEmbeddings, generateSingleEmbed } from '../ai/embeddings';
+import { findSimilarChunks, getFileChunks, type FileASTChunkRow, type SimilarASTNodeRow } from "./vector";
+import { getRelatedASTNodes, getFileReferences, type RelatedASTNodeRow } from "./graph";
+import { generateSingleEmbed } from "../ai/embeddings";
 
-// Pure function to assemble context for a file
-export async function assembleFileContext(filePath: string, repoId: string) {
-  // Get file chunks
-  const fileChunksResult = await getFileChunks(filePath, repoId);
-  const fileChunks = fileChunksResult.map((row: any) => row.c);
-  
-  // Get sample for vector search
-  const sampleText = fileChunks[0]?.text || '';
-  let similarChunks: any[] = [];
+export type FileContext = {
+  fileChunks: FileASTChunkRow[];
+  similarChunks: SimilarASTNodeRow[];
+  relatedASTNodes: RelatedASTNodeRow[];
+  references: string[];
+};
+
+export async function assembleFileContext(filePath: string, repoId: string): Promise<FileContext> {
+  const fileChunks = await getFileChunks(filePath, repoId);
+  const sampleText = fileChunks.map((chunk) => chunk.text ?? "").find(Boolean) ?? "";
+  let similarChunks: SimilarASTNodeRow[] = [];
   
   if (sampleText) {
     try {
@@ -21,26 +23,25 @@ export async function assembleFileContext(filePath: string, repoId: string) {
     }
   }
   
-  // Get graph context - use Promise.allSettled to handle failures gracefully
   const results = await Promise.allSettled([
-    getRelatedSymbols(filePath, repoId),
-    getFileImports(filePath, repoId),
+    getRelatedASTNodes(filePath, repoId),
+    getFileReferences(filePath, repoId),
   ]);
   
-  const relatedSymbolsResult = results[0].status === 'fulfilled' ? results[0].value : [];
-  const importsResult = results[1].status === 'fulfilled' ? results[1].value : [];
+  const relatedASTNodes = results[0].status === "fulfilled" ? results[0].value : [];
+  const references = results[1].status === "fulfilled" ? results[1].value : [];
   
-  if (results[0].status === 'rejected') {
-    console.error(`[CONTEXT] Failed to get related symbols for ${filePath}:`, results[0].reason);
+  if (results[0].status === "rejected") {
+    console.error(`[CONTEXT] Failed to get related AST nodes for ${filePath}:`, results[0].reason);
   }
-  if (results[1].status === 'rejected') {
-    console.error(`[CONTEXT] Failed to get file imports for ${filePath}:`, results[1].reason);
+  if (results[1].status === "rejected") {
+    console.error(`[CONTEXT] Failed to get file references for ${filePath}:`, results[1].reason);
   }
 
   return {
     fileChunks,
     similarChunks,
-    relatedSymbols: relatedSymbolsResult,
-    imports: importsResult.map((row: any) => row.import).filter(Boolean),
+    relatedASTNodes,
+    references: references.map((row) => row.reference).filter(Boolean),
   };
 }

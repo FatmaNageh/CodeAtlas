@@ -1,6 +1,6 @@
-import type { RawCallSite, RawImport, RawSymbol, SymbolKind } from "../../types/facts";
-import type { Range } from "../../types/ir";
-import type { Extracted, ExtractorContext } from "../types";
+import type { RawCallSite, RawImport, RawSymbol, SymbolKind } from "@/types/facts";
+import type { Range } from "@/types/facts";
+import type { Extracted, ExtractorContext } from "@/extractors/types";
 
 type Ts = any;
 type TSNode = any;
@@ -13,7 +13,7 @@ function scriptKindFor(ts: Ts, ext: string) {
   return ts.ScriptKind.TS;
 }
 
-function toRange(ts: Ts, sf: TSSourceFile, node: TSNode): Range {
+function toRange(sf: TSSourceFile, node: TSNode): Range {
   const start = sf.getLineAndCharacterOfPosition(node.getStart(sf, false));
   const end = sf.getLineAndCharacterOfPosition(node.getEnd());
   return {
@@ -55,7 +55,7 @@ export async function extractTsJsWithTsCompiler(ctx: ExtractorContext): Promise<
 
   const addImport = (raw: string, kind: RawImport["kind"], node?: TSNode) => {
     const r: RawImport = { raw, kind };
-    if (node) r.range = toRange(ts, sf, node);
+    if (node) r.range = toRange(sf, node);
     imports.push(r);
   };
 
@@ -64,7 +64,7 @@ export async function extractTsJsWithTsCompiler(ctx: ExtractorContext): Promise<
       kind,
       name,
       qname: qnameFor(name),
-      range: toRange(ts, sf, node),
+      range: toRange(sf, node),
       parentName,
       ...extra,
     });
@@ -111,7 +111,7 @@ export async function extractTsJsWithTsCompiler(ctx: ExtractorContext): Promise<
 
       callSites.push({
         calleeText: textOf(sf, node.expression),
-        range: toRange(ts, sf, node),
+        range: toRange(sf, node),
         enclosingSymbolQname: enclosing(),
       });
     }
@@ -146,7 +146,7 @@ export async function extractTsJsWithTsCompiler(ctx: ExtractorContext): Promise<
 
     if (ts.isMethodDeclaration(node)) {
       const parent = stack.length ? stack[stack.length - 1] : undefined;
-      let name = "";
+      let name: string;
       if (ts.isIdentifier(node.name)) name = node.name.text;
       else if (ts.isStringLiteral(node.name)) name = node.name.text;
       else name = textOf(sf, node.name);

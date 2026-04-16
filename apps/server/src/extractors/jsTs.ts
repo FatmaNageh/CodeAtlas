@@ -2,19 +2,29 @@ import type { SyntaxNode } from "tree-sitter";
 import type { ExtractorFn } from "./types";
 import { extractName, nodeRange } from "./common";
 
-export const extractJsTs: ExtractorFn = (root, ctx) => {
-  const imports = [];
-  const symbols = [];
-  const callSites = [];
+type JsTsScope = {
+  kind: "class" | "function";
+  name: string;
+  qname: string;
+};
 
-  const stack: string[] = [];
+export const extractJsTs: ExtractorFn = (root) => {
+  const imports: ReturnType<ExtractorFn>["imports"] = [];
+  const symbols: ReturnType<ExtractorFn>["symbols"] = [];
+  const callSites: ReturnType<ExtractorFn>["callSites"] = [];
+
+  const stack: JsTsScope[] = [];
 
   function currentQname(): string | undefined {
-    return stack.length ? stack[stack.length - 1] : undefined;
+    return stack.length ? stack[stack.length - 1]?.qname : undefined;
   }
 
-  function pushSymbol(qname: string) {
-    stack.push(qname);
+  function currentClassScope(): JsTsScope | undefined {
+    return [...stack].reverse().find((scope) => scope.kind === "class");
+  }
+
+  function pushSymbol(scope: JsTsScope) {
+    stack.push(scope);
   }
 
   function popSymbol() {
@@ -63,7 +73,7 @@ export const extractJsTs: ExtractorFn = (root, ctx) => {
       if (name) {
         const qname = name;
         symbols.push({ kind: "function", name, qname, range: nodeRange(node) });
-        pushSymbol(qname);
+        pushSymbol({ kind: "function", name, qname });
         // walk children under this function with updated stack
         for (let i = 0; i < node.childCount; i++) {
           const child = node.child(i);
@@ -88,7 +98,7 @@ export const extractJsTs: ExtractorFn = (root, ctx) => {
           extendsNames: superclass ? [superclass] : [],
           implementsNames,
         });
-        pushSymbol(qname);
+        pushSymbol({ kind: "class", name, qname });
         for (let i = 0; i < node.childCount; i++) {
           const child = node.child(i);
           if (child) walk(child);
@@ -100,11 +110,11 @@ export const extractJsTs: ExtractorFn = (root, ctx) => {
 
     if (node.type === "method_definition") {
       const name = extractName(node);
-      const parent = currentQname();
+      const parent = currentClassScope();
       if (name) {
-        const qname = parent ? `${parent}.${name}` : name;
-        symbols.push({ kind: "method", name, qname, range: nodeRange(node), parentName: parent });
-        pushSymbol(qname);
+        const qname = parent ? `${parent.qname}.${name}` : name;
+        symbols.push({ kind: "method", name, qname, range: nodeRange(node), parentName: parent?.name });
+        pushSymbol({ kind: "function", name, qname });
         for (let i = 0; i < node.childCount; i++) {
           const child = node.child(i);
           if (child) walk(child);
@@ -118,7 +128,7 @@ export const extractJsTs: ExtractorFn = (root, ctx) => {
       const name = extractName(node);
       if (name) {
         const qname = name;
-        symbols.push({ kind: "interface", name, qname, range: nodeRange(node) });
+        symbols.push({ kind: "interface", name, qname, range: nodeRange(node), implementsNames: extractImplements(node) });
       }
     }
 

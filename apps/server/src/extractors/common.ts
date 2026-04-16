@@ -1,5 +1,5 @@
 import type { SyntaxNode } from "tree-sitter";
-import type { Range } from "../types/ir";
+import type { Range } from "@/types";
 
 export function nodeRange(n: SyntaxNode): Range {
   return {
