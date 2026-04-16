@@ -1,5 +1,4 @@
 import crypto from "node:crypto";
-import os from "node:os";
 
 import type { CodeFileIndexEntry } from "../types/scan";
 import type { CodeFacts, FactsByFile, RawCallSite, RawImport, RawSymbol } from "../types/facts";
@@ -10,11 +9,124 @@ import { Extractors } from "../extractors";
 import { extractTsJsWithTsCompiler } from "../extractors/tsCompiler";
 import { uniq } from "../extractors/common";
 import { extractTextFallback } from "../extractors/textFallback";
-import { WorkerPool } from "./parallel/workerPool";
 import type { TreeSitterTree } from "./treeSitterTypes";
 
 function safePreview(text: string, max = 4000): string {
   return text.length <= max ? text : text.slice(0, max);
+}
+
+function comparePositions(
+  leftLine: number,
+  leftCol: number,
+  rightLine: number,
+  rightCol: number,
+): number {
+  if (leftLine !== rightLine) return leftLine - rightLine;
+  return leftCol - rightCol;
+}
+
+function rangesOverlap(left: NonNullable<RawSymbol["range"]>, right: NonNullable<RawSymbol["range"]>): boolean {
+  const leftEndsBeforeRightStarts =
+    comparePositions(left.endLine, left.endCol, right.startLine, right.startCol) < 0;
+  const rightEndsBeforeLeftStarts =
+    comparePositions(right.endLine, right.endCol, left.startLine, left.startCol) < 0;
+  return !(leftEndsBeforeRightStarts || rightEndsBeforeLeftStarts);
+}
+
+function rangeSpan(range: NonNullable<RawSymbol["range"]>): number {
+  return (range.endLine - range.startLine) * 10000 + (range.endCol - range.startCol);
+}
+
+function mergeSymbolMetadata(primary: RawSymbol, secondary: RawSymbol): RawSymbol {
+  const extendsNames = Array.from(
+    new Set([...(primary.extendsNames ?? []), ...(secondary.extendsNames ?? [])]),
+  );
+  const implementsNames = Array.from(
+    new Set([...(primary.implementsNames ?? []), ...(secondary.implementsNames ?? [])]),
+  );
+
+  return {
+    ...secondary,
+    ...primary,
+    qname: primary.qname ?? secondary.qname,
+    parentName: primary.parentName ?? secondary.parentName,
+    extendsNames: extendsNames.length > 0 ? extendsNames : undefined,
+    implementsNames: implementsNames.length > 0 ? implementsNames : undefined,
+    range: primary.range ?? secondary.range,
+  };
+}
+
+function dedupeSymbols(symbols: RawSymbol[]): RawSymbol[] {
+  const groups = new Map<string, RawSymbol[]>();
+
+  for (const symbol of symbols) {
+    const baseKey = `${symbol.kind}:${symbol.qname ?? symbol.name}`;
+    const existing = groups.get(baseKey) ?? [];
+    const range = symbol.range ?? null;
+
+    if (!range) {
+      const rangedIndex = existing.findIndex((candidate) => candidate.range);
+      if (rangedIndex >= 0) {
+        const ranged = existing[rangedIndex];
+        if (ranged) {
+          existing[rangedIndex] = mergeSymbolMetadata(ranged, symbol);
+        }
+      } else if (existing.length === 0) {
+        existing.push(symbol);
+      } else {
+        const first = existing[0];
+        if (first) {
+          existing[0] = mergeSymbolMetadata(first, symbol);
+        }
+      }
+      groups.set(baseKey, existing);
+      continue;
+    }
+
+    const overlappingIndex = existing.findIndex(
+      (candidate) => candidate.range && rangesOverlap(candidate.range, range),
+    );
+    if (overlappingIndex >= 0) {
+      const candidate = existing[overlappingIndex];
+      if (!candidate) continue;
+      const preferred =
+        candidate.range && rangeSpan(candidate.range) >= rangeSpan(range) ? candidate : symbol;
+      const secondary = preferred === candidate ? symbol : candidate;
+      existing[overlappingIndex] = mergeSymbolMetadata(preferred, secondary);
+    } else {
+      existing.push(symbol);
+    }
+
+    groups.set(baseKey, existing);
+  }
+
+  return Array.from(groups.values()).flat();
+}
+
+function dedupeCallSites(callSites: RawCallSite[]): RawCallSite[] {
+  const withRange = new Map<string, RawCallSite>();
+  const withoutRange = new Map<string, RawCallSite>();
+
+  for (const callSite of callSites) {
+    const baseKey = `${callSite.calleeText}:${callSite.enclosingSymbolQname ?? ""}`;
+    const range = callSite.range;
+    if (range) {
+      const key = `${baseKey}:${range.startLine}:${range.startCol}:${range.endLine}:${range.endCol}`;
+      if (!withRange.has(key)) {
+        withRange.set(key, callSite);
+      }
+      continue;
+    }
+
+    if (Array.from(withRange.keys()).some((key) => key.startsWith(`${baseKey}:`))) {
+      continue;
+    }
+    if (!withoutRange.has(baseKey)) {
+      withoutRange.set(baseKey, callSite);
+    }
+  }
+
+  return [...withRange.values(), ...withoutRange.values()];
 }
 
 async function parseAndExtractSequential(files: CodeFileIndexEntry[]): Promise<FactsByFile> {
@@ -59,8 +171,8 @@ async function parseAndExtractSequential(files: CodeFileIndexEntry[]): Promise<F
 
     // De-dupe (tree-sitter nodes can be reached multiple ways)
     imports = uniq(imports, (i) => `${i.kind || ""}:${i.raw}`);
-    symbols = uniq(symbols, (s) => `${s.kind}:${s.qname || s.name}:${s.range?.startLine || 0}:${s.range?.startCol || 0}`);
-    callSites = uniq(callSites, (c) => `${c.calleeText}:${c.range?.startLine || 0}:${c.range?.startCol || 0}:${c.enclosingSymbolQname || ""}`);
+    symbols = dedupeSymbols(symbols);
+    callSites = dedupeCallSites(callSites);
 
     out[f.relPath] = {
       kind: "code",
@@ -81,62 +193,16 @@ async function parseAndExtractSequential(files: CodeFileIndexEntry[]): Promise<F
   return out;
 }
 
-function getWorkerCount(): number {
-  // 0/undefined means "auto".
-  const raw = process.env.CODEATLAS_PARSE_WORKERS;
-  if (raw && raw.trim().length > 0) {
-    const n = Number(raw);
-    if (Number.isFinite(n)) return Math.max(0, Math.floor(n));
-  }
-
-  // Auto: leave 1 core for the server/event loop; cap to avoid thrashing.
-  const cpu = os.cpus()?.length ?? 1;
-  return Math.max(1, Math.min(cpu - 1, 8));
-}
-
-async function parseAndExtractParallel(files: CodeFileIndexEntry[], workers: number): Promise<FactsByFile> {
-  const out: FactsByFile = {};
-  if (files.length === 0) return out;
-
-  const workerUrl = new URL("./parallel/parseWorker.ts", import.meta.url);
-  const pool = new WorkerPool(workerUrl, { size: workers });
-
-  try {
-    // Sorting improves determinism and reduces tail-latency if you later switch to size-based scheduling.
-    const ordered = [...files].sort((a, b) => a.relPath.localeCompare(b.relPath));
-    const results = await Promise.all(ordered.map((f) => pool.run<{ file: CodeFileIndexEntry }, CodeFacts>({ file: f })));
-    for (const fact of results) {
-      out[fact.fileRelPath] = fact;
-    }
-    return out;
-  } finally {
-    await pool.close();
-  }
-}
+export type ParseAndExtractOptions = {
+  disableParallel?: boolean;
+};
 
 /**
  * Parse + extract code facts for a list of code files.
- *
- * Phase 2 enhancement:
- * - Uses a Worker Thread pool for parallel parsing/extraction when possible.
- * - Falls back to sequential extraction if workers can't start (e.g., loader issues).
  */
-export async function parseAndExtract(files: CodeFileIndexEntry[]): Promise<FactsByFile> {
-  // Allow disabling parallel parsing explicitly.
-  if (process.env.CODEATLAS_DISABLE_PARALLEL_PARSE === "1") {
-    return parseAndExtractSequential(files);
-  }
-
-  const workers = getWorkerCount();
-  if (workers <= 1 || files.length <= 1) {
-    return parseAndExtractSequential(files);
-  }
-
-  try {
-    return await parseAndExtractParallel(files, workers);
-  } catch (err) {
-    // Safe fallback: correctness over speed.
-    console.warn("[CodeAtlas] Parallel parsing failed; falling back to sequential.", err);
-    return parseAndExtractSequential(files);
-  }
+export async function parseAndExtract(
+  files: CodeFileIndexEntry[],
+  _options: ParseAndExtractOptions = {},
+): Promise<FactsByFile> {
+  return parseAndExtractSequential(files);
 }

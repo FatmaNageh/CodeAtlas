@@ -49,8 +49,7 @@ export async function deleteCodeFileDerived(repoId: string, relPath: string): Pr
     await session.run(
       `/*cypher*/
       MATCH (f:CodeFile {id: $fileId})
-      OPTIONAL MATCH (f)-[:DECLARES|HAS_AST_ROOT]->(root:ASTNode)
-      OPTIONAL MATCH (root)-[:AST_CHILD*0..]->(a:ASTNode)
+      OPTIONAL MATCH (f)-[:HAS_AST]->(a:AstNode)
       WITH collect(DISTINCT a) AS astNodes
       FOREACH (n IN astNodes | DETACH DELETE n)
       `,
