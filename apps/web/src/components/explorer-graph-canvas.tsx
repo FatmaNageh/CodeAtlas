@@ -64,6 +64,41 @@ export function isAstNode(node: Neo4jNode): boolean {
 	});
 }
 
+function propertyString(value: unknown): string | null {
+	return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function propertyStringArray(value: unknown): string[] {
+	return Array.isArray(value)
+		? value
+				.filter((item): item is string => typeof item === "string")
+				.map((item) => item.trim())
+				.filter(Boolean)
+		: [];
+}
+
+function astDisplayLabel(node: Neo4jNode): string {
+	const p = node.properties ?? {};
+	const primary =
+		propertyString(p.label) ??
+		propertyStringArray(p.topLevelSymbols)[0] ??
+		propertyStringArray(p.symbolNames)[0] ??
+		propertyString(p.summaryCandidate);
+	if (primary) return primary;
+
+	const unitKind = propertyString(p.unitKind) ?? "ast";
+	const startLine =
+		typeof p.startLine === "number" ? p.startLine : null;
+	const endLine = typeof p.endLine === "number" ? p.endLine : null;
+	if (startLine !== null && endLine !== null) {
+		return `${unitKind} ${startLine}-${endLine}`;
+	}
+	if (startLine !== null) {
+		return `${unitKind} line ${startLine}`;
+	}
+	return unitKind;
+}
+
 export function classifyNode(node: Neo4jNode): ExplorerNodeKind {
 	const L = node.labels ?? [];
 	if (
@@ -89,8 +124,12 @@ export function classifyNode(node: Neo4jNode): ExplorerNodeKind {
 }
 export function nodeDisplayLabel(node: Neo4jNode): string {
 	const p = node.properties ?? {};
+	if (isAstNode(node)) {
+		return astDisplayLabel(node);
+	}
 	return String(
 		p.name ??
+			p.label ??
 			p.displayName ??
 			p.path?.split(/[\\\/]/).pop() ??
 			p.filePath?.split(/[\\\/]/).pop() ??
@@ -414,6 +453,8 @@ function hierarchicalLayout(nodes: SimNode[], links: SimLink[], W: number, H: nu
 		const t = type.toUpperCase();
 		return (
 			t.includes("CONTAIN") ||
+			t.includes("HAS_AST") ||
+			t.includes("NEXT_AST") ||
 			t.includes("DECLARE") ||
 			t.includes("HAS_AST_ROOT") ||
 			t.includes("AST_CHILD")

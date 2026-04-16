@@ -19,6 +19,7 @@ import {
 	fetchNeo4jSubgraph,
 	fetchTour,
 	indexRepo,
+	type IndexRepoResponse,
 	type TourResponse,
 } from "@/lib/api";
 import { loadSession, saveSession } from "@/lib/session";
@@ -42,7 +43,7 @@ export const Route = createFileRoute("/graph")({
 
 type EdgeCategory = "CONTAINS" | "IMPORTS" | "CALLS";
 type Mode = "select" | "neighbour" | "path" | "insight";
-type RightTab = "detail" | "insights" | "ai";
+type RightTab = "detail" | "parsing" | "insights" | "ai";
 type TopView = "explorer" | "tour";
 type ChatMessageBase = {
 	id: string;
@@ -78,6 +79,31 @@ type AskErrorResponse = {
 	error?: string;
 };
 
+type SyncStats = {
+	added: number;
+	changed: number;
+	removed: number;
+	impactedDependents: number;
+	processedFiles: number;
+};
+
+type SyncDetails = SyncStats & {
+	addedFiles: string[];
+	changedFiles: string[];
+	removedFiles: string[];
+	dependentFiles: string[];
+	syncedAt: string;
+};
+
+type ParseStatus = "parsed" | "partial" | "failed";
+
+type StatusTone = {
+	background: string;
+	border: string;
+	color: string;
+	label: string;
+};
+
 function isAskSuccessResponse(
 	value: object | null,
 ): value is AskSuccessResponse {
@@ -111,6 +137,88 @@ function extractContextFiles(sources: AskSource[] | undefined): string[] {
 		if (file) files.add(file);
 	});
 	return Array.from(files);
+}
+
+function getStringProperty(value: unknown): string | null {
+	return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function getNumberProperty(value: unknown): number | null {
+	return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function getStringArrayProperty(value: unknown): string[] {
+	return Array.isArray(value)
+		? value
+				.filter((item): item is string => typeof item === "string")
+				.map((item) => item.trim())
+				.filter(Boolean)
+		: [];
+}
+
+function getParseStatus(node: Neo4jNode): ParseStatus | null {
+	const status = node.properties?.parseStatus;
+	return status === "parsed" || status === "partial" || status === "failed"
+		? status
+		: null;
+}
+
+function parseStatusTone(status: ParseStatus | null): StatusTone | null {
+	if (status === "parsed") {
+		return {
+			label: "Parsed",
+			background: "rgba(16, 185, 129, 0.12)",
+			border: "rgba(16, 185, 129, 0.28)",
+			color: "#047857",
+		};
+	}
+	if (status === "partial") {
+		return {
+			label: "Partial",
+			background: "rgba(245, 158, 11, 0.14)",
+			border: "rgba(245, 158, 11, 0.32)",
+			color: "#b45309",
+		};
+	}
+	if (status === "failed") {
+		return {
+			label: "Failed",
+			background: "rgba(239, 68, 68, 0.12)",
+			border: "rgba(239, 68, 68, 0.28)",
+			color: "#b91c1c",
+		};
+	}
+	return null;
+}
+
+function astNodeDisplayName(node: Neo4jNode): string {
+	const props = node.properties ?? {};
+	const unitKind = getStringProperty(props.unitKind) ?? "ast";
+	const topLevelSymbols = getStringArrayProperty(props.topLevelSymbols);
+	const symbolNames = getStringArrayProperty(props.symbolNames);
+	const label = getStringProperty(props.label);
+	const summaryCandidate = getStringProperty(props.summaryCandidate);
+	const joinedSymbols = [...topLevelSymbols, ...symbolNames]
+		.filter((value, index, array) => array.indexOf(value) === index)
+		.slice(0, 2)
+		.join(", ");
+
+	if (label && joinedSymbols) {
+		return `${label} · ${joinedSymbols}`;
+	}
+	if (label) return label;
+	if (joinedSymbols) return `${unitKind} · ${joinedSymbols}`;
+	if (summaryCandidate) return `${unitKind} · ${summaryCandidate}`;
+
+	const startLine = getNumberProperty(props.startLine);
+	const endLine = getNumberProperty(props.endLine);
+	if (startLine !== null && endLine !== null) {
+		return `${unitKind} ${startLine}-${endLine}`;
+	}
+	if (startLine !== null) {
+		return `${unitKind} line ${startLine}`;
+	}
+	return unitKind;
 }
 
 type TreeItem = {
@@ -380,7 +488,35 @@ function GraphExplorerPage() {
 	const [tourLoading, setTourLoading] = useState(false);
 	const [tourError, setTourError] = useState<string>("");
 	const [topFilesCount, setTopFilesCount] = useState(12);
+	const [lastSyncStats, setLastSyncStats] = useState<SyncStats | null>(null);
+	const [lastSyncDetails, setLastSyncDetails] = useState<SyncDetails | null>(null);
 	const pendingContextFilesRef = useRef<string[]>([]);
+
+	const loadGraph = async (limit: number) => {
+		if (!repoId.trim()) return;
+		setLoading(true);
+		setTruncated(false);
+		try {
+			const res = await fetchNeo4jSubgraph(repoId.trim(), baseUrl, limit);
+			const nodes: Neo4jNode[] = res.nodes ?? [];
+			const edges: Neo4jEdge[] = res.edges ?? [];
+			setGraph({ nodes, edges });
+			setExpandedAstFileId(null);
+			if (nodes.length > 0 && nodes.length >= limit) {
+				setTruncated(true);
+				toast.warning(
+					`Graph capped at ${limit} nodes â€” increase the limit to see more.`,
+				);
+			}
+			saveSession({ baseUrl, lastRepoId: repoId.trim() });
+		} catch (error: unknown) {
+			const message =
+				error instanceof Error ? error.message : "Failed to load graph";
+			toast.error(message);
+		} finally {
+			setLoading(false);
+		}
+	};
 
 	const loadTour = async () => {
 		if (!repoId.trim()) {
@@ -593,14 +729,16 @@ function GraphExplorerPage() {
 			const toId = String(edge.to);
 			const edgeType = String(edge.type).toUpperCase();
 			const isFileAstBridge =
-				edgeType.includes("HAS_AST_ROOT") || edgeType.includes("DECLARE");
+				edgeType.includes("HAS_AST") ||
+				edgeType.includes("HAS_AST_ROOT") ||
+				edgeType.includes("DECLARE");
 			if (isFileAstBridge && fromId === expandedAstFileId) {
 				queueAstNode(toId);
 			}
 			if (isFileAstBridge && toId === expandedAstFileId) {
 				queueAstNode(fromId);
 			}
-			if (edgeType.includes("AST_CHILD")) {
+			if (edgeType.includes("NEXT_AST") || edgeType.includes("AST_CHILD")) {
 				linkAstNodes(fromId, toId);
 			}
 		});
@@ -662,11 +800,122 @@ function GraphExplorerPage() {
 	}, [filteredNodes, selectedNodeId]);
 
 	const selectedNodeTypeLabel = selectedNode ? nodeTypeLabel(selectedNode) : "";
+	const aiEnabledForSelection = selectedNode?.kind !== "ast";
+
+	const selectedFileNode = useMemo(() => {
+		if (!selectedNode) return null;
+		if (selectedNode.kind === "file") return selectedNode;
+		return findParentFile(selectedNode, graph.edges, graph.nodes);
+	}, [selectedNode, graph.edges, graph.nodes]);
+
+	const selectedParseStatus = useMemo(
+		() => (selectedFileNode ? getParseStatus(selectedFileNode) : null),
+		[selectedFileNode],
+	);
+
+	const selectedAstNodes = useMemo(() => {
+		if (!selectedFileNode) return [] as ExplorerNode[];
+		const fileId = String(selectedFileNode.id);
+		const astNodeIds = new Set<string>();
+		graph.edges.forEach((edge) => {
+			const edgeType = String(edge.type).toUpperCase();
+			if (
+				String(edge.from) === fileId &&
+				(edgeType.includes("HAS_AST") || edgeType.includes("HAS_AST_ROOT"))
+			) {
+				astNodeIds.add(String(edge.to));
+			}
+		});
+		return explorerNodes
+			.filter(
+				(node) =>
+					node.kind === "ast" && astNodeIds.has(String(node.id)),
+			)
+			.sort((left, right) => {
+				const leftIndex = getNumberProperty(left.properties?.segmentIndex) ?? Number.MAX_SAFE_INTEGER;
+				const rightIndex = getNumberProperty(right.properties?.segmentIndex) ?? Number.MAX_SAFE_INTEGER;
+				if (leftIndex !== rightIndex) return leftIndex - rightIndex;
+				const leftLine = getNumberProperty(left.properties?.startLine) ?? Number.MAX_SAFE_INTEGER;
+				const rightLine = getNumberProperty(right.properties?.startLine) ?? Number.MAX_SAFE_INTEGER;
+				return leftLine - rightLine;
+			});
+	}, [selectedFileNode, graph.edges, explorerNodes]);
+
+	const selectedAstSummary = useMemo(() => {
+		const summary = {
+			classes: [] as string[],
+			functions: [] as string[],
+			modules: [] as string[],
+			members: [] as string[],
+			imports: [] as string[],
+			calls: [] as string[],
+			unitKinds: new Map<string, number>(),
+		};
+
+		for (const astNode of selectedAstNodes) {
+			const props = astNode.properties ?? {};
+			const unitKind = getStringProperty(props.unitKind) ?? "ast";
+			summary.unitKinds.set(unitKind, (summary.unitKinds.get(unitKind) ?? 0) + 1);
+
+			const topLevelSymbols = getStringArrayProperty(props.topLevelSymbols);
+			const symbolNames = getStringArrayProperty(props.symbolNames);
+			const imports = getStringArrayProperty(props.imports);
+			const calls = getStringArrayProperty(props.calls);
+			const candidates = [...topLevelSymbols, ...symbolNames].filter(
+				(value, index, array) => array.indexOf(value) === index,
+			);
+
+			if (unitKind.includes("class")) {
+				summary.classes.push(...candidates);
+			} else if (
+				unitKind.includes("function") ||
+				unitKind.includes("method") ||
+				unitKind.includes("constructor")
+			) {
+				summary.functions.push(...candidates);
+			} else if (
+				unitKind.includes("module") ||
+				unitKind.includes("namespace") ||
+				unitKind.includes("package")
+			) {
+				summary.modules.push(...candidates);
+			} else if (
+				unitKind.includes("field") ||
+				unitKind.includes("property") ||
+				unitKind.includes("member") ||
+				unitKind.includes("variable")
+			) {
+				summary.members.push(...candidates);
+			}
+
+			summary.imports.push(...imports);
+			summary.calls.push(...calls);
+		}
+
+		const dedupe = (values: string[]) =>
+			values.filter((value, index, array) => array.indexOf(value) === index).slice(0, 12);
+
+		return {
+			classes: dedupe(summary.classes),
+			functions: dedupe(summary.functions),
+			modules: dedupe(summary.modules),
+			members: dedupe(summary.members),
+			imports: dedupe(summary.imports),
+			calls: dedupe(summary.calls),
+			unitKinds: Array.from(summary.unitKinds.entries()).sort((left, right) => right[1] - left[1]),
+		};
+	}, [selectedAstNodes]);
 
 	useEffect(() => {
 		if (!selectedNode && filteredNodes[0])
 			setSelectedNodeId(String(filteredNodes[0].id));
 	}, [selectedNode, filteredNodes]);
+
+	useEffect(() => {
+		if (tab === "ai" && !aiEnabledForSelection) {
+			setTab("detail");
+		}
+	}, [tab, aiEnabledForSelection]);
 
 	const degreeMap = useMemo(
 		() => computeDegrees(filteredNodes, filteredEdges),
@@ -813,7 +1062,6 @@ function GraphExplorerPage() {
 		return "No repository loaded";
 	}, [repoRoot, repoId]);
 
-	// ── Re-index shortcut ────────────────────────────────────────────────────
 	const handleReIndex = async () => {
 		if (!repoRoot.trim()) {
 			toast.error(
@@ -823,33 +1071,60 @@ function GraphExplorerPage() {
 		}
 		setReIndexing(true);
 		try {
-			toast.info("Re-indexing repository… this may take a moment please wait.");
-			const data = await indexRepo(
+			toast.info("Syncing repository incrementally... this may take a moment.");
+			const data: IndexRepoResponse = await indexRepo(
 				{
 					projectPath: repoRoot,
-					mode: "full",
+					mode: "incremental",
 					saveDebugJson: true,
 					computeHash: true,
 					dryRun: false,
 				},
 				baseUrl,
 			);
-			if (data?.repoId) {
+			const syncStats: SyncStats = {
+				added: data.scanned.diff.added.length,
+				changed: data.scanned.diff.changed.length,
+				removed: data.scanned.diff.removed.length,
+				impactedDependents: data.scanned.impactedDependents.length,
+				processedFiles: data.scanned.processedFiles,
+			};
+			const syncDetails: SyncDetails = {
+				...syncStats,
+				addedFiles: data.scanned.diff.added.map((entry) => entry.relPath),
+				changedFiles: data.scanned.diff.changed.map((entry) => entry.relPath),
+				removedFiles: data.scanned.diff.removed.map((entry) => entry.relPath),
+				dependentFiles: data.scanned.impactedDependents,
+				syncedAt: new Date().toISOString(),
+			};
+			setLastSyncStats(syncStats);
+			setLastSyncDetails(syncDetails);
+			const summaryParts = [
+				`${syncStats.added} added`,
+				`${syncStats.changed} changed`,
+				`${syncStats.removed} removed`,
+				`${syncStats.impactedDependents} dependents`,
+			];
+			const hadAnyChanges =
+				syncStats.added > 0 ||
+				syncStats.changed > 0 ||
+				syncStats.removed > 0 ||
+				syncStats.impactedDependents > 0;
+			const syncSummary = hadAnyChanges
+				? `${summaryParts.join(", ")}. Processed ${syncStats.processedFiles} file${syncStats.processedFiles === 1 ? "" : "s"}.`
+				: "No incremental changes detected.";
+			if (data.repoId) {
 				saveSession({
 					baseUrl,
 					lastRepoId: data.repoId,
 					lastProjectPath: repoRoot,
 				});
-				toast.success(
-					`Indexing complete — repoId: ${data.repoId}. Reloading graph…`,
-				);
-				setTimeout(() => window.location.reload(), 1200);
-			} else {
-				toast.success("Indexing complete. Reloading graph…");
-				setTimeout(() => window.location.reload(), 1200);
 			}
-		} catch (err: any) {
-			toast.error(err?.message ?? "Re-indexing failed");
+			await loadGraph(nodeLimit);
+			toast.success(`${syncSummary} Graph refreshed.`);
+		} catch (err: unknown) {
+			const message = err instanceof Error ? err.message : "Incremental sync failed";
+			toast.error(message);
 		} finally {
 			setReIndexing(false);
 		}
@@ -1211,17 +1486,20 @@ function GraphExplorerPage() {
 							{embedLoading ? "Embedding..." : "Embed Nodes"}
 						</button>
 						<button
-							className="inline-flex h-8 items-center gap-2 rounded-[6px] border border-[var(--b2)] px-3 text-[12px] text-[var(--t1)] hover:bg-[var(--s1)]"
-							onClick={() => window.location.reload()}
+							className="inline-flex h-8 items-center gap-2 rounded-[6px] border border-[var(--b2)] px-3 text-[12px] text-[var(--t1)] hover:bg-[var(--s1)] disabled:cursor-not-allowed disabled:opacity-60"
+							onClick={() => void handleReIndex()}
+							disabled={reIndexing}
 						>
-							<RefreshCw className="h-3.5 w-3.5" /> Sync
+							<RefreshCw className={`h-3.5 w-3.5 ${reIndexing ? "animate-spin" : ""}`} /> Sync
 						</button>
-						<button
-							className="inline-flex h-8 items-center rounded-[6px] bg-[var(--t0)] px-3 text-[12px] text-[var(--s0)]"
-							onClick={() => setTab("ai")}
-						>
-							Ask AI
-						</button>
+						{aiEnabledForSelection && (
+							<button
+								className="inline-flex h-8 items-center rounded-[6px] bg-[var(--t0)] px-3 text-[12px] text-[var(--s0)]"
+								onClick={() => setTab("ai")}
+							>
+								Ask AI
+							</button>
+						)}
 					</div>
 				</div>
 
@@ -1470,15 +1748,37 @@ function GraphExplorerPage() {
 											{repoRoot || "not set"}
 										</span>
 									</div>
-									<div className="flex justify-between py-0.5">
-										<span style={{ color: "var(--t2)" }}>nodes in Neo4j</span>
-										<span
-											className="font-mono"
-											style={{ color: "var(--amber)" }}
+								<div className="flex justify-between py-0.5">
+									<span style={{ color: "var(--t2)" }}>nodes in Neo4j</span>
+									<span
+										className="font-mono"
+										style={{ color: "var(--amber)" }}
 										>
-											{graph.nodes.length} (expected hundreds+)
-										</span>
-									</div>
+										{graph.nodes.length} (expected hundreds+)
+									</span>
+								</div>
+								{lastSyncStats && (
+									<>
+										<div className="flex justify-between py-0.5">
+											<span style={{ color: "var(--t2)" }}>last sync diff</span>
+											<span
+												className="font-mono"
+												style={{ color: "var(--t0)" }}
+											>
+												+{lastSyncStats.added} ~{lastSyncStats.changed} -{lastSyncStats.removed}
+											</span>
+										</div>
+										<div className="flex justify-between py-0.5">
+											<span style={{ color: "var(--t2)" }}>dependent impact</span>
+											<span
+												className="font-mono"
+												style={{ color: "var(--t0)" }}
+											>
+												{lastSyncStats.impactedDependents} dependents, {lastSyncStats.processedFiles} processed
+											</span>
+										</div>
+									</>
+								)}
 								</div>
 
 								<div className="flex gap-2">
@@ -1942,7 +2242,11 @@ function GraphExplorerPage() {
 						) : (
 							<>
 								<div className="flex border-b border-[var(--b1)] text-[12px]">
-									{(["detail", "insights", "ai"] as RightTab[]).map((item) => (
+									{(
+										aiEnabledForSelection
+											? (["detail", "parsing", "insights", "ai"] as RightTab[])
+											: (["detail", "parsing", "insights"] as RightTab[])
+									).map((item) => (
 										<button
 											key={item}
 											className={`flex-1 px-4 py-3 capitalize ${tab === item ? "border-b-2 border-[var(--t0)] text-[var(--t0)]" : "text-[var(--t2)] hover:text-[var(--t0)]"}`}
@@ -1958,49 +2262,383 @@ function GraphExplorerPage() {
 										{selectedNode ? (
 											<>
 												<div className="rounded-[10px] bg-[var(--s1)] p-3">
-													<div
-														className="mb-2 inline-flex rounded-[4px] px-2 py-0.5 font-mono text-[10px]"
-														style={{
-															background:
-																selectedNode.kind === "folder"
-																	? "var(--purple-l)"
-																	: selectedNode.kind === "file"
-																		? "var(--blue-l)"
-																		: selectedNode.kind === "class"
-																			? "var(--amber-l)"
+													<div className="mb-2 flex flex-wrap items-center gap-2">
+														<div
+															className="inline-flex rounded-[4px] px-2 py-0.5 font-mono text-[10px]"
+															style={{
+																background:
+																	selectedNode.kind === "folder"
+																		? "var(--purple-l)"
+																		: selectedNode.kind === "file"
+																			? "var(--blue-l)"
+																			: selectedNode.kind === "class"
+																				? "var(--amber-l)"
+																				: selectedNode.kind === "fn"
+																					? "var(--green-l)"
+																					: "#ccfbf1",
+																color:
+																	selectedNode.kind === "folder"
+																		? "var(--purple)"
+																		: selectedNode.kind === "file"
+																			? "var(--blue)"
+																			: selectedNode.kind === "class"
+																				? "var(--amber)"
 																			: selectedNode.kind === "fn"
-																				? "var(--green-l)"
-																				: "#ccfbf1",
-															color:
-																selectedNode.kind === "folder"
-																	? "var(--purple)"
-																	: selectedNode.kind === "file"
-																		? "var(--blue)"
-																		: selectedNode.kind === "class"
-																			? "var(--amber)"
-																		: selectedNode.kind === "fn"
-																			? "var(--green)"
-																			: "#0f766e",
-														}}
-													>
-									{selectedNodeTypeLabel}
-								</div>
+																				? "var(--green)"
+																				: "#0f766e",
+															}}
+														>
+															{selectedNodeTypeLabel}
+														</div>
+													</div>
 													<div className="text-[14px] font-medium font-mono">
-														{selectedNode.displayLabel}
+														{selectedNode.kind === "ast"
+															? astNodeDisplayName(selectedNode)
+															: selectedNode.displayLabel}
 													</div>
 													<div className="mt-1 text-[10px] font-mono text-[var(--t2)]">
 														{getNodePath(selectedNode)}
 													</div>
 												</div>
 
+												{false && selectedFileNode && (
+													<div className="mt-5">
+														<div className="mb-2 text-[10px] font-medium uppercase tracking-[0.07em] text-[var(--t3)]">
+															Parse Report
+														</div>
+														<div
+															className="rounded-[10px] border p-3"
+															style={{
+																background:
+																	parseStatusTone(selectedParseStatus)?.background ?? "var(--s1)",
+																borderColor:
+																	parseStatusTone(selectedParseStatus)?.border ?? "var(--b1)",
+															}}
+														>
+															<div className="flex items-start justify-between gap-3">
+																<div>
+																	<div
+																		className="text-[12px] font-semibold"
+																		style={{ color: "var(--t0)" }}
+																	>
+																		{nodeDisplayLabel(selectedFileNode!)}
+																	</div>
+																	<div
+																		className="mt-1 text-[11px] leading-5"
+																		style={{ color: "var(--t2)" }}
+																	>
+																		{selectedParseStatus === "parsed"
+																			? "Tree-sitter and segment extraction completed cleanly for this file."
+																			: selectedParseStatus === "partial"
+																				? "This file parsed with recoverable syntax issues. AST segments are available but may be incomplete."
+																				: selectedParseStatus === "failed"
+																					? "This file failed structural parsing. Any extracted facts are fallback-driven only."
+																					: "No parse result was recorded for this file."}
+																	</div>
+																</div>
+																{parseStatusTone(selectedParseStatus) && (
+																	<div
+																		className="rounded-full border px-2 py-1 font-mono text-[10px]"
+																		style={{
+																			background:
+																				parseStatusTone(selectedParseStatus)?.background,
+																			borderColor:
+																				parseStatusTone(selectedParseStatus)?.border,
+																			color: parseStatusTone(selectedParseStatus)?.color,
+																		}}
+																	>
+																		{
+																			parseStatusTone(selectedParseStatus)?.label
+																		}
+																	</div>
+																)}
+															</div>
+															<div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
+																{[
+																	["Parser", getStringProperty(selectedFileNode!.properties?.parser) ?? "—"],
+																	["Parse errors", String(getNumberProperty(selectedFileNode!.properties?.parseErrors) ?? 0)],
+																	["Imports", String(getNumberProperty(selectedFileNode!.properties?.importCount) ?? 0)],
+																	["Call sites", String(getNumberProperty(selectedFileNode!.properties?.callSiteCount) ?? 0)],
+																].map(([label, value]) => (
+																	<div
+																		key={label}
+																		className="rounded-[8px] px-3 py-2"
+																		style={{ background: "rgba(255,255,255,0.45)" }}
+																	>
+																		<div className="text-[10px] uppercase tracking-[0.06em] text-[var(--t3)]">
+																			{label}
+																		</div>
+																		<div className="mt-1 font-mono text-[var(--t0)]">{value}</div>
+																	</div>
+																))}
+															</div>
+														</div>
+													</div>
+												)}
+
+												{false && selectedFileNode && (
+													<div className="mt-5">
+														<div className="mb-2 flex items-center justify-between">
+															<div className="text-[10px] font-medium uppercase tracking-[0.07em] text-[var(--t3)]">
+																AST Inventory
+															</div>
+															{selectedNode.kind === "file" && (
+																<button
+																	className="rounded-[4px] border border-[var(--b1)] px-2 py-0.5 text-[10px] text-[var(--t2)] hover:bg-[var(--s1)]"
+																	onClick={() =>
+																		setExpandedAstFileId((current) =>
+																			current === String(selectedFileNode!.id)
+																				? null
+																				: String(selectedFileNode!.id),
+																		)
+																	}
+																>
+																	{expandedAstFileId === String(selectedFileNode!.id)
+																		? "Collapse graph AST"
+																		: "Expand graph AST"}
+																</button>
+															)}
+														</div>
+														<div className="space-y-2">
+															<div className="grid grid-cols-2 gap-2">
+																{[
+																	["Classes", selectedAstSummary.classes],
+																	["Functions", selectedAstSummary.functions],
+																	["Modules", selectedAstSummary.modules],
+																	["Members", selectedAstSummary.members],
+																	["Imports", selectedAstSummary.imports],
+																	["Calls", selectedAstSummary.calls],
+																].map(([label, values]) => (
+																	<div
+																		key={String(label)}
+																		className="rounded-[10px] border px-3 py-3"
+																		style={{ borderColor: "var(--b1)", background: "var(--s1)" }}
+																	>
+																		<div className="mb-2 text-[10px] uppercase tracking-[0.06em] text-[var(--t3)]">
+																			{label}
+																		</div>
+																		{Array.isArray(values) && values.length > 0 ? (
+																			<div className="flex flex-wrap gap-1.5">
+																				{values.map((value) => (
+																					<span
+																						key={value}
+																						className="rounded-full bg-[var(--s0)] px-2 py-1 font-mono text-[10px] text-[var(--t1)]"
+																					>
+																						{value}
+																					</span>
+																				))}
+																			</div>
+																		) : (
+																			<div className="text-[11px] text-[var(--t2)]">None</div>
+																		)}
+																	</div>
+																))}
+															</div>
+															<div className="rounded-[10px] border px-3 py-3" style={{ borderColor: "var(--b1)", background: "var(--s1)" }}>
+																<div className="mb-2 text-[10px] uppercase tracking-[0.06em] text-[var(--t3)]">
+																	Segment kinds
+																</div>
+																{selectedAstSummary.unitKinds.length > 0 ? (
+																	<div className="flex flex-wrap gap-1.5">
+																		{selectedAstSummary.unitKinds.map(([unitKind, count]) => (
+																			<span
+																				key={unitKind}
+																				className="rounded-full bg-[var(--s0)] px-2 py-1 font-mono text-[10px] text-[var(--t1)]"
+																			>
+																				{unitKind} × {count}
+																			</span>
+																		))}
+																	</div>
+																) : (
+																	<div className="text-[11px] text-[var(--t2)]">No segment kinds recorded.</div>
+																)}
+															</div>
+															{selectedAstNodes.length > 0 ? (
+																selectedAstNodes.slice(0, 18).map((astNode) => {
+																	const unitKind =
+																		getStringProperty(astNode.properties?.unitKind) ?? "ast";
+																	const startLine =
+																		getNumberProperty(astNode.properties?.startLine);
+																	const endLine =
+																		getNumberProperty(astNode.properties?.endLine);
+																	const extractorMethod =
+																		getStringProperty(astNode.properties?.extractionMethod);
+																	const topLevelSymbols =
+																		getStringArrayProperty(astNode.properties?.topLevelSymbols);
+																	return (
+																		<button
+																			key={String(astNode.id)}
+																			className="w-full rounded-[10px] border px-3 py-2 text-left hover:bg-[var(--s1)]"
+																			style={{ borderColor: "var(--b1)", background: "var(--s0)" }}
+																			onClick={() => setSelectedNodeId(String(astNode.id))}
+																		>
+																			<div className="flex items-start justify-between gap-3">
+																				<div>
+																					<div className="font-mono text-[11px] text-[var(--t0)]">
+																						{astNodeDisplayName(astNode)}
+																					</div>
+																					<div className="mt-1 text-[10px] text-[var(--t2)]">
+																						{unitKind}
+																						{startLine !== null
+																							? ` · lines ${startLine}${endLine !== null ? `-${endLine}` : ""}`
+																							: ""}
+																						{extractorMethod ? ` · ${extractorMethod}` : ""}
+																					</div>
+																					{topLevelSymbols.length > 0 && (
+																						<div className="mt-1 text-[10px] text-[var(--t3)]">
+																							Symbols: {topLevelSymbols.join(", ")}
+																						</div>
+																					)}
+																				</div>
+																				<div className="rounded-full bg-[#ccfbf1] px-2 py-0.5 font-mono text-[10px] text-[#115e59]">
+																					AST
+																				</div>
+																			</div>
+																		</button>
+																	);
+																})
+															) : (
+																<div className="rounded-[8px] bg-[var(--s1)] px-3 py-3 text-[11px] text-[var(--t2)]">
+																	No AST segments are attached to this file.
+																</div>
+															)}
+															{selectedAstNodes.length > 18 && (
+																<div className="text-[10px] text-[var(--t3)]">
+																	Showing 18 of {selectedAstNodes.length} AST nodes.
+																</div>
+															)}
+														</div>
+													</div>
+												)}
+
+												{false && lastSyncDetails && (
+													<div className="mt-5">
+														<div className="mb-2 text-[10px] font-medium uppercase tracking-[0.07em] text-[var(--t3)]">
+															Last Sync
+														</div>
+														<div className="rounded-[10px] bg-[var(--s1)] p-3">
+															<div className="mb-3 flex flex-wrap items-center gap-2">
+																{[
+																	[`+${lastSyncDetails!.added}`, "Added", "var(--blue-l)", "var(--blue)"],
+																	[`~${lastSyncDetails!.changed}`, "Changed", "var(--amber-l)", "var(--amber)"],
+																	[`-${lastSyncDetails!.removed}`, "Removed", "rgba(239,68,68,0.12)", "#b91c1c"],
+																	[`${lastSyncDetails!.impactedDependents}`, "Dependents", "rgba(16,185,129,0.12)", "#047857"],
+																].map(([count, label, background, color]) => (
+																	<div
+																		key={String(label)}
+																		className="rounded-full px-2 py-1 text-[10px] font-mono"
+																		style={{ background: String(background), color: String(color) }}
+																	>
+																		{count} {label}
+																	</div>
+																))}
+															</div>
+															{[
+																["Added files", lastSyncDetails!.addedFiles],
+																["Changed files", lastSyncDetails!.changedFiles],
+																["Removed files", lastSyncDetails!.removedFiles],
+																["Dependent files", lastSyncDetails!.dependentFiles],
+															].map(([label, files]) => (
+																<div key={String(label)} className="mb-3 last:mb-0">
+																	<div className="mb-1 text-[10px] uppercase tracking-[0.06em] text-[var(--t3)]">
+																		{label}
+																	</div>
+																	{Array.isArray(files) && files.length > 0 ? (
+																		<div className="space-y-1">
+																			{files.slice(0, 8).map((filePath) => (
+																				<div
+																					key={filePath}
+																					className="rounded-[6px] bg-[var(--s0)] px-2 py-1 font-mono text-[10px] text-[var(--t1)]"
+																				>
+																					{filePath}
+																				</div>
+																			))}
+																			{files.length > 8 && (
+																				<div className="text-[10px] text-[var(--t3)]">
+																					+{files.length - 8} more
+																				</div>
+																			)}
+																		</div>
+																	) : (
+																		<div className="text-[11px] text-[var(--t2)]">None</div>
+																	)}
+																</div>
+															))}
+														</div>
+													</div>
+												)}
+
+												{false && selectedNode.kind === "ast" && (
+													<div className="mt-5">
+														<div className="mb-2 text-[10px] font-medium uppercase tracking-[0.07em] text-[var(--t3)]">
+															AST Segment
+														</div>
+														<div className="rounded-[10px] bg-[var(--s1)] p-3">
+															<div className="grid grid-cols-2 gap-2 text-[11px]">
+																{[
+																	["Display name", astNodeDisplayName(selectedNode)],
+																	["Unit kind", getStringProperty(selectedNode.properties?.unitKind) ?? "—"],
+																	["Segment index", String(getNumberProperty(selectedNode.properties?.segmentIndex) ?? "—")],
+																	["Extraction", getStringProperty(selectedNode.properties?.extractionMethod) ?? "—"],
+																	["Top-level symbols", getStringArrayProperty(selectedNode.properties?.topLevelSymbols).join(", ") || "—"],
+																	["Line range", (() => {
+																		const startLine = getNumberProperty(selectedNode.properties?.startLine);
+																		const endLine = getNumberProperty(selectedNode.properties?.endLine);
+																		return startLine !== null
+																			? `${startLine}${endLine !== null ? `-${endLine}` : ""}`
+																			: "—";
+																	})()],
+																].map(([label, value]) => (
+																	<div key={String(label)} className="rounded-[8px] bg-[var(--s0)] px-3 py-2">
+																		<div className="text-[10px] uppercase tracking-[0.06em] text-[var(--t3)]">
+																			{label}
+																		</div>
+																		<div className="mt-1 font-mono text-[var(--t0)]">{value}</div>
+																	</div>
+																))}
+															</div>
+														</div>
+													</div>
+												)}
+
 												<div className="mt-5">
 													<div className="mb-2 text-[10px] font-medium uppercase tracking-[0.07em] text-[var(--t3)]">
 														Metadata
 													</div>
 													{[
-									["Type", selectedNodeTypeLabel],
+														["Type", selectedNodeTypeLabel],
 														["Language", getNodeLanguage(selectedNode)],
 														["Lines of code", String(getNodeLoc(selectedNode))],
+														[
+															"Parse status",
+															selectedNode.kind === "file"
+																? selectedParseStatus ?? "—"
+																: "—",
+														],
+														[
+															"Parser",
+															getStringProperty(selectedFileNode?.properties?.parser) ?? "—",
+														],
+														[
+															"Parse errors",
+															String(getNumberProperty(selectedFileNode?.properties?.parseErrors) ?? 0),
+														],
+														[
+															"AST nodes",
+															String(
+																selectedNode.kind === "file"
+																	? selectedAstNodes.length
+																	: getNumberProperty(selectedFileNode?.properties?.astNodeCount) ?? selectedAstNodes.length,
+															),
+														],
+														[
+															"Imports",
+															String(getNumberProperty(selectedFileNode?.properties?.importCount) ?? 0),
+														],
+														[
+															"Call sites",
+															String(getNumberProperty(selectedFileNode?.properties?.callSiteCount) ?? 0),
+														],
 														[
 															"Degree (in/out)",
 															`${degreeMap.get(String(selectedNode.id))?.in ?? 0} / ${degreeMap.get(String(selectedNode.id))?.out ?? 0}`,
@@ -2024,27 +2662,29 @@ function GraphExplorerPage() {
 													))}
 												</div>
 
-												<div className="mt-5">
-													<div className="mb-2 flex items-center justify-between">
-														<div className="text-[10px] font-medium uppercase tracking-[0.07em] text-[var(--t3)]">
-															Summary
+												{selectedNode.kind !== "ast" && (
+													<div className="mt-5">
+														<div className="mb-2 flex items-center justify-between">
+															<div className="text-[10px] font-medium uppercase tracking-[0.07em] text-[var(--t3)]">
+																Summary
+															</div>
+															<button
+																className="rounded-[4px] bg-[var(--blue)] px-2 py-0.5 text-[10px] font-medium text-white hover:bg-[var(--blue-h)] disabled:opacity-50"
+																onClick={handleSummarize}
+																disabled={summarizing}
+															>
+																{summarizing ? "Generating..." : "Summarize"}
+															</button>
 														</div>
-														<button
-															className="rounded-[4px] bg-[var(--blue)] px-2 py-0.5 text-[10px] font-medium text-white hover:bg-[var(--blue-h)] disabled:opacity-50"
-															onClick={handleSummarize}
-															disabled={summarizing}
-														>
-															{summarizing ? "Generating..." : "Summarize"}
-														</button>
+														<div className="rounded-[8px] bg-[var(--s1)] p-3">
+															<AnimatedMarkdown
+																markdown={summaryText}
+																loading={summarizing}
+																emptyText="No summary generated yet."
+															/>
+														</div>
 													</div>
-									<div className="rounded-[8px] bg-[var(--s1)] p-3">
-										<AnimatedMarkdown
-											markdown={summaryText}
-											loading={summarizing}
-											emptyText="No summary generated yet."
-										/>
-									</div>
-												</div>
+												)}
 
 												<div className="mt-5">
 													<div className="mb-2 text-[10px] font-medium uppercase tracking-[0.07em] text-[var(--t3)]">
@@ -2084,12 +2724,14 @@ function GraphExplorerPage() {
 													<div className="mb-2 text-[10px] font-medium uppercase tracking-[0.07em] text-[var(--t3)]">
 														Actions
 													</div>
-													<button
-														className="mb-2 flex w-full items-center gap-2 rounded-[6px] border border-[var(--b1)] px-3 py-2 text-[12px] text-[var(--t1)] hover:bg-[var(--s1)]"
-														onClick={() => setTab("ai")}
-													>
-														<Sparkles className="h-4 w-4" /> Add to AI context
-													</button>
+													{aiEnabledForSelection && (
+														<button
+															className="mb-2 flex w-full items-center gap-2 rounded-[6px] border border-[var(--b1)] px-3 py-2 text-[12px] text-[var(--t1)] hover:bg-[var(--s1)]"
+															onClick={() => setTab("ai")}
+														>
+															<Sparkles className="h-4 w-4" /> Add to AI context
+														</button>
+													)}
 													<button
 														className="mb-2 flex w-full items-center gap-2 rounded-[6px] border border-[var(--b1)] px-3 py-2 text-[12px] text-[var(--t1)] hover:bg-[var(--s1)]"
 														onClick={() => setMode("neighbour")}
@@ -2110,6 +2752,240 @@ function GraphExplorerPage() {
 											<div className="text-[var(--t2)]">
 												Select a node to inspect its details.
 											</div>
+										)}
+									</div>
+								)}
+
+								{tab === "parsing" && (
+									<div className="flex-1 overflow-y-auto p-4">
+										{selectedNode ? (
+											<>
+												{selectedFileNode && (
+													<div className="mt-0">
+														<div className="mb-2 text-[10px] font-medium uppercase tracking-[0.07em] text-[var(--t3)]">
+															Parse Report
+														</div>
+														<div
+															className="rounded-[10px] border p-3"
+															style={{
+																background:
+																	parseStatusTone(selectedParseStatus)?.background ?? "var(--s1)",
+																borderColor:
+																	parseStatusTone(selectedParseStatus)?.border ?? "var(--b1)",
+															}}
+														>
+															<div className="flex items-start justify-between gap-3">
+																<div>
+																	<div className="text-[12px] font-semibold" style={{ color: "var(--t0)" }}>
+																		{nodeDisplayLabel(selectedFileNode)}
+																	</div>
+																	<div className="mt-1 text-[11px] leading-5" style={{ color: "var(--t2)" }}>
+																		{selectedParseStatus === "parsed"
+																			? "Tree-sitter and segment extraction completed cleanly for this file."
+																			: selectedParseStatus === "partial"
+																				? "This file parsed with recoverable syntax issues. AST segments are available but may be incomplete."
+																				: selectedParseStatus === "failed"
+																					? "This file failed structural parsing. Any extracted facts are fallback-driven only."
+																					: "No parse result was recorded for this file."}
+																	</div>
+																</div>
+																{parseStatusTone(selectedParseStatus) && (
+																	<div
+																		className="rounded-full border px-2 py-1 font-mono text-[10px]"
+																		style={{
+																			background: parseStatusTone(selectedParseStatus)?.background,
+																			borderColor: parseStatusTone(selectedParseStatus)?.border,
+																			color: parseStatusTone(selectedParseStatus)?.color,
+																		}}
+																	>
+																		{parseStatusTone(selectedParseStatus)?.label}
+																	</div>
+																)}
+															</div>
+															<div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
+																{[
+																	["Parser", getStringProperty(selectedFileNode.properties?.parser) ?? "—"],
+																	["Parse errors", String(getNumberProperty(selectedFileNode.properties?.parseErrors) ?? 0)],
+																	["Imports", String(getNumberProperty(selectedFileNode.properties?.importCount) ?? 0)],
+																	["Call sites", String(getNumberProperty(selectedFileNode.properties?.callSiteCount) ?? 0)],
+																].map(([label, value]) => (
+																	<div key={label} className="rounded-[8px] px-3 py-2" style={{ background: "rgba(255,255,255,0.45)" }}>
+																		<div className="text-[10px] uppercase tracking-[0.06em] text-[var(--t3)]">{label}</div>
+																		<div className="mt-1 font-mono text-[var(--t0)]">{value}</div>
+																	</div>
+																))}
+															</div>
+														</div>
+													</div>
+												)}
+
+												{selectedFileNode && (
+													<div className="mt-5">
+														<div className="mb-2 flex items-center justify-between">
+															<div className="text-[10px] font-medium uppercase tracking-[0.07em] text-[var(--t3)]">
+																AST Inventory
+															</div>
+															{selectedNode.kind === "file" && (
+																<button
+																	className="rounded-[4px] border border-[var(--b1)] px-2 py-0.5 text-[10px] text-[var(--t2)] hover:bg-[var(--s1)]"
+																	onClick={() =>
+																		setExpandedAstFileId((current) =>
+																			current === String(selectedFileNode!.id) ? null : String(selectedFileNode!.id),
+																		)
+																	}
+																>
+																	{expandedAstFileId === String(selectedFileNode!.id) ? "Collapse graph AST" : "Expand graph AST"}
+																</button>
+															)}
+														</div>
+														<div className="space-y-2">
+															<div className="grid grid-cols-2 gap-2">
+																{[
+																	["Classes", selectedAstSummary.classes],
+																	["Functions", selectedAstSummary.functions],
+																	["Modules", selectedAstSummary.modules],
+																	["Members", selectedAstSummary.members],
+																	["Imports", selectedAstSummary.imports],
+																	["Calls", selectedAstSummary.calls],
+																].map(([label, values]) => (
+																	<div key={String(label)} className="rounded-[10px] border px-3 py-3" style={{ borderColor: "var(--b1)", background: "var(--s1)" }}>
+																		<div className="mb-2 text-[10px] uppercase tracking-[0.06em] text-[var(--t3)]">{label}</div>
+																		{Array.isArray(values) && values.length > 0 ? (
+																			<div className="flex flex-wrap gap-1.5">
+																				{values.map((value) => (
+																					<span key={value} className="rounded-full bg-[var(--s0)] px-2 py-1 font-mono text-[10px] text-[var(--t1)]">
+																						{value}
+																					</span>
+																				))}
+																			</div>
+																		) : (
+																			<div className="text-[11px] text-[var(--t2)]">None</div>
+																		)}
+																	</div>
+																))}
+															</div>
+															<div className="rounded-[10px] border px-3 py-3" style={{ borderColor: "var(--b1)", background: "var(--s1)" }}>
+																<div className="mb-2 text-[10px] uppercase tracking-[0.06em] text-[var(--t3)]">Segment kinds</div>
+																{selectedAstSummary.unitKinds.length > 0 ? (
+																	<div className="flex flex-wrap gap-1.5">
+																		{selectedAstSummary.unitKinds.map(([unitKind, count]) => (
+																			<span key={unitKind} className="rounded-full bg-[var(--s0)] px-2 py-1 font-mono text-[10px] text-[var(--t1)]">
+																				{unitKind} × {count}
+																			</span>
+																		))}
+																	</div>
+																) : (
+																	<div className="text-[11px] text-[var(--t2)]">No segment kinds recorded.</div>
+																)}
+															</div>
+															{selectedAstNodes.length > 0 ? (
+																selectedAstNodes.slice(0, 18).map((astNode) => {
+																	const unitKind = getStringProperty(astNode.properties?.unitKind) ?? "ast";
+																	const startLine = getNumberProperty(astNode.properties?.startLine);
+																	const endLine = getNumberProperty(astNode.properties?.endLine);
+																	const extractorMethod = getStringProperty(astNode.properties?.extractionMethod);
+																	const topLevelSymbols = getStringArrayProperty(astNode.properties?.topLevelSymbols);
+																	return (
+																		<button
+																			key={String(astNode.id)}
+																			className="w-full rounded-[10px] border px-3 py-2 text-left hover:bg-[var(--s1)]"
+																			style={{ borderColor: "var(--b1)", background: "var(--s0)" }}
+																			onClick={() => setSelectedNodeId(String(astNode.id))}
+																		>
+																			<div className="flex items-start justify-between gap-3">
+																				<div>
+																					<div className="font-mono text-[11px] text-[var(--t0)]">{astNodeDisplayName(astNode)}</div>
+																					<div className="mt-1 text-[10px] text-[var(--t2)]">
+																						{unitKind}
+																						{startLine !== null ? ` · lines ${startLine}${endLine !== null ? `-${endLine}` : ""}` : ""}
+																						{extractorMethod ? ` · ${extractorMethod}` : ""}
+																					</div>
+																					{topLevelSymbols.length > 0 && (
+																						<div className="mt-1 text-[10px] text-[var(--t3)]">Symbols: {topLevelSymbols.join(", ")}</div>
+																					)}
+																				</div>
+																				<div className="rounded-full bg-[#ccfbf1] px-2 py-0.5 font-mono text-[10px] text-[#115e59]">AST</div>
+																			</div>
+																		</button>
+																	);
+																})
+															) : (
+																<div className="rounded-[8px] bg-[var(--s1)] px-3 py-3 text-[11px] text-[var(--t2)]">No AST segments are attached to this file.</div>
+															)}
+														</div>
+													</div>
+												)}
+
+												{lastSyncDetails && (
+													<div className="mt-5">
+														<div className="mb-2 text-[10px] font-medium uppercase tracking-[0.07em] text-[var(--t3)]">Last Sync</div>
+														<div className="rounded-[10px] bg-[var(--s1)] p-3">
+															<div className="mb-3 flex flex-wrap items-center gap-2">
+																{[
+																	[`+${lastSyncDetails!.added}`, "Added", "var(--blue-l)", "var(--blue)"],
+																	[`~${lastSyncDetails!.changed}`, "Changed", "var(--amber-l)", "var(--amber)"],
+																	[`-${lastSyncDetails!.removed}`, "Removed", "rgba(239,68,68,0.12)", "#b91c1c"],
+																	[`${lastSyncDetails!.impactedDependents}`, "Dependents", "rgba(16,185,129,0.12)", "#047857"],
+																].map(([count, label, background, color]) => (
+																	<div key={String(label)} className="rounded-full px-2 py-1 text-[10px] font-mono" style={{ background: String(background), color: String(color) }}>
+																		{count} {label}
+																	</div>
+																))}
+															</div>
+															{[
+																["Added files", lastSyncDetails!.addedFiles],
+																["Changed files", lastSyncDetails!.changedFiles],
+																["Removed files", lastSyncDetails!.removedFiles],
+																["Dependent files", lastSyncDetails!.dependentFiles],
+															].map(([label, files]) => (
+																<div key={String(label)} className="mb-3 last:mb-0">
+																	<div className="mb-1 text-[10px] uppercase tracking-[0.06em] text-[var(--t3)]">{label}</div>
+																	{Array.isArray(files) && files.length > 0 ? (
+																		<div className="space-y-1">
+																			{files.slice(0, 8).map((filePath) => (
+																				<div key={filePath} className="rounded-[6px] bg-[var(--s0)] px-2 py-1 font-mono text-[10px] text-[var(--t1)]">
+																					{filePath}
+																				</div>
+																			))}
+																		</div>
+																	) : (
+																		<div className="text-[11px] text-[var(--t2)]">None</div>
+																	)}
+																</div>
+															))}
+														</div>
+													</div>
+												)}
+
+												{selectedNode.kind === "ast" && (
+													<div className="mt-5">
+														<div className="mb-2 text-[10px] font-medium uppercase tracking-[0.07em] text-[var(--t3)]">AST Segment</div>
+														<div className="rounded-[10px] bg-[var(--s1)] p-3">
+															<div className="grid grid-cols-2 gap-2 text-[11px]">
+																{[
+																	["Display name", astNodeDisplayName(selectedNode)],
+																	["Unit kind", getStringProperty(selectedNode.properties?.unitKind) ?? "—"],
+																	["Segment index", String(getNumberProperty(selectedNode.properties?.segmentIndex) ?? "—")],
+																	["Extraction", getStringProperty(selectedNode.properties?.extractionMethod) ?? "—"],
+																	["Top-level symbols", getStringArrayProperty(selectedNode.properties?.topLevelSymbols).join(", ") || "—"],
+																	["Line range", (() => {
+																		const startLine = getNumberProperty(selectedNode.properties?.startLine);
+																		const endLine = getNumberProperty(selectedNode.properties?.endLine);
+																		return startLine !== null ? `${startLine}${endLine !== null ? `-${endLine}` : ""}` : "—";
+																	})()],
+																].map(([label, value]) => (
+																	<div key={String(label)} className="rounded-[8px] bg-[var(--s0)] px-3 py-2">
+																		<div className="text-[10px] uppercase tracking-[0.06em] text-[var(--t3)]">{label}</div>
+																		<div className="mt-1 font-mono text-[var(--t0)]">{value}</div>
+																	</div>
+																))}
+															</div>
+														</div>
+													</div>
+												)}
+											</>
+										) : (
+											<div className="text-[var(--t2)]">Select a file or AST node to inspect parsing output.</div>
 										)}
 									</div>
 								)}

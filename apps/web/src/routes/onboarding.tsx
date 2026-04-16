@@ -16,7 +16,7 @@ import {
   ShieldCheck,
   ChevronRight,
 } from "lucide-react";
-import { indexRepo } from "@/lib/api";
+import { indexRepo, type IndexRepoResponse } from "@/lib/api";
 import { loadSession, saveSession } from "@/lib/session";
 
 export const Route = createFileRoute("/onboarding")({
@@ -290,7 +290,7 @@ export function OnboardingWizard() {
         pushBuildLog("Entities extracted. Identifying graph relationships...");
       }, 1100);
 
-      const result = await indexRepo(
+      const result: IndexRepoResponse = await indexRepo(
         {
           projectPath: selectedRepo.path,
           mode: "full",
@@ -303,22 +303,17 @@ export function OnboardingWizard() {
       const fileCount =
         result?.scanned?.processedFiles ??
         result?.scanned?.totalFiles ??
-        result?.files ??
         null;
 
       const nodeCount =
-        result?.graph?.nodes ??
-        result?.metrics?.nodes ??
-        result?.nodes ??
+        result?.stats?.astNodes ??
         null;
 
       const edgeCount =
-        result?.graph?.edges ??
-        result?.metrics?.edges ??
-        result?.edges ??
+        result?.stats?.edges ??
         null;
 
-      if (fileCount === 0 || fileCount === "0") {
+      if (fileCount === 0) {
         setBuildPhase("failed");
         setBuildProgress(100);
         setBuildDone(true);
@@ -342,7 +337,7 @@ export function OnboardingWizard() {
       setBuildProgress(84);
       pushBuildLog("Relationships identified. Persisting graph to storage...");
 
-      const repoId = result?.repoId ?? result?.repo?.id ?? "";
+      const repoId = result.repoId;
 
       if (!repoId) {
         setBuildPhase("failed");

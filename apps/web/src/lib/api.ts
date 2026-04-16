@@ -34,6 +34,35 @@ export type IndexRepoRequest = {
   dryRun?: boolean;
 };
 
+export type IndexRepoResponse = {
+  ok: true;
+  repoId: string;
+  runId: string;
+  repoRoot: string;
+  mode: IndexMode;
+  dryRun: boolean;
+  scanned: {
+    totalFiles: number;
+    ignoredCount: number;
+    processedFiles: number;
+    impactedDependents: string[];
+    diff: {
+      added: Array<{ relPath: string }>;
+      changed: Array<{ relPath: string }>;
+      removed: Array<{ relPath: string }>;
+      unchanged: Array<{ relPath: string }>;
+    };
+  };
+  stats: {
+    files: number;
+    dirs: number;
+    textChunks: number;
+    astNodes: number;
+    edges: number;
+  };
+  debugDir: string | null;
+};
+
 export async function healthCheck(baseUrl = ""): Promise<any> {
   const res = await fetch(`${baseUrl}/health`);
   if (!res.ok) throw new Error(`Health check failed: ${res.status} ${res.statusText}`);
@@ -43,7 +72,7 @@ export async function healthCheck(baseUrl = ""): Promise<any> {
 export async function indexRepo(
   body: IndexRepoRequest,
   baseUrl = ""
-): Promise<any> {
+): Promise<IndexRepoResponse> {
   const res = await fetch(`${baseUrl}/indexRepo`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -53,7 +82,7 @@ export async function indexRepo(
     const text = await res.text().catch(() => "");
     throw new Error(`Index failed: ${res.status} ${res.statusText}${text ? `\n${text}` : ""}`);
   }
-  return res.json();
+  return res.json() as Promise<IndexRepoResponse>;
 }
 
 export async function fetchIr(repoId: string, baseUrl = ""): Promise<any> {
