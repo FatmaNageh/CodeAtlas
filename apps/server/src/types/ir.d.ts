@@ -1,18 +1,17 @@
 import type {
-  AstChildEdgeProps,
   AstNodeProps,
   CodeFileNodeProps,
   ContainsEdgeProps,
-  DeclaresEdgeProps,
   DescribesEdgeProps,
   DirectoryNodeProps,
   ExtendsEdgeProps,
   GraphNodeLabel,
   GraphRelationType,
-  HasAstRootEdgeProps,
+  HasAstEdgeProps,
   HasChunkEdgeProps,
   ImportsEdgeProps,
   MentionsEdgeProps,
+  NextAstEdgeProps,
   NextChunkEdgeProps,
   OverridesEdgeProps,
   ReferencesEdgeProps,
@@ -78,6 +77,22 @@ export type HasChunkEdge = {
   props: HasChunkEdgeProps;
 };
 
+export type HasAstEdge = {
+  key: string;
+  type: "HAS_AST";
+  from: string;
+  to: string;
+  props: HasAstEdgeProps;
+};
+
+export type NextAstEdge = {
+  key: string;
+  type: "NEXT_AST";
+  from: string;
+  to: string;
+  props: NextAstEdgeProps;
+};
+
 export type NextChunkEdge = {
   key: string;
   type: "NEXT_CHUNK";
@@ -134,32 +149,10 @@ export type ReferencesEdge = {
   props: ReferencesEdgeProps;
 };
 
-export type AstChildEdge = {
-  key: string;
-  type: "AST_CHILD";
-  from: string;
-  to: string;
-  props: AstChildEdgeProps;
-};
-
-export type DeclaresEdge = {
-  key: string;
-  type: "DECLARES";
-  from: string;
-  to: string;
-  props: DeclaresEdgeProps;
-};
-
-export type HasAstRootEdge = {
-  key: string;
-  type: "HAS_AST_ROOT";
-  from: string;
-  to: string;
-  props: HasAstRootEdgeProps;
-};
-
 export type IREdge =
   | ContainsEdge
+  | HasAstEdge
+  | NextAstEdge
   | HasChunkEdge
   | NextChunkEdge
   | ImportsEdge
@@ -167,10 +160,7 @@ export type IREdge =
   | OverridesEdge
   | DescribesEdge
   | MentionsEdge
-  | ReferencesEdge
-  | AstChildEdge
-  | DeclaresEdge
-  | HasAstRootEdge;
+  | ReferencesEdge;
 
 export type GraphIRStats = {
   files: number;

@@ -19,6 +19,8 @@ export type GraphNodeLabel = (typeof GRAPH_NODE_LABELS)[number];
 
 export const GRAPH_RELATION_TYPES = [
   "CONTAINS",
+  "HAS_AST",
+  "NEXT_AST",
   "HAS_CHUNK",
   "NEXT_CHUNK",
   "IMPORTS",
@@ -27,12 +29,21 @@ export const GRAPH_RELATION_TYPES = [
   "DESCRIBES",
   "MENTIONS",
   "REFERENCES",
-  "AST_CHILD",
-  "DECLARES",
-  "HAS_AST_ROOT",
 ] as const;
 
 export type GraphRelationType = (typeof GRAPH_RELATION_TYPES)[number];
+
+export const AST_UNIT_KINDS = [
+  "class-unit",
+  "interface-unit",
+  "function-unit",
+  "module-unit",
+  "composite-unit",
+  "split-unit",
+  "unknown",
+] as const;
+
+export type AstUnitKind = (typeof AST_UNIT_KINDS)[number];
 
 
 export const NORMALIZED_KINDS = [
@@ -103,6 +114,7 @@ export type DirectoryNodeProps = BaseNodeProps & {
 export type CodeFileNodeProps = BaseNodeProps & {
   kind: "CodeFile";
   path: string;
+  relPath?: string;
   name: string;
   extension: string;
   language: SupportedLanguage;
@@ -110,6 +122,11 @@ export type CodeFileNodeProps = BaseNodeProps & {
   hash?: string | null;
   lastModifiedAt?: string | null;
   parseStatus?: ParseStatus;
+  parser?: string | null;
+  parseErrors?: number | null;
+  importCount?: number | null;
+  astNodeCount?: number | null;
+  callSiteCount?: number | null;
   summary?: string | null;
   summaryAt?: string | null;
   summaryModel?: string | null;
@@ -119,6 +136,7 @@ export type CodeFileNodeProps = BaseNodeProps & {
 export type TextFileNodeProps = BaseNodeProps & {
   kind: "TextFile";
   path: string;
+  relPath?: string;
   name: string;
   extension: string;
   textType?: TextKind | "unknown";
@@ -129,12 +147,14 @@ export type TextFileNodeProps = BaseNodeProps & {
   summaryAt?: string | null;
   summaryModel?: string | null;
   embeddings?: number[] | null;
+  parser?: string | null;
 };
 
 export type TextChunkNodeProps = BaseNodeProps & {
   kind: "TextChunk";
   fileId: string;
   filePath: string;
+  fileRelPath?: string;
   chunkIndex: number;
   chunkVersion: string;
   content: string;
@@ -154,8 +174,20 @@ export type AstNodeProps = BaseNodeProps & {
   kind: "AstNode";
   fileId: string;
   filePath: string;
+  fileRelPath?: string;
   language: SupportedLanguage;
-  normalizedKind: NormalizedKind;
+  unitKind: AstUnitKind;
+  label: string;
+  summaryCandidate?: string | null;
+  segmentReason?: string | null;
+  segmentIndex?: number | null;
+  symbolNames?: string[] | null;
+  topLevelSymbols?: string[] | null;
+  topLevelSymbolCount?: number | null;
+  keywords?: string[] | null;
+  imports?: string[] | null;
+  calls?: string[] | null;
+  normalizedKind?: NormalizedKind | null;
   name?: string | null;
   qname?: string | null;
   displayName?: string | null;
@@ -173,6 +205,8 @@ export type AstNodeProps = BaseNodeProps & {
   endColumn?: number | null;
   startOffset?: number | null;
   endOffset?: number | null;
+  tokenCount?: number | null;
+  charCount?: number | null;
   parser?: string | null;
   extractionMethod?: ExtractionMethod;
   confidence?: number | null;
@@ -203,20 +237,19 @@ export type ContainsEdgeProps = BaseEdgeProps & {
   orderIndex?: number;
 };
 
+export type HasAstEdgeProps = BaseEdgeProps;
+
+export type NextAstEdgeProps = BaseEdgeProps & {
+  fromIndex?: number;
+  toIndex?: number;
+};
+
 export type HasChunkEdgeProps = BaseEdgeProps;
 
 export type NextChunkEdgeProps = BaseEdgeProps & {
   fromIndex?: number;
   toIndex?: number;
 };
-
-export type HasAstRootEdgeProps = BaseEdgeProps;
-
-export type AstChildEdgeProps = BaseEdgeProps & {
-  orderIndex?: number;
-};
-
-export type DeclaresEdgeProps = BaseEdgeProps;
 
 export type ImportsEdgeProps = BaseEdgeProps & {
   importText?: string;
@@ -240,11 +273,10 @@ export type MentionsEdgeProps = BaseEdgeProps & {
 
 export type GraphEdgeProps =
   | ContainsEdgeProps
+  | HasAstEdgeProps
+  | NextAstEdgeProps
   | HasChunkEdgeProps
   | NextChunkEdgeProps
-  | HasAstRootEdgeProps
-  | AstChildEdgeProps
-  | DeclaresEdgeProps
   | ImportsEdgeProps
   | ExtendsEdgeProps
   | OverridesEdgeProps
@@ -299,7 +331,8 @@ export const REQUIRED_NODE_PROPERTIES: Record<GraphNodeLabel, readonly string[]>
     "fileId",
     "filePath",
     "language",
-    "normalizedKind",
+    "unitKind",
+    "label",
     "createdAt",
     "updatedAt",
   ],
@@ -307,6 +340,8 @@ export const REQUIRED_NODE_PROPERTIES: Record<GraphNodeLabel, readonly string[]>
 
 export const REQUIRED_EDGE_PROPERTIES: Record<GraphRelationType, readonly string[]> = {
   CONTAINS: ["repoId"],
+  HAS_AST: ["repoId"],
+  NEXT_AST: ["repoId"],
   HAS_CHUNK: ["repoId"],
   NEXT_CHUNK: ["repoId"],
   IMPORTS: ["repoId"],
@@ -315,19 +350,17 @@ export const REQUIRED_EDGE_PROPERTIES: Record<GraphRelationType, readonly string
   DESCRIBES: ["repoId"],
   MENTIONS: ["repoId"],
   REFERENCES: ["repoId"],
-  AST_CHILD: ["repoId"],
-  DECLARES: ["repoId"],
-  HAS_AST_ROOT: ["repoId"],
 };
 
 export const FILE_OWNED_RELATION_TYPES: readonly GraphRelationType[] = [
+  "HAS_AST",
+  "NEXT_AST",
   "IMPORTS",
   "EXTENDS",
   "OVERRIDES",
   "DESCRIBES",
   "MENTIONS",
   "REFERENCES",
-  "DECLARES",
 ] as const;
 
 export function isAllowedNodeLabel(value: string): value is GraphNodeLabel {

@@ -2,19 +2,20 @@ import { getNeo4jClient } from "./neo4j/client";
 
 type CypherScalar = boolean | number | string | null;
 type CypherValue = CypherScalar | object | CypherValue[];
+type CypherMode = "read" | "write";
 
-/**
- * Lightweight Cypher runner that returns each record as a plain JS object.
- *
- * Note: Neo4j integers may come back as Neo4j Integer objects depending on driver config.
- */
-export async function runCypher<T extends object = Record<string, CypherValue>>(
+async function executeCypher<T extends object>(
+  mode: CypherMode,
   cypher: string,
-  params: Record<string, CypherValue> = {},
+  params: Record<string, CypherValue>,
 ): Promise<T[]> {
   const session = getNeo4jClient().session();
   try {
-    const res = await session.run(cypher, params);
+    const res =
+      mode === "write"
+        ? await session.executeWrite((tx) => tx.run(cypher, params))
+        : await session.executeRead((tx) => tx.run(cypher, params));
+
     return res.records.map((r) => {
       const obj: Record<string, CypherValue> = {};
       for (const key of r.keys.filter((value): value is string => typeof value === "string")) {
@@ -25,4 +26,23 @@ export async function runCypher<T extends object = Record<string, CypherValue>>(
   } finally {
     await session.close();
   }
+}
+
+/**
+ * Lightweight Cypher runner that returns each record as a plain JS object.
+ *
+ * Note: Neo4j integers may come back as Neo4j Integer objects depending on driver config.
+ */
+export async function runCypher<T extends object = Record<string, CypherValue>>(
+  cypher: string,
+  params: Record<string, CypherValue> = {},
+): Promise<T[]> {
+  return executeCypher<T>("read", cypher, params);
+}
+
+export async function writeCypher<T extends object = Record<string, CypherValue>>(
+  cypher: string,
+  params: Record<string, CypherValue> = {},
+): Promise<T[]> {
+  return executeCypher<T>("write", cypher, params);
 }
