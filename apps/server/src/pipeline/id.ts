@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import path from "path";
-import { CHUNK_VERSION, type GraphRelationType, type NormalizedKind } from "../types/graphProperties";
+import { CHUNK_VERSION, type AstUnitKind, type GraphRelationType, type NormalizedKind } from "../types/graphProperties";
 
 export function sha1(input: string): string {
   return crypto.createHash("sha1").update(input).digest("hex");
@@ -64,6 +64,26 @@ export function astNodeIdentityKey(
     repoId,
     normalizeRepoRelativePath(fileRelPath),
     normalizedKind,
+    `${startLine}:${startColumn}-${endLine}:${endColumn}`,
+  ].join("|");
+}
+
+export function astSegmentIdentityKey(
+  repoId: string,
+  fileRelPath: string,
+  unitKind: AstUnitKind,
+  segmentIndex: number,
+  startLine: number,
+  startColumn: number,
+  endLine: number,
+  endColumn: number,
+): string {
+  return [
+    "ast-segment",
+    repoId,
+    normalizeRepoRelativePath(fileRelPath),
+    unitKind,
+    segmentIndex,
     `${startLine}:${startColumn}-${endLine}:${endColumn}`,
   ].join("|");
 }
@@ -142,6 +162,30 @@ export function astNodeId(
 
 export function fileRootAstNodeId(repoId: string, fileRelPath: string): string {
   return astNodeId(repoId, fileRelPath, "module", 0, 0, 0, 0);
+}
+
+export function astSegmentId(
+  repoId: string,
+  fileRelPath: string,
+  unitKind: AstUnitKind,
+  segmentIndex: number,
+  startLine: number,
+  startColumn: number,
+  endLine: number,
+  endColumn: number,
+): string {
+  return stableIdFromIdentityKey(
+    astSegmentIdentityKey(
+      repoId,
+      fileRelPath,
+      unitKind,
+      segmentIndex,
+      startLine,
+      startColumn,
+      endLine,
+      endColumn,
+    ),
+  );
 }
 
 

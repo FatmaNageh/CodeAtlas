@@ -30,7 +30,7 @@ app.get("/", (c) =>
   c.json({
     ok: true,
     service: "CodeAtlas server",
-    routes: ["/health", "POST /indexRepo", "/tester", "GET /diagnostics/repos", "GET /diagnostics/check?repoId=...", "POST /graphrag/embedRepo", "POST /graphrag/summarize", "POST /graphrag/ask", "GET /graphrag/tour", "GET /graphrag/context/:filePath", "/trpc/*"],
+    routes: ["/health", "POST /indexRepo", "/tester", "/repo-analyzer", "GET /diagnostics/repos", "GET /diagnostics/check?repoId=...", "GET /diagnostics/language-support?repoId=...", "POST /diagnostics/analyze-repos", "POST /graphrag/embedRepo", "POST /graphrag/summarize", "POST /graphrag/ask", "GET /graphrag/tour", "GET /graphrag/context/:filePath", "/trpc/*"],
   }),
 );
 

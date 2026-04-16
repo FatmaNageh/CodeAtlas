@@ -7,7 +7,7 @@ import { extractTextFacts } from "./textExtract";
 import { buildIR } from "./ir";
 import { ensureSchema } from "../db/neo4j/schema";
 import { ingestIR } from "../db/neo4j/ingest";
-import { cleanupStaleByRunId } from "../db/neo4j/cleanup";
+import { cleanupStaleByRunId, pruneEmptyDirectories } from "../db/neo4j/cleanup";
 import {
   deleteFile,
   deleteCodeFileDerived,
@@ -16,6 +16,23 @@ import {
 import { repoIdFromPath } from "./id";
 import { saveDebug } from "./debug";
 import { findImportDependents } from "./invalidate";
+import type { GraphIR } from "@/types/ir";
+import { normalizeRepoRelativePath } from "./id";
+
+function emptyGraphIR(repoId: string): GraphIR {
+  return {
+    repoId,
+    nodes: [],
+    edges: [],
+    stats: {
+      files: 0,
+      dirs: 0,
+      textChunks: 0,
+      astNodes: 0,
+      edges: 0,
+    },
+  };
+}
 
 export async function indexRepository(input: {
   projectPath: string;
@@ -33,7 +50,10 @@ export async function indexRepository(input: {
   const repoId = repoIdFromPath(repoRoot);
   const runId = `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
 
-  const scan = await scanRepo(repoRoot, { computeHash: input.computeHash ?? false });
+  const scan = await scanRepo(
+    repoRoot,
+    input.computeHash === undefined ? undefined : { computeHash: input.computeHash },
+  );
   const prev = await loadIndexState(repoRoot);
   const diff = diffScan(prev, scan);
 
@@ -60,7 +80,9 @@ export async function indexRepository(input: {
       impactedDependents = [];
     }
 
-    const byRel = new Map(scan.entries.map((e) => [e.relPath, e] as const));
+    const byRel = new Map(
+      scan.entries.map((entry) => [normalizeRepoRelativePath(entry.relPath), entry] as const),
+    );
 
     for (const relPath of impactedDependents) {
       const entry = byRel.get(relPath);
@@ -81,7 +103,10 @@ export async function indexRepository(input: {
   const codeFacts = await parseAndExtract(codeFilesToProcess);
   const textFacts = await extractTextFacts(textFilesToProcess);
   const facts = { ...codeFacts, ...textFacts };
-  const ir = buildIR(scan, facts);
+  const shouldBuildIncrementalIR = effectiveMode === "full" || filesToProcess.length > 0;
+  const ir = shouldBuildIncrementalIR
+    ? await buildIR(scan, facts)
+    : emptyGraphIR(repoId);
 
   if (!input.dryRun) {
     await ensureSchema();
@@ -109,6 +134,11 @@ export async function indexRepository(input: {
       }
 
       for (const f of filesToProcess) {
+        const previousEntry = prevByRel.get(f.relPath);
+        if (previousEntry && previousEntry.kind !== f.kind) {
+          await deleteFile(repoId, f.relPath, previousEntry.kind);
+        }
+
         if (f.kind === "code") {
           await deleteCodeFileDerived(repoId, f.relPath);
         } else {
@@ -118,7 +148,11 @@ export async function indexRepository(input: {
 
       // Ingest structure for current scan + derived facts for processed files.
       // Unchanged file-derived nodes remain in the DB.
-      await ingestIR(ir, { runId });
+      if (ir.nodes.length > 0 || ir.edges.length > 0) {
+        await ingestIR(ir, { runId });
+      }
+
+      await pruneEmptyDirectories(repoId);
     }
   }
 

@@ -3,6 +3,7 @@ import path from "path";
 import type {
   FileIndexEntry,
   ScanResult,
+  ScanHashMode,
   SupportedLanguage,
   TextKind,
 } from "../types/scan";
@@ -65,13 +66,29 @@ function shouldIgnore(rel: string, ignoreNames: string[]): boolean {
   return parts.some((p) => ignoreNames.includes(p));
 }
 
+function resolveHashMode(
+  hashMode: ScanHashMode | undefined,
+  computeHash: boolean | undefined,
+): ScanHashMode {
+  if (hashMode) return hashMode;
+  if (computeHash === true) return "all";
+  if (computeHash === false) return "none";
+  return "code";
+}
+
+function shouldHashEntry(entry: FileIndexEntry, hashMode: ScanHashMode): boolean {
+  if (hashMode === "all") return true;
+  if (hashMode === "none") return false;
+  return entry.kind === "code";
+}
+
 export async function scanRepo(
   repoRoot: string,
-  opts?: { ignoreNames?: string[]; computeHash?: boolean },
+  opts?: { ignoreNames?: string[]; computeHash?: boolean; hashMode?: ScanHashMode },
 ): Promise<ScanResult> {
   const root = path.resolve(repoRoot);
   const ignoreNames = opts?.ignoreNames ?? DEFAULT_IGNORES;
-  const computeHash = opts?.computeHash ?? false;
+  const hashMode = resolveHashMode(opts?.hashMode, opts?.computeHash);
 
   let ignoredCount = 0;
   const entries: FileIndexEntry[] = [];
@@ -122,7 +139,7 @@ export async function scanRepo(
             textKind: textKind!,
           };
 
-      if (computeHash) {
+      if (shouldHashEntry(entry, hashMode)) {
         const buf = await fs.readFile(abs).catch(() => null);
         if (buf) {
           const crypto = await import("crypto");
@@ -141,5 +158,6 @@ export async function scanRepo(
     entries,
     ignoredCount,
     scannedAt: new Date().toISOString(),
+    hashMode,
   };
 }
