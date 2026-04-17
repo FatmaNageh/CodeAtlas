@@ -196,4 +196,110 @@ describe('embedASTFiles', () => {
 
     await fs.rm(emptyFile, { force: true });
   });
+
+  it('embeds class chunks including class and method context', async () => {
+    const classFile = path.join(embedTestDir, 'src', 'user-service.ts');
+    await fs.writeFile(
+      classFile,
+      [
+        'export class UserService {',
+        '  createUser(name: string): string {',
+        '    return `created:${name}`;',
+        '  }',
+        '',
+        '  deleteUser(name: string): string {',
+        '    return `deleted:${name}`;',
+        '  }',
+        '}',
+      ].join('\n'),
+      'utf-8',
+    );
+
+    const classSymbols = [
+      {
+        astNodeId: 'ast-class-1',
+        relPath: 'src/user-service.ts',
+        symbolName: 'UserService',
+        unitKind: 'class',
+        summaryCandidate: 'Service that manages user lifecycle methods.',
+        segmentReason: 'class declaration',
+        keywords: ['user', 'service'],
+        topLevelSymbols: ['UserService'],
+        startLine: 1,
+        endLine: 9,
+      },
+    ];
+
+    mockedRunCypher
+      .mockResolvedValueOnce([{ relPath: 'src/user-service.ts' }])
+      .mockResolvedValueOnce(classSymbols);
+    mockedWriteCypher.mockResolvedValue([]);
+
+    const mockEmbedding = new Array(1536).fill(0.01);
+    mockedGenerateEmbeddings.mockResolvedValue([mockEmbedding]);
+
+    const result = await embedASTFiles('test-repo', embedTestDir, 10);
+
+    expect(result.ok).toBe(true);
+    expect(result.totalEmbedded).toBe(1);
+    expect(mockedGenerateEmbeddings).toHaveBeenCalledTimes(1);
+
+    const firstCall = mockedGenerateEmbeddings.mock.calls[0];
+    expect(firstCall).toBeDefined();
+    const firstBatch = firstCall?.[0];
+    expect(firstBatch).toBeDefined();
+    const firstText = firstBatch?.[0];
+    expect(firstText).toContain('Label: UserService');
+    expect(firstText).toContain('Unit kind: class');
+    expect(firstText).toContain('class UserService');
+    expect(firstText).toContain('createUser(name: string): string');
+    expect(firstText).toContain('deleteUser(name: string): string');
+  });
+
+  it('partitions 2000 embedding jobs without dropping or duplicating chunks', async () => {
+    const totalSymbols = 2000;
+    const batchSize = 128;
+    const bulkFile = path.join(embedTestDir, 'src', 'bulk.ts');
+
+    const lines = Array.from(
+      { length: totalSymbols },
+      (_, index) => `export function fn${index}(): number { return ${index}; }`,
+    );
+    await fs.writeFile(bulkFile, lines.join('\n'), 'utf-8');
+
+    const bulkSymbols = Array.from({ length: totalSymbols }, (_, index) => ({
+      astNodeId: `ast-${index}`,
+      relPath: 'src/bulk.ts',
+      symbolName: `fn${index}`,
+      unitKind: 'function',
+      summaryCandidate: null,
+      segmentReason: 'function declaration',
+      keywords: ['function'],
+      topLevelSymbols: [`fn${index}`],
+      startLine: index + 1,
+      endLine: index + 1,
+    }));
+
+    mockedRunCypher
+      .mockResolvedValueOnce([{ relPath: 'src/bulk.ts' }])
+      .mockResolvedValueOnce(bulkSymbols);
+    mockedWriteCypher.mockResolvedValue([]);
+    mockedGenerateEmbeddings.mockImplementation(async (texts: string[]) =>
+      texts.map(() => new Array(1536).fill(0.01)),
+    );
+
+    const result = await embedASTFiles('test-repo', embedTestDir, batchSize);
+
+    expect(result.ok).toBe(true);
+    expect(result.files).toBe(1);
+    expect(result.totalEmbedded).toBe(totalSymbols);
+    expect(result.failedBatches).toBe(0);
+    expect(mockedGenerateEmbeddings).toHaveBeenCalledTimes(
+      Math.ceil(totalSymbols / batchSize),
+    );
+
+    const allTexts = mockedGenerateEmbeddings.mock.calls.flatMap((call) => call[0]);
+    expect(allTexts).toHaveLength(totalSymbols);
+    expect(new Set(allTexts).size).toBe(totalSymbols);
+  });
 });
