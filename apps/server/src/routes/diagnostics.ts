@@ -111,15 +111,42 @@ export function toPlain(v: Neo4jValue): PlainValue {
 
 diagnosticsRoute.get("/tester", async (c) => {
   const filePath = path.join(process.cwd(), "src", "test-client.html");
-  const html = await fs.readFile(filePath, "utf-8");
+  const html = await fs.readFile(filePath, "utf-8").catch(() => null);
+  if (html === null) {
+    return c.json(
+      {
+        ok: false,
+        error: "tester asset is not available in this build",
+      },
+      404,
+    );
+  }
+
   return c.html(html);
 });
 
 diagnosticsRoute.get("/diagnostics/repos", async (c) => {
-  const rows = await runCypher<{ r: Neo4jNode }>(
-    `MATCH (r:Repo) RETURN r ORDER BY r.rootPath ASC LIMIT 50`,
+  const rows = await runCypher<{
+    repoId: string;
+    rootPath: string;
+    name: string | null;
+    indexedAt: string | null;
+    createdAt: string | null;
+    updatedAt: string | null;
+  }>(
+    `/*cypher*/
+    MATCH (r:Repo)
+    RETURN
+      r.repoId AS repoId,
+      r.rootPath AS rootPath,
+      r.name AS name,
+      coalesce(r.lastIndexedAt, r.updatedAt, r.createdAt) AS indexedAt,
+      r.createdAt AS createdAt,
+      r.updatedAt AS updatedAt
+    ORDER BY r.rootPath ASC
+    LIMIT 50`,
   );
-  return c.json({ ok: true, repos: rows.map((x) => toPlain(x.r)) });
+  return c.json({ ok: true, repos: rows.map((row) => toPlain(row)) });
 });
 
 diagnosticsRoute.get("/diagnostics/check", async (c) => {

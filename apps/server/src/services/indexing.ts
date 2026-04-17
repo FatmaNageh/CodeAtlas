@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { indexRepository } from "@/pipeline/indexRepo";
+import { DEFAULT_IGNORE_PATTERNS } from "@/pipeline/scan";
 import { repoRoots } from "@/state/repoRoots";
 
 export const indexRepoInputSchema = z.object({
@@ -8,6 +9,7 @@ export const indexRepoInputSchema = z.object({
   mode: z.enum(["full", "incremental"]).optional().default("incremental"),
   saveDebugJson: z.boolean().optional().default(true),
   computeHash: z.boolean().optional().default(true),
+  ignorePatterns: z.array(z.string().min(1)).optional().default([...DEFAULT_IGNORE_PATTERNS]),
 });
 
 export type IndexRepoInput = z.infer<typeof indexRepoInputSchema>;

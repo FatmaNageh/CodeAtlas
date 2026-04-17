@@ -16,7 +16,12 @@ import {
   ShieldCheck,
   ChevronRight,
 } from "lucide-react";
-import { indexRepo, type IndexRepoResponse } from "@/lib/api";
+import {
+  indexRepo,
+  validateRepository,
+  type IndexRepoResponse,
+  type RepositoryValidationResponse,
+} from "@/lib/api";
 import { loadSession, saveSession } from "@/lib/session";
 
 export const Route = createFileRoute("/onboarding")({
@@ -277,6 +282,34 @@ export function OnboardingWizard() {
       pushBuildLog("Validating repository path and preparing indexing session...");
       saveSession({ baseUrl, lastProjectPath: selectedRepo.path });
 
+      const validation: RepositoryValidationResponse = await validateRepository(
+        {
+          projectPath: selectedRepo.path,
+          ignorePatterns: ignoredPatterns,
+        },
+        baseUrl,
+      );
+
+      if (!validation.ok) {
+        setBuildPhase("failed");
+        setBuildProgress(100);
+        setBuildDone(true);
+        setBuilding(false);
+        setBuildError(validation.error);
+        pushBuildLog(`Validation failed: ${validation.error}`);
+        toast.error(validation.error);
+        return;
+      }
+
+      setBuildStats({
+        files: `${validation.supportedFiles.total} files`,
+        nodes: "—",
+        relations: "—",
+      });
+      pushBuildLog(
+        `Validation passed. ${validation.supportedFiles.total} supported files found, ${validation.ignoredCount} paths ignored.`,
+      );
+
       // Simulated phase progression for better UX before backend finishes
       window.setTimeout(() => {
         setBuildPhase("extracting");
@@ -296,6 +329,7 @@ export function OnboardingWizard() {
           mode: "full",
           saveDebugJson: true,
           computeHash: true,
+          ignorePatterns: ignoredPatterns,
         },
         baseUrl,
       );

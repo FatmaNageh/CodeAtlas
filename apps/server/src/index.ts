@@ -11,6 +11,7 @@ import { healthRoute } from "./routes/health";
 import { indexRepoRoute } from "./routes/indexRepo";
 import { diagnosticsRoute } from "./routes/diagnostics";
 import { debugRoute } from "./routes/debug";
+import { repositoryRoute } from "./routes/repository";
 // import { summarizeFilesRoute } from "./routes/summarize";
 import { embedRoute } from "./routes/embedding";
 import { graphragRoute } from "./routes/graphrag";
@@ -30,7 +31,22 @@ app.get("/", (c) =>
   c.json({
     ok: true,
     service: "CodeAtlas server",
-    routes: ["/health", "POST /indexRepo", "/tester", "/repo-analyzer", "GET /diagnostics/repos", "GET /diagnostics/check?repoId=...", "GET /diagnostics/language-support?repoId=...", "POST /diagnostics/analyze-repos", "POST /graphrag/embedRepo", "POST /graphrag/summarize", "POST /graphrag/ask", "GET /graphrag/tour", "GET /graphrag/context/:filePath", "/trpc/*"],
+    routes: [
+      "/health",
+      "POST /indexRepo",
+      "POST /repository/validate",
+      "POST /repository/delete",
+      "GET /tester",
+      "GET /diagnostics/repos",
+      "GET /diagnostics/check?repoId=...",
+      "POST /graphrag/embedRepo",
+      "POST /graphrag/summarize",
+      "POST /graphrag/ask",
+      "GET /graphrag/tour",
+      "GET /graphrag/context?repoId=...&filePath=...",
+      "GET /graphrag/status?repoId=...",
+      "/trpc/*",
+    ],
   }),
 );
 
@@ -46,6 +62,7 @@ app.use(
 // Phase 1 routes
 app.route("/", healthRoute);
 app.route("/", indexRepoRoute);
+app.route("/", repositoryRoute);
 app.route("/", diagnosticsRoute);
 app.route("/", debugRoute);
 

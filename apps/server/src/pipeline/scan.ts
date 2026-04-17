@@ -44,7 +44,7 @@ const TEXT_EXT: Record<string, TextKind> = {
   ".tex": "latex",
 };
 
-const DEFAULT_IGNORES = [
+export const DEFAULT_IGNORE_PATTERNS = [
   ".git",
   "node_modules",
   "dist",
@@ -59,11 +59,68 @@ const DEFAULT_IGNORES = [
   ".idea",
   ".vscode",
   ".codeatlas",
-];
+ ] as const;
 
-function shouldIgnore(rel: string, ignoreNames: string[]): boolean {
-  const parts = normalizePath(rel).split("/");
-  return parts.some((p) => ignoreNames.includes(p));
+function escapeRegExp(value: string): string {
+  return value.replace(/[|\\{}()[\]^$+?.]/g, "\\$&");
+}
+
+function globToRegExp(pattern: string): RegExp {
+  let source = "";
+
+  for (let index = 0; index < pattern.length; index += 1) {
+    const current = pattern[index] ?? "";
+    const next = pattern[index + 1];
+
+    if (current === "*") {
+      if (next === "*") {
+        source += ".*";
+        index += 1;
+      } else {
+        source += "[^/]*";
+      }
+      continue;
+    }
+
+    source += escapeRegExp(current);
+  }
+
+  return new RegExp(`^${source}$`);
+}
+
+function normalizeIgnorePattern(pattern: string): string {
+  return normalizePath(pattern.trim())
+    .replace(/^\.\/+/, "")
+    .replace(/^\/+/, "")
+    .replace(/\/+$/, "");
+}
+
+function matchesIgnorePattern(relPath: string, pattern: string): boolean {
+  const normalizedPattern = normalizeIgnorePattern(pattern);
+  if (!normalizedPattern) return false;
+
+  const normalizedRelPath = normalizePath(relPath).replace(/^\/+/, "");
+  const segments = normalizedRelPath.split("/");
+
+  if (!normalizedPattern.includes("*")) {
+    return (
+      normalizedRelPath === normalizedPattern ||
+      normalizedRelPath.startsWith(`${normalizedPattern}/`) ||
+      segments.includes(normalizedPattern)
+    );
+  }
+
+  const glob = globToRegExp(normalizedPattern);
+  return (
+    glob.test(normalizedRelPath) ||
+    normalizedRelPath.split("/").some((_, index) =>
+      glob.test(normalizedRelPath.split("/").slice(index).join("/")),
+    )
+  );
+}
+
+function shouldIgnore(rel: string, ignorePatterns: readonly string[]): boolean {
+  return ignorePatterns.some((pattern) => matchesIgnorePattern(rel, pattern));
 }
 
 function resolveHashMode(
@@ -84,10 +141,10 @@ function shouldHashEntry(entry: FileIndexEntry, hashMode: ScanHashMode): boolean
 
 export async function scanRepo(
   repoRoot: string,
-  opts?: { ignoreNames?: string[]; computeHash?: boolean; hashMode?: ScanHashMode },
+  opts?: { ignorePatterns?: string[]; computeHash?: boolean; hashMode?: ScanHashMode },
 ): Promise<ScanResult> {
   const root = path.resolve(repoRoot);
-  const ignoreNames = opts?.ignoreNames ?? DEFAULT_IGNORES;
+  const ignorePatterns = opts?.ignorePatterns ?? [...DEFAULT_IGNORE_PATTERNS];
   const hashMode = resolveHashMode(opts?.hashMode, opts?.computeHash);
 
   let ignoredCount = 0;
@@ -100,7 +157,7 @@ export async function scanRepo(
       const abs = path.join(absDir, d.name);
       const rel = relDir ? path.join(relDir, d.name) : d.name;
 
-      if (shouldIgnore(rel, ignoreNames)) {
+      if (shouldIgnore(rel, ignorePatterns)) {
         ignoredCount++;
         continue;
       }

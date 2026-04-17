@@ -30,7 +30,15 @@ export default defineConfig({
         target: "http://localhost:3000",
         changeOrigin: true,
       },
+      "/diagnostics": {
+        target: "http://localhost:3000",
+        changeOrigin: true,
+      },
       "/graphrag": {
+        target: "http://localhost:3000",
+        changeOrigin: true,
+      },
+      "/repository": {
         target: "http://localhost:3000",
         changeOrigin: true,
       },

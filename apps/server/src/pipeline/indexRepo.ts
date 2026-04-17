@@ -39,6 +39,7 @@ export async function indexRepository(input: {
   mode: IndexMode;
   saveDebugJson: boolean;
   computeHash?: boolean;
+  ignorePatterns?: string[];
   /**
    * If true, run scan/parse/extract/buildIR (and optionally write debug/state),
    * but skip ALL Neo4j side effects (schema, deletes, ingest, cleanup).
@@ -52,7 +53,10 @@ export async function indexRepository(input: {
 
   const scan = await scanRepo(
     repoRoot,
-    input.computeHash === undefined ? undefined : { computeHash: input.computeHash },
+    {
+      ...(input.computeHash === undefined ? {} : { computeHash: input.computeHash }),
+      ...(input.ignorePatterns ? { ignorePatterns: input.ignorePatterns } : {}),
+    },
   );
   const prev = await loadIndexState(repoRoot);
   const diff = diffScan(prev, scan);

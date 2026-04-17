@@ -78,6 +78,11 @@ export async function saveIndexState(repoRoot: string, scan: ScanResult): Promis
   return state;
 }
 
+export async function deleteIndexState(repoRoot: string): Promise<void> {
+  const dir = path.join(repoRoot, STATE_DIR);
+  await fs.rm(dir, { recursive: true, force: true });
+}
+
 function shouldCompareByHash(
   kind: IndexStateFileMeta["kind"],
   prev: IndexState,

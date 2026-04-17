@@ -22,6 +22,13 @@ import {
 	type IndexRepoResponse,
 	type TourResponse,
 } from "@/lib/api";
+import {
+	clearStoredChatHistory,
+	getStoredChatHistory,
+	upsertStoredProject,
+	saveStoredChatHistory,
+	type StoredChatMessage,
+} from "@/lib/project-history";
 import { loadSession, saveSession } from "@/lib/session";
 import { toast } from "sonner";
 import { useCompletion } from "@ai-sdk/react";
@@ -492,6 +499,9 @@ function GraphExplorerPage() {
 	const [lastSyncDetails, setLastSyncDetails] = useState<SyncDetails | null>(null);
 	const pendingContextFilesRef = useRef<string[]>([]);
 
+	const projectName =
+		repoRoot.split(/[\\/]/).filter(Boolean).pop() ?? repoId ?? "Repository";
+
 	const loadGraph = async (limit: number) => {
 		if (!repoId.trim()) return;
 		setLoading(true);
@@ -603,6 +613,33 @@ function GraphExplorerPage() {
 			current.file ? current : { ...current, file: true },
 		);
 	}, [topView, repoId, baseUrl]);
+
+	useEffect(() => {
+		if (!repoId.trim()) return;
+		setChatMessages(getStoredChatHistory(repoId.trim()) as ChatMessage[]);
+	}, [repoId]);
+
+	useEffect(() => {
+		if (!repoId.trim()) return;
+		upsertStoredProject({
+			repoId: repoId.trim(),
+			name: projectName,
+			rootPath: repoRoot,
+			lastOpenedAt: new Date().toISOString(),
+			chatMessageCount: chatMessages.length,
+			...(chatMessages.length > 0
+				? { chatUpdatedAt: new Date().toISOString() }
+				: {}),
+		});
+	}, [chatMessages.length, projectName, repoId, repoRoot]);
+
+	useEffect(() => {
+		if (!repoId.trim()) return;
+		saveStoredChatHistory(
+			repoId.trim(),
+			chatMessages as StoredChatMessage[],
+		);
+	}, [chatMessages, repoId]);
 
 	const { complete, isLoading: chatLoading } = useCompletion({
 		api: `${baseUrl}/graphrag/ask`,
@@ -1371,6 +1408,13 @@ function GraphExplorerPage() {
 		}
 	};
 
+	const clearChatHistory = () => {
+		if (!repoId.trim()) return;
+		clearStoredChatHistory(repoId.trim());
+		setChatMessages([]);
+		toast.success("Chat history cleared");
+	};
+
 	const embedNodes = async () => {
 		if (!repoId.trim()) {
 			toast.error("No repository loaded. Index a repo first.");
@@ -1407,6 +1451,82 @@ function GraphExplorerPage() {
 
 	return (
 		<section className="min-h-[calc(100vh-50px)] bg-[var(--bg)]">
+			{/* ── Floating nav pill ── */}
+			<div
+				style={{
+					position: "fixed",
+					top: 14,
+					left: 14,
+					zIndex: 60,
+					display: "flex",
+					alignItems: "center",
+					gap: 2,
+					background: "color-mix(in srgb, var(--bg) 85%, transparent)",
+					backdropFilter: "blur(10px)",
+					border: "1px solid var(--b2)",
+					borderRadius: 100,
+					padding: "4px 6px",
+					boxShadow: "0 2px 12px rgba(0,0,0,0.18)",
+				}}
+			>
+				<Link
+					to="/"
+					style={{
+						display: "inline-flex",
+						alignItems: "center",
+						gap: 5,
+						padding: "5px 12px",
+						borderRadius: 100,
+						fontSize: 12,
+						fontWeight: 500,
+						color: "var(--t2)",
+						textDecoration: "none",
+						transition: "color 0.15s, background 0.15s",
+					}}
+					onMouseEnter={(e) => {
+						e.currentTarget.style.color = "var(--t0)";
+						e.currentTarget.style.background = "color-mix(in srgb, var(--t0) 8%, transparent)";
+					}}
+					onMouseLeave={(e) => {
+						e.currentTarget.style.color = "var(--t2)";
+						e.currentTarget.style.background = "transparent";
+					}}
+				>
+					<svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+						<path d="M6 1L1 6l5 5M1 6h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+					</svg>
+					Home
+				</Link>
+				<div style={{ width: 1, height: 14, background: "var(--b2)" }} />
+				<Link
+					to="/history"
+					style={{
+						display: "inline-flex",
+						alignItems: "center",
+						gap: 5,
+						padding: "5px 12px",
+						borderRadius: 100,
+						fontSize: 12,
+						fontWeight: 500,
+						color: "var(--teal)",
+						textDecoration: "none",
+						transition: "background 0.15s",
+					}}
+					onMouseEnter={(e) => {
+						e.currentTarget.style.background = "color-mix(in srgb, var(--teal) 10%, transparent)";
+					}}
+					onMouseLeave={(e) => {
+						e.currentTarget.style.background = "transparent";
+					}}
+				>
+					<svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+						<circle cx="5" cy="5" r="4" stroke="currentColor" strokeWidth="1.4"/>
+						<path d="M3 5h4M5 3l2 2-2 2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+					</svg>
+					History
+				</Link>
+			</div>
+
 			<div className="flex h-[calc(100vh-50px)] flex-col overflow-hidden">
 				<div className="flex h-12 items-center border-b border-[var(--b1)] bg-[var(--s0)] px-5 text-[13px]">
 					<button
@@ -3076,19 +3196,30 @@ function GraphExplorerPage() {
 									<div className="flex flex-1 flex-col overflow-hidden">
 										{/* Context header — shows all selected nodes as chips */}
 										<div className="border-b border-[var(--b0)] bg-[var(--s1)] px-3 py-2">
-											<div className="mb-1.5 text-[10px] font-medium uppercase tracking-[0.07em] text-[var(--t3)]">
-												AI Context
-												{selectedNodeIds.length > 1 && (
-													<span
-														className="ml-2 rounded-full px-1.5 py-0.5 text-[9px]"
-														style={{
-															background: "var(--amber-l)",
-															color: "var(--amber)",
-														}}
-													>
-														{selectedNodeIds.length} nodes
-													</span>
-												)}
+											<div className="mb-1.5 flex items-center justify-between gap-2">
+												<div className="text-[10px] font-medium uppercase tracking-[0.07em] text-[var(--t3)]">
+													AI Context
+													{selectedNodeIds.length > 1 && (
+														<span
+															className="ml-2 rounded-full px-1.5 py-0.5 text-[9px]"
+															style={{
+																background: "var(--amber-l)",
+																color: "var(--amber)",
+															}}
+														>
+															{selectedNodeIds.length} nodes
+														</span>
+													)}
+												</div>
+												<button
+													type="button"
+													className="rounded-[6px] border px-2 py-1 text-[10px] font-medium text-[var(--t2)] hover:bg-[var(--s2)]"
+													style={{ borderColor: "var(--b1)" }}
+													onClick={clearChatHistory}
+													disabled={chatMessages.length === 0}
+												>
+													Clear chat
+												</button>
 											</div>
 											{selectedNodeIds.length > 0 ? (
 												<div className="flex flex-wrap gap-1">

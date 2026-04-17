@@ -1,15 +1,12 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { ModeToggle } from "./mode-toggle";
-import { color } from "d3";
 
 const NAV_LINKS = [
-  { to: "/",           label: "Home"       },
-  { to: "/onboarding", label: "Onboarding" }, 
-   { to: "/faquestions",      label: "FAQ"      },
-  { to: "/indexing",   label: "Indexing"   },
-  { to: "/ir",         label: "IR"         },
-  { to: "/analytics",  label: "Analytics"  },
-
+  { to: "/",           label: "Home"         },
+  { to: "/graph",      label: "Graph"        },
+  { to: "/history",    label: "History"      },
+  { to: "/onboarding", label: "Onboarding"   },
+  { to: "/faquestions", label: "FAQ"         },
 ] as const;
 
 export default function Header() {
