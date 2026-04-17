@@ -16,18 +16,19 @@ import {
 	Upload,
 } from "lucide-react";
 import {
+	clearThreadMessages,
+	createChatThread,
+	fetchChatThreads,
 	fetchNeo4jSubgraph,
+	fetchThreadMessages,
 	fetchTour,
 	indexRepo,
+	type ChatThreadRecord,
 	type IndexRepoResponse,
 	type TourResponse,
 } from "@/lib/api";
 import {
-	clearStoredChatHistory,
-	getStoredChatHistory,
 	upsertStoredProject,
-	saveStoredChatHistory,
-	type StoredChatMessage,
 } from "@/lib/project-history";
 import { loadSession, saveSession } from "@/lib/session";
 import { toast } from "sonner";
@@ -77,8 +78,14 @@ type AskSource = {
 
 type AskSuccessResponse = {
 	ok: true;
+	threadId: string;
 	answer: string;
 	sources?: AskSource[];
+};
+
+type ThreadMessagesResponse = {
+	thread: ChatThreadRecord;
+	messages: ChatMessage[];
 };
 
 type AskErrorResponse = {
@@ -114,14 +121,22 @@ type StatusTone = {
 function isAskSuccessResponse(
 	value: object | null,
 ): value is AskSuccessResponse {
-	if (!value || !("ok" in value) || !("answer" in value)) return false;
+	if (
+		!value ||
+		!("ok" in value) ||
+		!("answer" in value) ||
+		!("threadId" in value)
+	)
+		return false;
 	const candidate = value as {
 		ok?: boolean;
+		threadId?: string;
 		answer?: string;
 		sources?: AskSource[];
 	};
 	return (
 		candidate.ok === true &&
+		typeof candidate.threadId === "string" &&
 		typeof candidate.answer === "string" &&
 		(candidate.sources === undefined || Array.isArray(candidate.sources))
 	);
@@ -481,6 +496,9 @@ function GraphExplorerPage() {
 		null,
 	);
 	const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+	const [chatThreads, setChatThreads] = useState<ChatThreadRecord[]>([]);
+	const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+	const [threadsLoading, setThreadsLoading] = useState(false);
 	const [chatInput, setChatInput] = useState("");
 	const [mentionSearch, setMentionSearch] = useState<string | null>(null);
 	const [mentionSelected, setMentionSelected] = useState(0);
@@ -498,6 +516,7 @@ function GraphExplorerPage() {
 	const [lastSyncStats, setLastSyncStats] = useState<SyncStats | null>(null);
 	const [lastSyncDetails, setLastSyncDetails] = useState<SyncDetails | null>(null);
 	const pendingContextFilesRef = useRef<string[]>([]);
+	const pendingThreadIdRef = useRef<string | null>(null);
 
 	const projectName =
 		repoRoot.split(/[\\/]/).filter(Boolean).pop() ?? repoId ?? "Repository";
@@ -614,10 +633,71 @@ function GraphExplorerPage() {
 		);
 	}, [topView, repoId, baseUrl]);
 
+	const syncThreads = async (
+		targetRepoId: string,
+		preferredThreadId?: string | null,
+	): Promise<ThreadMessagesResponse | null> => {
+		if (!targetRepoId.trim()) {
+			setChatThreads([]);
+			setActiveThreadId(null);
+			setChatMessages([]);
+			return null;
+		}
+
+		setThreadsLoading(true);
+		try {
+			const threads = await fetchChatThreads(targetRepoId.trim(), baseUrl);
+			setChatThreads(threads);
+
+			const preferred = preferredThreadId
+				? threads.find((thread) => thread.id === preferredThreadId)
+				: null;
+			const chosenThread = preferred ?? threads[0] ?? null;
+
+			if (!chosenThread) {
+				setActiveThreadId(null);
+				setChatMessages([]);
+				return null;
+			}
+
+			setActiveThreadId(chosenThread.id);
+			const messageData = await fetchThreadMessages(
+				targetRepoId.trim(),
+				chosenThread.id,
+				baseUrl,
+			);
+			const normalizedMessages: ChatMessage[] = messageData.messages.map((message) =>
+				message.role === "assistant"
+					? {
+						id: message.id,
+						role: "assistant",
+						text: message.content,
+						contextFiles: message.contextFiles,
+					}
+					: {
+						id: message.id,
+						role: "user",
+						text: message.content,
+					},
+			);
+			setChatMessages(normalizedMessages);
+			return { thread: chosenThread, messages: normalizedMessages };
+		} catch (error) {
+			const message =
+				error instanceof Error ? error.message : "Failed to load chat threads";
+			toast.error(message);
+			setChatThreads([]);
+			setActiveThreadId(null);
+			setChatMessages([]);
+			return null;
+		} finally {
+			setThreadsLoading(false);
+		}
+	};
+
 	useEffect(() => {
-		if (!repoId.trim()) return;
-		setChatMessages(getStoredChatHistory(repoId.trim()) as ChatMessage[]);
-	}, [repoId]);
+		void syncThreads(repoId);
+	}, [repoId, baseUrl]);
 
 	useEffect(() => {
 		if (!repoId.trim()) return;
@@ -633,19 +713,12 @@ function GraphExplorerPage() {
 		});
 	}, [chatMessages.length, projectName, repoId, repoRoot]);
 
-	useEffect(() => {
-		if (!repoId.trim()) return;
-		saveStoredChatHistory(
-			repoId.trim(),
-			chatMessages as StoredChatMessage[],
-		);
-	}, [chatMessages, repoId]);
-
 	const { complete, isLoading: chatLoading } = useCompletion({
 		api: `${baseUrl}/graphrag/ask`,
 		streamProtocol: "text",
 		fetch: async (input, init) => {
 			pendingContextFilesRef.current = [];
+			pendingThreadIdRef.current = null;
 			const reqBody =
 				typeof init?.body === "string" ? JSON.parse(init.body) : {};
 			const question = String(reqBody?.question ?? reqBody?.prompt ?? "");
@@ -675,6 +748,7 @@ function GraphExplorerPage() {
 
 			const answer = data.answer;
 			pendingContextFilesRef.current = extractContextFiles(data.sources);
+			pendingThreadIdRef.current = data.threadId;
 
 			return new Response(answer, {
 				status: 200,
@@ -1337,12 +1411,11 @@ function GraphExplorerPage() {
 		}
 
 		setTab("ai");
-		setChatMessages((current) => [
-			...current,
-			{ id: makeMessageId(), role: "user", text },
-		]);
+		const userTempId = makeMessageId();
+		setChatMessages((current) => [...current, { id: userTempId, role: "user", text }]);
 		setChatInput("");
 		pendingContextFilesRef.current = [];
+		pendingThreadIdRef.current = null;
 		try {
 			const { text: cleanedText, mentionedNodes } = parseMentions(text);
 
@@ -1358,12 +1431,16 @@ function GraphExplorerPage() {
 			const body: {
 				repoId: string;
 				question: string;
+				threadId?: string;
 				mentionedNodes?: { id: string; name: string; path: string }[];
 				selectedNodes?: { id: string; name: string; path: string }[];
 			} = {
 				repoId: repoId.trim(),
 				question: cleanedText,
 			};
+			if (activeThreadId) {
+				body.threadId = activeThreadId;
+			}
 			if (mentionedNodes.length > 0) {
 				body.mentionedNodes = mentionedNodes.map((node) => ({
 					id: String(node.id),
@@ -1381,24 +1458,32 @@ function GraphExplorerPage() {
 			const answer = await complete(cleanedText, {
 				body,
 			});
+			const returnedThreadId = pendingThreadIdRef.current;
 			const contextFiles = pendingContextFilesRef.current;
 			pendingContextFilesRef.current = [];
-			setChatMessages((current) => [
-				...current,
-				{
-					id: makeMessageId(),
-					role: "assistant",
-					text:
-						typeof answer === "string" && answer.trim()
-							? answer
-							: "No answer returned.",
-					contextFiles: contextFiles.length > 0 ? contextFiles : undefined,
-				},
-			]);
+			pendingThreadIdRef.current = null;
+
+			if (returnedThreadId) {
+				await syncThreads(repoId.trim(), returnedThreadId);
+			} else {
+				setChatMessages((current) => [
+					...current,
+					{
+						id: makeMessageId(),
+						role: "assistant",
+						text:
+							typeof answer === "string" && answer.trim()
+								? answer
+								: "No answer returned.",
+						contextFiles: contextFiles.length > 0 ? contextFiles : undefined,
+					},
+				]);
+			}
 		} catch {
 			pendingContextFilesRef.current = [];
+			pendingThreadIdRef.current = null;
 			setChatMessages((current) => [
-				...current,
+				...current.filter((message) => message.id !== userTempId),
 				{
 					id: makeMessageId(),
 					role: "assistant",
@@ -1408,11 +1493,42 @@ function GraphExplorerPage() {
 		}
 	};
 
+	const handleCreateNewThread = async () => {
+		if (!repoId.trim()) {
+			toast.error("No repository loaded. Index a repo first.");
+			return;
+		}
+
+		try {
+			const created = await createChatThread({ repoId: repoId.trim() }, baseUrl);
+			await syncThreads(repoId.trim(), created.id);
+			setTab("ai");
+			toast.success("Started a new thread");
+		} catch (error) {
+			const message =
+				error instanceof Error ? error.message : "Failed to create thread";
+			toast.error(message);
+		}
+	};
+
 	const clearChatHistory = () => {
-		if (!repoId.trim()) return;
-		clearStoredChatHistory(repoId.trim());
-		setChatMessages([]);
-		toast.success("Chat history cleared");
+		const run = async () => {
+			if (!repoId.trim() || !activeThreadId) return;
+			try {
+				await clearThreadMessages(
+					{ repoId: repoId.trim(), threadId: activeThreadId },
+					baseUrl,
+				);
+				await syncThreads(repoId.trim(), activeThreadId);
+				toast.success("Chat history cleared");
+			} catch (error) {
+				const message =
+					error instanceof Error ? error.message : "Failed to clear thread";
+				toast.error(message);
+			}
+		};
+
+		void run();
 	};
 
 	const embedNodes = async () => {
@@ -3211,15 +3327,51 @@ function GraphExplorerPage() {
 														</span>
 													)}
 												</div>
-												<button
-													type="button"
-													className="rounded-[6px] border px-2 py-1 text-[10px] font-medium text-[var(--t2)] hover:bg-[var(--s2)]"
-													style={{ borderColor: "var(--b1)" }}
-													onClick={clearChatHistory}
-													disabled={chatMessages.length === 0}
+												<div className="flex items-center gap-1.5">
+													<button
+														type="button"
+														className="rounded-[6px] border px-2 py-1 text-[10px] font-medium text-[var(--t2)] hover:bg-[var(--s2)]"
+														style={{ borderColor: "var(--b1)" }}
+														onClick={() => void handleCreateNewThread()}
+														disabled={chatLoading}
+													>
+														New thread
+													</button>
+													<button
+														type="button"
+														className="rounded-[6px] border px-2 py-1 text-[10px] font-medium text-[var(--t2)] hover:bg-[var(--s2)]"
+														style={{ borderColor: "var(--b1)" }}
+														onClick={clearChatHistory}
+														disabled={!activeThreadId || chatMessages.length === 0}
+													>
+														Clear chat
+													</button>
+												</div>
+											</div>
+											<div className="mb-2 flex items-center gap-2">
+												<select
+													className="h-7 flex-1 rounded-[6px] border border-[var(--b1)] bg-[var(--s0)] px-2 text-[10px] text-[var(--t1)]"
+													value={activeThreadId ?? ""}
+													onChange={(event) => {
+														const nextThreadId = event.target.value;
+														if (!nextThreadId || !repoId.trim()) return;
+														void syncThreads(repoId.trim(), nextThreadId);
+													}}
+													disabled={threadsLoading || chatLoading}
 												>
-													Clear chat
-												</button>
+													{chatThreads.length === 0 ? (
+														<option value="">No threads</option>
+													) : (
+														chatThreads.map((thread) => (
+															<option key={thread.id} value={thread.id}>
+																{thread.title}
+															</option>
+														))
+													)}
+												</select>
+												{threadsLoading && (
+													<span className="text-[10px] text-[var(--t3)]">Loading...</span>
+												)}
 											</div>
 											{selectedNodeIds.length > 0 ? (
 												<div className="flex flex-wrap gap-1">

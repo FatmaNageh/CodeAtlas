@@ -14,17 +14,46 @@ vi.mock('@/ai/embeddings', () => ({
   generateSingleEmbed: vi.fn(),
 }));
 
+vi.mock('@CodeAtlas/db/chat', () => ({
+  resolveThreadForQuestion: vi.fn(),
+  appendThreadMessage: vi.fn(),
+}));
+
 import { graphragRoute } from '@/routes/graphrag';
 import { generateBatchSummaries } from '@/pipeline/generateSummary';
 import { generateSingleEmbed } from '@/ai/embeddings';
+import { appendThreadMessage, resolveThreadForQuestion } from '@CodeAtlas/db/chat';
 
 const mockedGenerateBatchSummaries = vi.mocked(generateBatchSummaries);
 const mockedGenerateSingleEmbed = vi.mocked(generateSingleEmbed);
+const mockedResolveThreadForQuestion = vi.mocked(resolveThreadForQuestion);
+const mockedAppendThreadMessage = vi.mocked(appendThreadMessage);
 
 describe('graphrag route failure handling', () => {
   beforeEach(() => {
     mockedGenerateBatchSummaries.mockReset();
     mockedGenerateSingleEmbed.mockReset();
+    mockedResolveThreadForQuestion.mockReset();
+    mockedAppendThreadMessage.mockReset();
+
+    mockedResolveThreadForQuestion.mockResolvedValue({
+      id: 'thread-1',
+      repoId: 'repo-1',
+      title: 'Thread',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      lastMessageAt: new Date().toISOString(),
+    });
+    mockedAppendThreadMessage.mockResolvedValue({
+      id: 'message-1',
+      threadId: 'thread-1',
+      repoId: 'repo-1',
+      role: 'user',
+      content: 'question',
+      sourcesJson: null,
+      sequence: 1,
+      createdAt: new Date().toISOString(),
+    });
   });
 
   it('returns deterministic summarize payload when LLM is unreachable', async () => {
