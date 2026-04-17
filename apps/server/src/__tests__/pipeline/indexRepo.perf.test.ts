@@ -1,10 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import path from 'path';
+import { existsSync } from 'fs';
 import { indexRepository } from '@/pipeline/indexRepo';
 
 const fzfMaster = path.join(process.cwd(), '../../example_files/fzf-master');
 
-describe('indexRepository performance benchmarks', () => {
+describe.skipIf(!existsSync(fzfMaster))('indexRepository performance benchmarks', () => {
   it('measures full index performance on fzf-master', async () => {
     const start = performance.now();
 

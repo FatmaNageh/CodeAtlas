@@ -32,7 +32,7 @@ describe('loadIndexState', () => {
   it('returns null for wrong version', async () => {
     const stateDir = path.join(tmpDir, '.codeatlas');
     await fs.mkdir(stateDir, { recursive: true });
-    await fs.writeFile(path.join(stateDir, 'index-state.json'), JSON.stringify({ version: 2 }));
+    await fs.writeFile(path.join(stateDir, 'index-state.json'), JSON.stringify({ version: 3 }));
     const result = await loadIndexState(tmpDir);
     expect(result).toBeNull();
   });
@@ -74,13 +74,13 @@ describe('saveIndexState', () => {
       scannedAt: new Date().toISOString(),
     };
     const result = await saveIndexState(tmpDir, scan);
-    expect(result.version).toBe(1);
+    expect(result.version).toBe(2);
     expect(result.files).toEqual({});
 
     const stateFile = path.join(tmpDir, '.codeatlas', 'index-state.json');
     const content = await fs.readFile(stateFile, 'utf-8');
     const parsed = JSON.parse(content);
-    expect(parsed.version).toBe(1);
+    expect(parsed.version).toBe(2);
   });
 
   it('saves file metadata correctly', async () => {
@@ -230,9 +230,10 @@ describe('diffScan', () => {
 
   it('detects changes via hash when mtime and size are same', () => {
     const prev: IndexState = {
-      version: 1,
+      version: 2,
       repoRoot: '/test',
       scannedAt: new Date().toISOString(),
+      scanHashMode: 'code',
       files: {
         'a.ts': { kind: 'code', mtimeMs: 1000, size: 100, hash: 'abc123' },
       },
@@ -244,6 +245,7 @@ describe('diffScan', () => {
       ],
       ignoredCount: 0,
       scannedAt: new Date().toISOString(),
+      hashMode: 'code',
     };
     const diff = diffScan(prev, curr);
     expect(diff.changed).toHaveLength(1);

@@ -1,0 +1,74 @@
+export class LargeBox {
+  line0(): number { return 0; }
+  line1(): number { return 1; }
+  line2(): number { return 2; }
+  line3(): number { return 3; }
+  line4(): number { return 4; }
+  line5(): number { return 5; }
+  line6(): number { return 6; }
+  line7(): number { return 7; }
+  line8(): number { return 8; }
+  line9(): number { return 9; }
+  line10(): number { return 10; }
+  line11(): number { return 11; }
+  line12(): number { return 12; }
+  line13(): number { return 13; }
+  line14(): number { return 14; }
+  line15(): number { return 15; }
+  line16(): number { return 16; }
+  line17(): number { return 17; }
+  line18(): number { return 18; }
+  line19(): number { return 19; }
+  line20(): number { return 20; }
+  line21(): number { return 21; }
+  line22(): number { return 22; }
+  line23(): number { return 23; }
+  line24(): number { return 24; }
+  line25(): number { return 25; }
+  line26(): number { return 26; }
+  line27(): number { return 27; }
+  line28(): number { return 28; }
+  line29(): number { return 29; }
+  line30(): number { return 30; }
+  line31(): number { return 31; }
+  line32(): number { return 32; }
+  line33(): number { return 33; }
+  line34(): number { return 34; }
+  line35(): number { return 35; }
+  line36(): number { return 36; }
+  line37(): number { return 37; }
+  line38(): number { return 38; }
+  line39(): number { return 39; }
+  line40(): number { return 40; }
+  line41(): number { return 41; }
+  line42(): number { return 42; }
+  line43(): number { return 43; }
+  line44(): number { return 44; }
+  line45(): number { return 45; }
+  line46(): number { return 46; }
+  line47(): number { return 47; }
+  line48(): number { return 48; }
+  line49(): number { return 49; }
+  line50(): number { return 50; }
+  line51(): number { return 51; }
+  line52(): number { return 52; }
+  line53(): number { return 53; }
+  line54(): number { return 54; }
+  line55(): number { return 55; }
+  line56(): number { return 56; }
+  line57(): number { return 57; }
+  line58(): number { return 58; }
+  line59(): number { return 59; }
+  line60(): number { return 60; }
+  line61(): number { return 61; }
+  line62(): number { return 62; }
+  line63(): number { return 63; }
+  line64(): number { return 64; }
+  line65(): number { return 65; }
+  line66(): number { return 66; }
+  line67(): number { return 67; }
+}
+
+export function makeLargeBox() {
+  return new LargeBox();
+}

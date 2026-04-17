@@ -72,6 +72,9 @@ importers:
       turbo:
         specifier: ^2.5.4
         version: 2.6.1
+      vitest:
+        specifier: ^4.1.2
+        version: 4.1.2(@opentelemetry/api@1.9.0)(@types/node@22.19.1)(vite@7.3.1(@types/node@22.19.1)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.20.6))
 
   apps/chat-ui:
     dependencies:
@@ -128,10 +131,10 @@ importers:
         specifier: ^1.90.0
         version: 1.108.1
       '@vscode/vsce':
-        specifier: ^3.0.0
+        specifier: ^3.7.1
         version: 3.7.1
       esbuild:
-        specifier: ^0.25.0
+        specifier: ^0.25.12
         version: 0.25.12
       typescript:
         specifier: ^5.7.3

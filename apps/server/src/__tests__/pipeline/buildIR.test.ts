@@ -1,5 +1,6 @@
 import fs from "fs/promises";
 import path from "path";
+import { fileURLToPath } from "url";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -9,7 +10,8 @@ import { scanRepo } from "@/pipeline/scan";
 import { extractTextFacts } from "@/pipeline/textExtract";
 import { repoNodeId, textFileNodeId } from "@/pipeline/id";
 
-const fixturesDir = path.join(process.cwd(), "src/__tests__/fixtures");
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const fixturesDir = path.resolve(__dirname, "../fixtures");
 const tempDir = path.join(fixturesDir, "temp-build-ir");
 
 describe("buildIR", () => {

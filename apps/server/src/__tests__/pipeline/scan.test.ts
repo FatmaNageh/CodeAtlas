@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { scanRepo } from '../../pipeline/scan';
 
-const fixturesDir = path.join(process.cwd(), 'src/__tests__/fixtures');
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const fixturesDir = path.resolve(__dirname, '../fixtures');
 
 describe('scanRepo', () => {
   it('scans a simple JS project fixture', async () => {
