@@ -192,7 +192,8 @@ export async function embedASTFiles(
         );
         for (const [batchIndex, job] of batch.entries()) {
           const embedding = embeddings[batchIndex];
-          if (!job || !embedding) continue;
+          if (!job) continue;
+          if (!embedding || (Array.isArray(embedding) && embedding.every((v) => v === null))) continue;
 
           await writeCypher(
             `/*cypher*/

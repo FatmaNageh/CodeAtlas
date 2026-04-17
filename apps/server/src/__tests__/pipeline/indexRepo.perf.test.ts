@@ -1,15 +1,29 @@
-import { describe, it, expect } from 'vitest';
+import fs from 'fs/promises';
 import path from 'path';
+import { beforeAll, afterAll, describe, it, expect } from 'vitest';
 import { indexRepository } from '@/pipeline/indexRepo';
 
-const fzfMaster = path.join(process.cwd(), '../../example_files/fzf-master');
+const fixturesDir = path.join(process.cwd(), 'src/__tests__/fixtures');
+const perfRepo = path.join(fixturesDir, 'temp-perf-repo');
 
 describe('indexRepository performance benchmarks', () => {
+  beforeAll(async () => {
+    await fs.rm(perfRepo, { recursive: true, force: true });
+    await fs.mkdir(path.join(perfRepo, 'src'), { recursive: true });
+    await fs.writeFile(path.join(perfRepo, 'src', 'index.ts'), 'export function main(): number { return 1; }', 'utf-8');
+    await fs.writeFile(path.join(perfRepo, 'src', 'util.ts'), 'export const plus = (a: number, b: number): number => a + b;', 'utf-8');
+    await fs.writeFile(path.join(perfRepo, 'README.md'), '# Perf fixture\n\nSmall fixture for pipeline perf tests.', 'utf-8');
+  });
+
+  afterAll(async () => {
+    await fs.rm(perfRepo, { recursive: true, force: true });
+  });
+
   it('measures full index performance on fzf-master', async () => {
     const start = performance.now();
 
     const result = await indexRepository({
-      projectPath: fzfMaster,
+      projectPath: perfRepo,
       mode: 'full',
       saveDebugJson: false,
       dryRun: true,
@@ -30,7 +44,7 @@ describe('indexRepository performance benchmarks', () => {
 
   it('measures incremental index performance (no changes)', async () => {
     await indexRepository({
-      projectPath: fzfMaster,
+      projectPath: perfRepo,
       mode: 'full',
       saveDebugJson: false,
       dryRun: true,
@@ -39,7 +53,7 @@ describe('indexRepository performance benchmarks', () => {
     const start = performance.now();
 
     const result = await indexRepository({
-      projectPath: fzfMaster,
+      projectPath: perfRepo,
       mode: 'incremental',
       saveDebugJson: false,
       dryRun: true,
@@ -58,7 +72,7 @@ describe('indexRepository performance benchmarks', () => {
     const { scanRepo } = await import('../../pipeline/scan');
 
     const start = performance.now();
-    const scanResult = await scanRepo(fzfMaster);
+    const scanResult = await scanRepo(perfRepo);
     const duration = performance.now() - start;
 
     console.log(`[PERF] Scan phase: ${duration.toFixed(0)}ms`);
@@ -74,7 +88,7 @@ describe('indexRepository performance benchmarks', () => {
     const { scanRepo } = await import('../../pipeline/scan');
     const { parseAndExtract } = await import('../../pipeline/parseExtract');
 
-    const scanResult = await scanRepo(fzfMaster);
+    const scanResult = await scanRepo(perfRepo);
     const codeFiles = scanResult.entries.filter((e) => e.kind === 'code');
 
     const start = performance.now();
@@ -97,12 +111,12 @@ describe('indexRepository performance benchmarks', () => {
     const { parseAndExtract } = await import('../../pipeline/parseExtract');
     const { buildIR } = await import('../../pipeline/ir');
 
-    const scanResult = await scanRepo(fzfMaster);
+    const scanResult = await scanRepo(perfRepo);
     const codeFiles = scanResult.entries.filter((e) => e.kind === 'code');
     const facts = await parseAndExtract(codeFiles);
 
     const start = performance.now();
-    const ir = buildIR(scanResult, facts);
+    const ir = await buildIR(scanResult, facts);
     const duration = performance.now() - start;
 
     console.log(`[PERF] Build IR: ${duration.toFixed(0)}ms`);

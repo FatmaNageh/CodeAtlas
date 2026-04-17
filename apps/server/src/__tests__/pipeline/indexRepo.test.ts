@@ -151,7 +151,7 @@ describe('indexRepository (dryRun)', () => {
     const stateFile = path.join(tempDir, '.codeatlas', 'index-state.json');
     const content = await fs.readFile(stateFile, 'utf-8');
     const state = JSON.parse(content);
-    expect(state.version).toBe(1);
+    expect(state.version).toBe(2);
     expect(state.files).toBeDefined();
   });
 

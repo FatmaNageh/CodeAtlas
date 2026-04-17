@@ -52,14 +52,12 @@ describe('generateEmbeddings', () => {
     expect(result[1]).toBe(mockEmbedding2);
   });
 
-  it('returns fallback null-filled array on API failure', async () => {
+  it('returns fallback null on API failure', async () => {
     mockedEmbed.mockRejectedValue(new Error('API error'));
 
     const result = await generateEmbeddings(['fail']);
     expect(result).toHaveLength(1);
-    expect(result[0]).not.toBeNull();
-    expect(result[0]).toHaveLength(1536);
-    expect(result[0]!.every((v) => v === null)).toBe(true);
+    expect(result[0]).toBeNull();
   });
 
   it('handles mixed success and failure', async () => {
@@ -72,7 +70,7 @@ describe('generateEmbeddings', () => {
     const result = await generateEmbeddings(['success1', 'fail', 'success2']);
     expect(result).toHaveLength(3);
     expect(result[0]).toBe(mockEmbedding);
-    expect(result[1]!.every((v) => v === null)).toBe(true);
+    expect(result[1]).toBeNull();
     expect(result[2]).toBe(mockEmbedding);
   });
 });

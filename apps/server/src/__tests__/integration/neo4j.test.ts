@@ -130,7 +130,7 @@ describe('Integration tests (requires Neo4j)', () => {
 
     if (embedResult.totalEmbedded > 0) {
       const chunkNodes = await runCypher(
-        'MATCH (a:ASTNode {repoId: $repoId}) WHERE a.embedding IS NOT NULL RETURN a.name as symbol, a.fileRelPath as relPath, size(a.embedding) as dim',
+        'MATCH (a:AstNode {repoId: $repoId}) WHERE a.embeddings IS NOT NULL RETURN a.name as symbol, a.fileRelPath as relPath, size(a.embeddings) as dim',
         { repoId: indexResult.repoId },
       );
       expect(chunkNodes.length).toBeGreaterThanOrEqual(1);
