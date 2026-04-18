@@ -710,6 +710,15 @@ function bfsDepth(nodes: Neo4jNode[], edges: Neo4jEdge[]) {
 	return depth;
 }
 
+type DirectoryMetrics = {
+	directFiles: number;
+	directDirectories: number;
+	totalFiles: number;
+	totalDirectories: number;
+	parsedCodeFiles: number;
+	languageCounts: Array<[string, number]>;
+};
+
 function shortestPath(
 	nodeIds: string[],
 	edges: Neo4jEdge[],
@@ -1412,6 +1421,82 @@ function GraphExplorerPage() {
 		selectedFileLineCount,
 		selectedFileNode,
 	]);
+
+	const selectedDirectoryMetrics = useMemo<DirectoryMetrics | null>(() => {
+		if (!selectedNode || selectedNode.kind !== "folder") return null;
+
+		const nodeById = new Map<string, ExplorerNode>(
+			explorerNodes.map((node) => [String(node.id), node]),
+		);
+		const containsChildren = new Map<string, string[]>();
+
+		for (const edge of graph.edges) {
+			if (String(edge.type).toUpperCase() !== "CONTAINS") continue;
+			const fromId = String(edge.from);
+			const toId = String(edge.to);
+			const current = containsChildren.get(fromId) ?? [];
+			current.push(toId);
+			containsChildren.set(fromId, current);
+		}
+
+		const directChildren = containsChildren.get(String(selectedNode.id)) ?? [];
+		let directFiles = 0;
+		let directDirectories = 0;
+
+		for (const childId of directChildren) {
+			const child = nodeById.get(childId);
+			if (!child) continue;
+			if (child.kind === "folder") directDirectories += 1;
+			if (child.kind === "file") directFiles += 1;
+		}
+
+		const visited = new Set<string>();
+		const queue = [...directChildren];
+		let totalFiles = 0;
+		let totalDirectories = 0;
+		let parsedCodeFiles = 0;
+		const languageCounts = new Map<string, number>();
+
+		while (queue.length > 0) {
+			const currentId = queue.shift();
+			if (!currentId || visited.has(currentId)) continue;
+			visited.add(currentId);
+
+			const currentNode = nodeById.get(currentId);
+			if (!currentNode) continue;
+
+			if (currentNode.kind === "folder") {
+				totalDirectories += 1;
+				const nextChildren = containsChildren.get(currentId) ?? [];
+				queue.push(...nextChildren);
+				continue;
+			}
+
+			if (currentNode.kind !== "file") continue;
+			totalFiles += 1;
+
+			if (isCodeFileNode(currentNode)) {
+				const parseStatus = getParseStatus(currentNode);
+				if (parseStatus === "parsed" || parseStatus === "partial") {
+					parsedCodeFiles += 1;
+				}
+			}
+
+			const language = getNodeLanguage(currentNode);
+			languageCounts.set(language, (languageCounts.get(language) ?? 0) + 1);
+		}
+
+		return {
+			directFiles,
+			directDirectories,
+			totalFiles,
+			totalDirectories,
+			parsedCodeFiles,
+			languageCounts: Array.from(languageCounts.entries()).sort(
+				(left, right) => right[1] - left[1] || left[0].localeCompare(right[0]),
+			),
+		};
+	}, [selectedNode, explorerNodes, graph.edges]);
 
 	useEffect(() => {
 		if (!selectedNode && filteredNodes[0])
@@ -3053,6 +3138,203 @@ function GraphExplorerPage() {
 														{getNodePath(selectedNode)}
 													</div>
 												</div>
+
+												{selectedNode.kind === "folder" &&
+													selectedDirectoryMetrics && (
+													<DetailSection
+														title="Directory Details"
+														eyebrow="Local Analysis"
+													>
+														<div className="space-y-3">
+															<InfoGrid
+																items={[
+																	{
+																		label: "Direct children",
+																		value: `${selectedDirectoryMetrics.directDirectories} folders, ${selectedDirectoryMetrics.directFiles} files`,
+																	},
+																	{
+																		label: "Recursive contents",
+																		value: `${selectedDirectoryMetrics.totalDirectories} folders, ${selectedDirectoryMetrics.totalFiles} files`,
+																	},
+																	{
+																		label: "Parsed code files",
+																		value: String(selectedDirectoryMetrics.parsedCodeFiles),
+																	},
+																	{
+																		label: "Scope",
+																		value: "Computed from the currently loaded graph hierarchy.",
+																	},
+																]}
+															/>
+															<div className="rounded-[10px] border border-[var(--b1)] bg-[var(--s1)] px-3 py-3">
+																<div className="mb-2 text-[10px] uppercase tracking-[0.06em] text-[var(--t3)]">
+																	Language mix
+																</div>
+																<ChipList
+																	items={selectedDirectoryMetrics.languageCounts.map(
+																		([language, count]) => `${language} (${count})`,
+																	)}
+																	emptyText="No descendant files are available in the loaded graph."
+																/>
+															</div>
+														</div>
+													</DetailSection>
+												)}
+
+												{selectedNode.kind === "file" &&
+													selectedIsCodeFile &&
+													selectedFileNode &&
+													selectedParsingMetrics && (
+													<>
+														<DetailSection
+															title="Code Details"
+															eyebrow="Local Analysis"
+														>
+															<div
+																className="rounded-[10px] border p-3"
+																style={{
+																	background:
+																		parseStatusTone(selectedParseStatus)?.background ??
+																		"var(--s1)",
+																	borderColor:
+																		parseStatusTone(selectedParseStatus)?.border ??
+																		"var(--b1)",
+																}}
+															>
+																<div className="flex items-start justify-between gap-3">
+																	<div>
+																		<div className="text-[12px] font-semibold text-[var(--t0)]">
+																			{selectedFileDisplayLabel}
+																		</div>
+																		<div className="mt-1 text-[11px] leading-5 text-[var(--t2)]">
+																			{selectedParseStatus === "parsed"
+																				? "Local AST parsing completed cleanly for this file."
+																				: selectedParseStatus === "partial"
+																					? "Local parsing recovered most structure, but some sections may be incomplete."
+																					: selectedParseStatus === "failed"
+																						? "Local structural parsing failed, so details may be limited."
+																						: "No parse result was recorded for this file."}
+																		</div>
+																	</div>
+																	{parseStatusTone(selectedParseStatus) ? (
+																		<div
+																			className="rounded-full border px-2 py-1 font-mono text-[10px]"
+																			style={{
+																				background:
+																					parseStatusTone(selectedParseStatus)?.background,
+																				borderColor:
+																					parseStatusTone(selectedParseStatus)?.border,
+																				color:
+																					parseStatusTone(selectedParseStatus)?.color,
+																			}}
+																		>
+																			{parseStatusTone(selectedParseStatus)?.label}
+																		</div>
+																	) : null}
+																</div>
+																<div className="mt-3">
+																	<InfoGrid
+																		items={[
+																			{
+																				label: "Parser",
+																				value: selectedParsingMetrics.parser,
+																			},
+																			{
+																				label: "Parse errors",
+																				value: String(selectedParsingMetrics.parseErrors),
+																			},
+																			{
+																				label: "AST sections",
+																				value: String(selectedParsingMetrics.astNodeCount),
+																			},
+																			{
+																				label: "Symbols found",
+																				value: String(selectedParsingMetrics.symbolCount),
+																			},
+																			{
+																				label: "Imports",
+																				value: String(selectedParsingMetrics.importCount),
+																			},
+																			{
+																				label: "Call sites",
+																				value: String(selectedParsingMetrics.callSiteCount),
+																			},
+																		]}
+																	/>
+																</div>
+															</div>
+														</DetailSection>
+
+														<DetailSection
+															title="Extracted Structure"
+															eyebrow="Old Version Style"
+															action={
+																<button
+																	className="rounded-[6px] border border-[var(--b1)] px-2 py-1 text-[10px] text-[var(--t2)] hover:bg-[var(--s1)]"
+																	onClick={() =>
+																		setExpandedAstFileId((current) =>
+																			current === String(selectedFileNode.id)
+																				? null
+																				: String(selectedFileNode.id),
+																		)
+																	}
+																>
+																	{expandedAstFileId === String(selectedFileNode.id)
+																		? "Hide AST Nodes"
+																		: "Show AST Nodes"}
+																</button>
+															}
+														>
+															<div className="grid grid-cols-1 gap-2">
+																{[
+																	[
+																		"Classes",
+																		selectedAstSummary.classes,
+																		"No class symbols recorded.",
+																	],
+																	[
+																		"Functions",
+																		selectedAstSummary.functions,
+																		"No function symbols recorded.",
+																	],
+																	[
+																		"Modules",
+																		selectedAstSummary.modules,
+																		"No module or namespace symbols recorded.",
+																	],
+																	[
+																		"Members",
+																		selectedAstSummary.members,
+																		"No member symbols recorded.",
+																	],
+																	[
+																		"Imports",
+																		selectedAstSummary.imports,
+																		"No imports recorded.",
+																	],
+																	[
+																		"Calls",
+																		selectedAstSummary.calls,
+																		"No call sites recorded.",
+																	],
+																].map(([label, values, emptyText]) => (
+																	<div
+																		key={String(label)}
+																		className="rounded-[10px] border border-[var(--b1)] bg-[var(--s1)] px-3 py-3"
+																	>
+																		<div className="mb-2 text-[10px] uppercase tracking-[0.06em] text-[var(--t3)]">
+																			{label}
+																		</div>
+																		<ChipList
+																			items={Array.isArray(values) ? values : []}
+																			emptyText={String(emptyText)}
+																		/>
+																	</div>
+																))}
+															</div>
+														</DetailSection>
+													</>
+												)}
 
 												{false && selectedFileNode && (
 													<div className="mt-5">

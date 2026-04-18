@@ -18,7 +18,9 @@ type SegmentReason =
   | "grouped-top-level"
   | "standalone-region"
   | "oversized-split"
-  | "fallback-module";
+  | "fallback-module"
+  | "recovery-root"
+  | "recovered-symbol";
 
 function comparePositions(
   leftLine: number,
@@ -329,6 +331,61 @@ function makeFallbackModuleSegment(facts: CodeFacts, text: string): CodeSegment[
   return segment ? [segment] : [];
 }
 
+function buildRecoverySegments(facts: CodeFacts, text: string, topLevelSymbols: RawSymbol[]): CodeSegment[] {
+  const totalLines = getLineCount(text);
+  if (totalLines === 0) return [];
+
+  const rootSegment = buildSegment(
+    facts,
+    text,
+    {
+      startLine: 1,
+      startCol: 1,
+      endLine: totalLines,
+      endCol: getLineLength(text, totalLines),
+    },
+    0,
+    "module-unit",
+    null,
+    topLevelSymbols.map((symbol) => symbol.qname ?? symbol.name),
+    "recovery-root",
+  );
+
+  const segments: CodeSegment[] = [];
+  if (rootSegment) {
+    rootSegment.label = "recovery-root";
+    rootSegment.summaryCandidate = buildSummaryCandidate(
+      rootSegment.unitKind,
+      rootSegment.label,
+      rootSegment.topLevelSymbols,
+      rootSegment.imports,
+      rootSegment.calls,
+    );
+    segments.push(rootSegment);
+  }
+
+  for (const symbol of topLevelSymbols) {
+    const range = symbol.range;
+    if (!range) continue;
+
+    const segment = buildSegment(
+      facts,
+      text,
+      range,
+      segments.length,
+      unitKindForSymbol(symbol),
+      symbol,
+      [symbol.qname ?? symbol.name],
+      "recovered-symbol",
+    );
+    if (segment) {
+      segments.push(segment);
+    }
+  }
+
+  return segments.length > 0 ? segments : makeFallbackModuleSegment(facts, text);
+}
+
 export function buildCodeSegments(input: {
   facts: CodeFacts;
   text: string;
@@ -347,6 +404,10 @@ export function buildCodeSegments(input: {
         rightRange.startCol,
       );
     });
+
+  if (facts.parseStatus === "partial" || facts.parseStatus === "failed") {
+    return buildRecoverySegments(facts, text, topLevelSymbols);
+  }
 
   if (topLevelSymbols.length === 0) {
     return makeFallbackModuleSegment(facts, text);
