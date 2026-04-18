@@ -118,6 +118,7 @@ export type CodeFileNodeProps = BaseNodeProps & {
   name: string;
   extension: string;
   language: SupportedLanguage;
+  lineCount?: number | null;
   sizeBytes?: number;
   hash?: string | null;
   lastModifiedAt?: string | null;
@@ -140,6 +141,7 @@ export type TextFileNodeProps = BaseNodeProps & {
   name: string;
   extension: string;
   textType?: TextKind | "unknown";
+  lineCount?: number | null;
   sizeBytes?: number;
   hash?: string | null;
   lastModifiedAt?: string | null;
