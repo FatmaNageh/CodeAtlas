@@ -329,6 +329,7 @@ export async function buildIR(scan: ScanResult, facts: FactsByFile): Promise<Gra
           name: path.posix.basename(rel),
           extension: entry.ext,
           language: entry.language,
+          lineCount: fileFacts?.kind === "code" ? fileFacts.lineCount ?? null : null,
           createdAt: now,
           updatedAt: now,
           sizeBytes: entry.size,
@@ -526,6 +527,7 @@ export async function buildIR(scan: ScanResult, facts: FactsByFile): Promise<Gra
       }
     } else if (isText(entry)) {
       const fileNodeId = textFileNodeId(repoId, rel);
+      const fileFacts: FileFacts | undefined = facts[rel];
 
       addNode({
         label: "TextFile",
@@ -539,6 +541,7 @@ export async function buildIR(scan: ScanResult, facts: FactsByFile): Promise<Gra
           name: path.posix.basename(rel),
           extension: entry.ext,
           textType: entry.textKind,
+          lineCount: fileFacts?.kind === "text" ? fileFacts.lineCount ?? null : null,
           createdAt: now,
           updatedAt: now,
           sizeBytes: entry.size,
@@ -555,7 +558,6 @@ export async function buildIR(scan: ScanResult, facts: FactsByFile): Promise<Gra
         props: { repoId },
       });
 
-      const fileFacts: FileFacts | undefined = facts[rel];
       if (!fileFacts || fileFacts.kind !== "text") continue;
 
       const textFacts = fileFacts as TextFacts;

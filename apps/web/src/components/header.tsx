@@ -2,10 +2,10 @@ import { Link, useRouterState } from "@tanstack/react-router";
 import { ModeToggle } from "./mode-toggle";
 
 const NAV_LINKS = [
-  { to: "/",           label: "Home"         },
+  { to: "/",           label: "Home"         }, 
+   { to: "/onboarding", label: "Onboarding"   },                   
   { to: "/graph",      label: "Graph"        },
   { to: "/history",    label: "History"      },
-  { to: "/onboarding", label: "Onboarding"   },
   { to: "/faquestions", label: "FAQ"         },
 ] as const;
 
