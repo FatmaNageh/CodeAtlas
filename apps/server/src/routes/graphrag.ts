@@ -14,6 +14,10 @@ import { repoRoots } from "@/state/repoRoots";
 import { embedDimensions } from "@/config/openrouter";
 import { buildGraphTour } from "@/tour/buildGraphTour";
 import { getAdjacentASTChunks } from "@/retrieval/graph";
+import {
+  appendThreadMessage,
+  resolveThreadForQuestion,
+} from "@CodeAtlas/db/chat";
 
 export const graphragRoute = new Hono();
 
@@ -26,6 +30,7 @@ type AskNodeRef = {
 type AskRequestBody = {
   repoId?: string;
   question?: string;
+  threadId?: string;
   contextNodeId?: string;
   mentionedNodes?: AskNodeRef[];
   selectedNodes?: AskNodeRef[];
@@ -397,6 +402,7 @@ graphragRoute.post("/ask", async (c) => {
   const {
     repoId,
     question,
+    threadId,
     contextNodeId,
     mentionedNodes,
     selectedNodes,
@@ -407,6 +413,19 @@ graphragRoute.post("/ask", async (c) => {
   }
 
   try {
+    const thread = await resolveThreadForQuestion({
+      repoId,
+      threadId,
+      question,
+    });
+
+    await appendThreadMessage({
+      repoId,
+      threadId: thread.id,
+      role: "user",
+      content: question,
+    });
+
     const contextNodeRefs = uniqueNodeRefs(
       contextNodeId ? [{ id: contextNodeId }] : undefined,
       mentionedNodes,
@@ -555,10 +574,21 @@ graphragRoute.post("/ask", async (c) => {
     // Generate answer
     const answer = await generateTextWithContext(prompt, { maxTokens: 1000 });
 
+    const allSources = [...nodeContextResult.sources, ...vectorSources];
+
+    await appendThreadMessage({
+      repoId,
+      threadId: thread.id,
+      role: "assistant",
+      content: answer,
+      sourcesJson: JSON.stringify(allSources),
+    });
+
     return c.json({
       ok: true,
+      threadId: thread.id,
       answer,
-      sources: [...nodeContextResult.sources, ...vectorSources],
+      sources: allSources,
     });
   } catch (err) {
     return c.json({ ok: false, error: String(err) }, 500);

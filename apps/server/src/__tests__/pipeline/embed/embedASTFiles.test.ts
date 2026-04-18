@@ -4,6 +4,7 @@ import fs from 'fs/promises';
 
 vi.mock('@/db/cypher', () => ({
   runCypher: vi.fn(),
+  writeCypher: vi.fn(),
 }));
 
 vi.mock('@/ai/embeddings', () => ({
@@ -11,10 +12,11 @@ vi.mock('@/ai/embeddings', () => ({
 }));
 
 import { embedASTFiles } from '@/pipeline/embed/embedASTFiles';
-import { runCypher } from '@/db/cypher';
+import { runCypher, writeCypher } from '@/db/cypher';
 import { generateEmbeddings } from '@/ai/embeddings';
 
 const mockedRunCypher = vi.mocked(runCypher);
+const mockedWriteCypher = vi.mocked(writeCypher);
 const mockedGenerateEmbeddings = vi.mocked(generateEmbeddings);
 
 const fixturesDir = path.join(process.cwd(), 'src/__tests__/fixtures');
@@ -23,6 +25,7 @@ const embedTestDir = path.join(fixturesDir, 'temp-embed');
 describe('embedASTFiles', () => {
   beforeEach(async () => {
     mockedRunCypher.mockReset();
+    mockedWriteCypher.mockReset();
     mockedGenerateEmbeddings.mockReset();
 
     await fs.rm(embedTestDir, { recursive: true, force: true });
@@ -49,13 +52,15 @@ describe('embedASTFiles', () => {
 
   it('processes symbols and embeds chunks successfully', async () => {
     const mockSymbols = [
-      { astNodeId: 'ast-1', relPath: 'src/math.ts', symbolName: 'add', startLine: 1, endLine: 3 },
-      { astNodeId: 'ast-2', relPath: 'src/math.ts', symbolName: 'subtract', startLine: 5, endLine: 7 },
+      { astNodeId: 'ast-1', relPath: 'src/math.ts', symbolName: 'add', startLine: 1, endLine: 3, unitKind: 'function', summaryCandidate: null, segmentReason: null, keywords: null, topLevelSymbols: null },
+      { astNodeId: 'ast-2', relPath: 'src/math.ts', symbolName: 'subtract', startLine: 5, endLine: 7, unitKind: 'function', summaryCandidate: null, segmentReason: null, keywords: null, topLevelSymbols: null },
     ];
 
     mockedRunCypher
+      .mockResolvedValueOnce([{ relPath: 'src/math.ts' }])
       .mockResolvedValueOnce(mockSymbols)
       .mockResolvedValue([]);
+    mockedWriteCypher.mockResolvedValue([]);
 
     const mockEmbedding = new Array(1536).fill(0.01);
     mockedGenerateEmbeddings.mockResolvedValue([mockEmbedding, mockEmbedding]);
@@ -67,20 +72,22 @@ describe('embedASTFiles', () => {
     expect(result.totalEmbedded).toBe(2);
     expect(result.failedBatches).toBe(0);
     expect(mockedGenerateEmbeddings).toHaveBeenCalledTimes(1);
-    expect(mockedRunCypher).toHaveBeenCalledTimes(3);
+    expect(mockedRunCypher).toHaveBeenCalledTimes(2);
   });
 
   it('respects batchSize parameter', async () => {
     const mockSymbols = [
-      { astNodeId: 'ast-1', relPath: 'src/math.ts', symbolName: 'sym1', startLine: 1, endLine: 2 },
-      { astNodeId: 'ast-2', relPath: 'src/math.ts', symbolName: 'sym2', startLine: 3, endLine: 4 },
-      { astNodeId: 'ast-3', relPath: 'src/math.ts', symbolName: 'sym3', startLine: 5, endLine: 6 },
-      { astNodeId: 'ast-4', relPath: 'src/math.ts', symbolName: 'sym4', startLine: 7, endLine: 8 },
+      { astNodeId: 'ast-1', relPath: 'src/math.ts', symbolName: 'sym1', startLine: 1, endLine: 2, unitKind: 'function', summaryCandidate: null, segmentReason: null, keywords: null, topLevelSymbols: null },
+      { astNodeId: 'ast-2', relPath: 'src/math.ts', symbolName: 'sym2', startLine: 3, endLine: 4, unitKind: 'function', summaryCandidate: null, segmentReason: null, keywords: null, topLevelSymbols: null },
+      { astNodeId: 'ast-3', relPath: 'src/math.ts', symbolName: 'sym3', startLine: 5, endLine: 6, unitKind: 'function', summaryCandidate: null, segmentReason: null, keywords: null, topLevelSymbols: null },
+      { astNodeId: 'ast-4', relPath: 'src/math.ts', symbolName: 'sym4', startLine: 7, endLine: 8, unitKind: 'function', summaryCandidate: null, segmentReason: null, keywords: null, topLevelSymbols: null },
     ];
 
     mockedRunCypher
+      .mockResolvedValueOnce([{ relPath: 'src/math.ts' }])
       .mockResolvedValueOnce(mockSymbols)
       .mockResolvedValue([]);
+    mockedWriteCypher.mockResolvedValue([]);
 
     const mockEmbedding = new Array(1536).fill(0.01);
     mockedGenerateEmbeddings.mockResolvedValue([mockEmbedding, mockEmbedding]);
@@ -108,10 +115,13 @@ describe('embedASTFiles', () => {
 
   it('handles batch embedding failure gracefully', async () => {
     const mockSymbols = [
-      { astNodeId: 'ast-1', relPath: 'src/math.ts', symbolName: 'add', startLine: 1, endLine: 3 },
+      { astNodeId: 'ast-1', relPath: 'src/math.ts', symbolName: 'add', startLine: 1, endLine: 3, unitKind: 'function', summaryCandidate: null, segmentReason: null, keywords: null, topLevelSymbols: null },
     ];
 
-    mockedRunCypher.mockResolvedValueOnce(mockSymbols);
+    mockedRunCypher
+      .mockResolvedValueOnce([{ relPath: 'src/math.ts' }])
+      .mockResolvedValueOnce(mockSymbols);
+    mockedWriteCypher.mockResolvedValue([]);
 
     mockedGenerateEmbeddings.mockRejectedValue(new Error('API timeout'));
 
@@ -125,16 +135,18 @@ describe('embedASTFiles', () => {
 
   it('handles null embeddings from fallback', async () => {
     const mockSymbols = [
-      { astNodeId: 'ast-1', relPath: 'src/math.ts', symbolName: 'add', startLine: 1, endLine: 3 },
-      { astNodeId: 'ast-2', relPath: 'src/math.ts', symbolName: 'subtract', startLine: 5, endLine: 7 },
+      { astNodeId: 'ast-1', relPath: 'src/math.ts', symbolName: 'add', startLine: 1, endLine: 3, unitKind: 'function', summaryCandidate: null, segmentReason: null, keywords: null, topLevelSymbols: null },
+      { astNodeId: 'ast-2', relPath: 'src/math.ts', symbolName: 'subtract', startLine: 5, endLine: 7, unitKind: 'function', summaryCandidate: null, segmentReason: null, keywords: null, topLevelSymbols: null },
     ];
 
     mockedRunCypher
+      .mockResolvedValueOnce([{ relPath: 'src/math.ts' }])
       .mockResolvedValueOnce(mockSymbols)
       .mockResolvedValue([]);
+    mockedWriteCypher.mockResolvedValue([]);
 
     const mockEmbedding = new Array(1536).fill(0.01);
-    mockedGenerateEmbeddings.mockResolvedValue([mockEmbedding, null]);
+    mockedGenerateEmbeddings.mockResolvedValue([mockEmbedding, new Array(1536).fill(null)]);
 
     const result = await embedASTFiles('test-repo', embedTestDir, 10);
 
@@ -183,5 +195,111 @@ describe('embedASTFiles', () => {
     expect(result.totalEmbedded).toBe(0);
 
     await fs.rm(emptyFile, { force: true });
+  });
+
+  it('embeds class chunks including class and method context', async () => {
+    const classFile = path.join(embedTestDir, 'src', 'user-service.ts');
+    await fs.writeFile(
+      classFile,
+      [
+        'export class UserService {',
+        '  createUser(name: string): string {',
+        '    return `created:${name}`;',
+        '  }',
+        '',
+        '  deleteUser(name: string): string {',
+        '    return `deleted:${name}`;',
+        '  }',
+        '}',
+      ].join('\n'),
+      'utf-8',
+    );
+
+    const classSymbols = [
+      {
+        astNodeId: 'ast-class-1',
+        relPath: 'src/user-service.ts',
+        symbolName: 'UserService',
+        unitKind: 'class',
+        summaryCandidate: 'Service that manages user lifecycle methods.',
+        segmentReason: 'class declaration',
+        keywords: ['user', 'service'],
+        topLevelSymbols: ['UserService'],
+        startLine: 1,
+        endLine: 9,
+      },
+    ];
+
+    mockedRunCypher
+      .mockResolvedValueOnce([{ relPath: 'src/user-service.ts' }])
+      .mockResolvedValueOnce(classSymbols);
+    mockedWriteCypher.mockResolvedValue([]);
+
+    const mockEmbedding = new Array(1536).fill(0.01);
+    mockedGenerateEmbeddings.mockResolvedValue([mockEmbedding]);
+
+    const result = await embedASTFiles('test-repo', embedTestDir, 10);
+
+    expect(result.ok).toBe(true);
+    expect(result.totalEmbedded).toBe(1);
+    expect(mockedGenerateEmbeddings).toHaveBeenCalledTimes(1);
+
+    const firstCall = mockedGenerateEmbeddings.mock.calls[0];
+    expect(firstCall).toBeDefined();
+    const firstBatch = firstCall?.[0];
+    expect(firstBatch).toBeDefined();
+    const firstText = firstBatch?.[0];
+    expect(firstText).toContain('Label: UserService');
+    expect(firstText).toContain('Unit kind: class');
+    expect(firstText).toContain('class UserService');
+    expect(firstText).toContain('createUser(name: string): string');
+    expect(firstText).toContain('deleteUser(name: string): string');
+  });
+
+  it('partitions 2000 embedding jobs without dropping or duplicating chunks', async () => {
+    const totalSymbols = 2000;
+    const batchSize = 128;
+    const bulkFile = path.join(embedTestDir, 'src', 'bulk.ts');
+
+    const lines = Array.from(
+      { length: totalSymbols },
+      (_, index) => `export function fn${index}(): number { return ${index}; }`,
+    );
+    await fs.writeFile(bulkFile, lines.join('\n'), 'utf-8');
+
+    const bulkSymbols = Array.from({ length: totalSymbols }, (_, index) => ({
+      astNodeId: `ast-${index}`,
+      relPath: 'src/bulk.ts',
+      symbolName: `fn${index}`,
+      unitKind: 'function',
+      summaryCandidate: null,
+      segmentReason: 'function declaration',
+      keywords: ['function'],
+      topLevelSymbols: [`fn${index}`],
+      startLine: index + 1,
+      endLine: index + 1,
+    }));
+
+    mockedRunCypher
+      .mockResolvedValueOnce([{ relPath: 'src/bulk.ts' }])
+      .mockResolvedValueOnce(bulkSymbols);
+    mockedWriteCypher.mockResolvedValue([]);
+    mockedGenerateEmbeddings.mockImplementation(async (texts: string[]) =>
+      texts.map(() => new Array(1536).fill(0.01)),
+    );
+
+    const result = await embedASTFiles('test-repo', embedTestDir, batchSize);
+
+    expect(result.ok).toBe(true);
+    expect(result.files).toBe(1);
+    expect(result.totalEmbedded).toBe(totalSymbols);
+    expect(result.failedBatches).toBe(0);
+    expect(mockedGenerateEmbeddings).toHaveBeenCalledTimes(
+      Math.ceil(totalSymbols / batchSize),
+    );
+
+    const allTexts = mockedGenerateEmbeddings.mock.calls.flatMap((call) => call[0]);
+    expect(allTexts).toHaveLength(totalSymbols);
+    expect(new Set(allTexts).size).toBe(totalSymbols);
   });
 });

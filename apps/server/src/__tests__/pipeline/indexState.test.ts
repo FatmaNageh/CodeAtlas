@@ -32,7 +32,7 @@ describe('loadIndexState', () => {
   it('returns null for wrong version', async () => {
     const stateDir = path.join(tmpDir, '.codeatlas');
     await fs.mkdir(stateDir, { recursive: true });
-    await fs.writeFile(path.join(stateDir, 'index-state.json'), JSON.stringify({ version: 2 }));
+    await fs.writeFile(path.join(stateDir, 'index-state.json'), JSON.stringify({ version: 3 }));
     const result = await loadIndexState(tmpDir);
     expect(result).toBeNull();
   });
@@ -72,15 +72,16 @@ describe('saveIndexState', () => {
       entries: [],
       ignoredCount: 0,
       scannedAt: new Date().toISOString(),
+      hashMode: 'none',
     };
     const result = await saveIndexState(tmpDir, scan);
-    expect(result.version).toBe(1);
+    expect(result.version).toBe(2);
     expect(result.files).toEqual({});
 
     const stateFile = path.join(tmpDir, '.codeatlas', 'index-state.json');
     const content = await fs.readFile(stateFile, 'utf-8');
     const parsed = JSON.parse(content);
-    expect(parsed.version).toBe(1);
+    expect(parsed.version).toBe(2);
   });
 
   it('saves file metadata correctly', async () => {
@@ -99,6 +100,7 @@ describe('saveIndexState', () => {
       ],
       ignoredCount: 0,
       scannedAt: new Date().toISOString(),
+      hashMode: 'none',
     };
     const result = await saveIndexState(tmpDir, scan);
     expect(result.files['src/index.ts']).toEqual({
@@ -120,6 +122,7 @@ describe('diffScan', () => {
       ],
       ignoredCount: 0,
       scannedAt: new Date().toISOString(),
+      hashMode: 'none',
     };
     const diff = diffScan(null, curr);
     expect(diff.added).toHaveLength(2);
@@ -146,6 +149,7 @@ describe('diffScan', () => {
       ],
       ignoredCount: 0,
       scannedAt: new Date().toISOString(),
+      hashMode: 'none',
     };
     const diff = diffScan(prev, curr);
     expect(diff.added).toHaveLength(0);
@@ -170,6 +174,7 @@ describe('diffScan', () => {
       ],
       ignoredCount: 0,
       scannedAt: new Date().toISOString(),
+      hashMode: 'none',
     };
     const diff = diffScan(prev, curr);
     expect(diff.changed).toHaveLength(1);
@@ -193,6 +198,7 @@ describe('diffScan', () => {
       ],
       ignoredCount: 0,
       scannedAt: new Date().toISOString(),
+      hashMode: 'none',
     };
     const diff = diffScan(prev, curr);
     expect(diff.removed).toHaveLength(1);
@@ -220,6 +226,7 @@ describe('diffScan', () => {
       ],
       ignoredCount: 0,
       scannedAt: new Date().toISOString(),
+      hashMode: 'none',
     };
     const diff = diffScan(prev, curr);
     expect(diff.added).toHaveLength(1);
@@ -233,6 +240,7 @@ describe('diffScan', () => {
       version: 1,
       repoRoot: '/test',
       scannedAt: new Date().toISOString(),
+      scanHashMode: 'code',
       files: {
         'a.ts': { kind: 'code', mtimeMs: 1000, size: 100, hash: 'abc123' },
       },
@@ -244,6 +252,7 @@ describe('diffScan', () => {
       ],
       ignoredCount: 0,
       scannedAt: new Date().toISOString(),
+      hashMode: 'code',
     };
     const diff = diffScan(prev, curr);
     expect(diff.changed).toHaveLength(1);

@@ -177,11 +177,121 @@ export type RepoRecord = {
   [key: string]: unknown;
 };
 
+export type ChatThreadRecord = {
+  id: string;
+  repoId: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  lastMessageAt: string;
+};
+
+export type ChatThreadMessageRecord = {
+  id: string;
+  threadId: string;
+  repoId: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  contextFiles: string[];
+  createdAt: string;
+  sequence: number;
+};
+
 export async function fetchRepos(baseUrl = ""): Promise<RepoRecord[]> {
   const res = await fetch(`${baseUrl}/diagnostics/repos`);
   if (!res.ok) throw new Error(`Fetch repos failed: ${res.status} ${res.statusText}`);
   const data = await res.json() as { ok: boolean; repos: RepoRecord[] };
   return data.repos ?? [];
+}
+
+export async function fetchChatThreads(
+  repoId: string,
+  baseUrl = "",
+): Promise<ChatThreadRecord[]> {
+  const res = await fetch(
+    `${baseUrl}/chat/threads?repoId=${encodeURIComponent(repoId)}`,
+  );
+  const data = (await res.json().catch(() => ({}))) as {
+    ok?: boolean;
+    error?: string;
+    threads?: ChatThreadRecord[];
+  };
+
+  if (!res.ok || data.ok !== true) {
+    throw new Error(data.error ?? `Fetch chat threads failed: ${res.status} ${res.statusText}`);
+  }
+
+  return data.threads ?? [];
+}
+
+export async function createChatThread(
+  body: { repoId: string; title?: string },
+  baseUrl = "",
+): Promise<ChatThreadRecord> {
+  const res = await fetch(`${baseUrl}/chat/threads`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => ({}))) as {
+    ok?: boolean;
+    error?: string;
+    thread?: ChatThreadRecord;
+  };
+
+  if (!res.ok || data.ok !== true || !data.thread) {
+    throw new Error(data.error ?? `Create chat thread failed: ${res.status} ${res.statusText}`);
+  }
+
+  return data.thread;
+}
+
+export async function fetchThreadMessages(
+  repoId: string,
+  threadId: string,
+  baseUrl = "",
+): Promise<{ thread: ChatThreadRecord; messages: ChatThreadMessageRecord[] }> {
+  const res = await fetch(
+    `${baseUrl}/chat/threads/${encodeURIComponent(threadId)}/messages?repoId=${encodeURIComponent(repoId)}`,
+  );
+  const data = (await res.json().catch(() => ({}))) as {
+    ok?: boolean;
+    error?: string;
+    thread?: ChatThreadRecord;
+    messages?: ChatThreadMessageRecord[];
+  };
+
+  if (!res.ok || data.ok !== true || !data.thread) {
+    throw new Error(data.error ?? `Fetch thread messages failed: ${res.status} ${res.statusText}`);
+  }
+
+  return {
+    thread: data.thread,
+    messages: data.messages ?? [],
+  };
+}
+
+export async function clearThreadMessages(
+  body: { repoId: string; threadId: string },
+  baseUrl = "",
+): Promise<void> {
+  const res = await fetch(
+    `${baseUrl}/chat/threads/${encodeURIComponent(body.threadId)}/clear`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repoId: body.repoId }),
+    },
+  );
+
+  const data = (await res.json().catch(() => ({}))) as {
+    ok?: boolean;
+    error?: string;
+  };
+
+  if (!res.ok || data.ok !== true) {
+    throw new Error(data.error ?? `Clear thread failed: ${res.status} ${res.statusText}`);
+  }
 }
 
 export async function fetchTour(repoId: string, baseUrl = "", limit = 12): Promise<TourResponse> {
