@@ -12,9 +12,10 @@ embedRoute.post("/embedASTFiles", async (c) => {
     projectPath?: string;
     batchSize?: number;
     maxFiles?: number;
+    adaptive?: boolean;
   } = await c.req.json().catch(() => ({}));
 
-  const { repoId, projectPath, batchSize, maxFiles } = body;
+  const { repoId, projectPath, batchSize, maxFiles, adaptive } = body;
 
   if (!repoId || !projectPath) {
     return c.json(
@@ -29,6 +30,7 @@ embedRoute.post("/embedASTFiles", async (c) => {
     const result = await embedRepository(repoId, projectPath, {
       batchSize,
       maxFiles,
+      adaptive,
     });
     return c.json({ ...result, ok: true });
   } catch (err: unknown) {

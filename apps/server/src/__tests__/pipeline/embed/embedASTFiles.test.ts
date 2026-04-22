@@ -302,4 +302,30 @@ describe('embedASTFiles', () => {
     expect(allTexts).toHaveLength(totalSymbols);
     expect(new Set(allTexts).size).toBe(totalSymbols);
   });
+
+  it('supports adaptive mode and reports adaptive tuning info', async () => {
+    const mockSymbols = [
+      { astNodeId: 'ast-1', relPath: 'src/math.ts', symbolName: 'add', startLine: 1, endLine: 3, unitKind: 'function', summaryCandidate: null, segmentReason: null, keywords: null, topLevelSymbols: null },
+      { astNodeId: 'ast-2', relPath: 'src/math.ts', symbolName: 'subtract', startLine: 5, endLine: 7, unitKind: 'function', summaryCandidate: null, segmentReason: null, keywords: null, topLevelSymbols: null },
+    ];
+
+    mockedRunCypher
+      .mockResolvedValueOnce([{ relPath: 'src/math.ts' }])
+      .mockResolvedValueOnce(mockSymbols);
+    mockedWriteCypher.mockResolvedValue([]);
+    mockedGenerateEmbeddings.mockResolvedValue([
+      new Array(1536).fill(0.01),
+      new Array(1536).fill(0.02),
+    ]);
+
+    const result = await embedASTFiles('test-repo', embedTestDir, 10, Number.POSITIVE_INFINITY, true);
+
+    expect(result.ok).toBe(true);
+    expect(result.totalEmbedded).toBe(2);
+    expect(result.adaptive).toBeDefined();
+    expect(result.adaptive?.enabled).toBe(true);
+
+    const call = mockedGenerateEmbeddings.mock.calls[0];
+    expect(call?.[1]).toEqual({ concurrency: 4 });
+  });
 });

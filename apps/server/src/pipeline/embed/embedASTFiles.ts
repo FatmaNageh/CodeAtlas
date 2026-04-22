@@ -36,6 +36,113 @@ type AstEmbeddingWriteRow = {
   endLine: number;
 };
 
+type AdaptiveConfig = {
+  enabled: boolean;
+  minBatchSize: number;
+  maxBatchSize: number;
+  minConcurrency: number;
+  maxConcurrency: number;
+  initialConcurrency: number;
+  targetBatchMs: number;
+  slowBatchMs: number;
+};
+
+type AdaptiveState = {
+  batchSize: number;
+  concurrency: number;
+  successStreak: number;
+  adjustments: number;
+};
+
+type EmbedASTFilesResult = {
+  ok: boolean;
+  files: number;
+  totalEmbedded: number;
+  failedBatches: number;
+  failedBatchDetails?: string[];
+  adaptive?: {
+    enabled: boolean;
+    finalBatchSize: number;
+    finalConcurrency: number;
+    adjustments: number;
+  };
+};
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+function createAdaptiveConfig(enabled: boolean): AdaptiveConfig {
+  return {
+    enabled,
+    minBatchSize: 5,
+    maxBatchSize: 64,
+    minConcurrency: 2,
+    maxConcurrency: 12,
+    initialConcurrency: 4,
+    targetBatchMs: 1200,
+    slowBatchMs: 2800,
+  };
+}
+
+function createAdaptiveState(batchSize: number, config: AdaptiveConfig): AdaptiveState {
+  return {
+    batchSize: clamp(Math.floor(batchSize), config.minBatchSize, config.maxBatchSize),
+    concurrency: clamp(config.initialConcurrency, config.minConcurrency, config.maxConcurrency),
+    successStreak: 0,
+    adjustments: 0,
+  };
+}
+
+function tuneAdaptiveOnSuccess(
+  state: AdaptiveState,
+  config: AdaptiveConfig,
+  batchLength: number,
+  durationMs: number,
+): void {
+  state.successStreak += 1;
+
+  const oldBatchSize = state.batchSize;
+  const oldConcurrency = state.concurrency;
+
+  if (durationMs <= config.targetBatchMs && batchLength >= state.batchSize) {
+    if (state.successStreak % 2 === 0) {
+      state.batchSize = clamp(state.batchSize + 4, config.minBatchSize, config.maxBatchSize);
+    }
+
+    if (state.successStreak % 3 === 0) {
+      state.concurrency = clamp(
+        state.concurrency + 1,
+        config.minConcurrency,
+        config.maxConcurrency,
+      );
+    }
+  }
+
+  if (durationMs >= config.slowBatchMs) {
+    state.batchSize = clamp(Math.floor(state.batchSize * 0.8), config.minBatchSize, config.maxBatchSize);
+    state.concurrency = clamp(state.concurrency - 1, config.minConcurrency, config.maxConcurrency);
+    state.successStreak = 0;
+  }
+
+  if (state.batchSize !== oldBatchSize || state.concurrency !== oldConcurrency) {
+    state.adjustments += 1;
+  }
+}
+
+function tuneAdaptiveOnFailure(state: AdaptiveState, config: AdaptiveConfig): void {
+  const oldBatchSize = state.batchSize;
+  const oldConcurrency = state.concurrency;
+
+  state.batchSize = clamp(Math.floor(state.batchSize * 0.6), config.minBatchSize, config.maxBatchSize);
+  state.concurrency = clamp(state.concurrency - 2, config.minConcurrency, config.maxConcurrency);
+  state.successStreak = 0;
+
+  if (state.batchSize !== oldBatchSize || state.concurrency !== oldConcurrency) {
+    state.adjustments += 1;
+  }
+}
+
 function buildEmbeddingText(job: {
   symbolName: string;
   unitKind: string;
@@ -74,7 +181,8 @@ export async function embedASTFiles(
   repoRoot: string,
   batchSize = 10,
   maxFiles = Number.POSITIVE_INFINITY,
-) {
+  adaptive = false,
+): Promise<EmbedASTFilesResult> {
   if (batchSize < 1) {
     throw new Error(`batchSize must be >= 1, got ${batchSize}`);
   }
@@ -112,7 +220,12 @@ export async function embedASTFiles(
         );
 
   if (filePathRows.length === 0) {
-    return { ok: true, files: 0, totalEmbedded: 0, failedBatches: 0 };
+    return {
+      ok: true,
+      files: 0,
+      totalEmbedded: 0,
+      failedBatches: 0,
+    };
   }
 
   const relPaths = filePathRows.map((row) => row.relPath);
@@ -150,6 +263,9 @@ export async function embedASTFiles(
   let totalEmbedded = 0;
   let failedBatches = 0;
   const failedBatchDetails: string[] = [];
+
+  const adaptiveConfig = createAdaptiveConfig(adaptive);
+  const adaptiveState = createAdaptiveState(batchSize, adaptiveConfig);
 
   for (const [relPath, astRows] of rowsByFile.entries()) {
     const absPath = path.resolve(repoRootResolved, relPath);
@@ -193,11 +309,19 @@ export async function embedASTFiles(
 
     if (jobs.length === 0) continue;
 
-    for (let index = 0; index < jobs.length; index += batchSize) {
-      const batch = jobs.slice(index, index + batchSize);
+    let index = 0;
+    let batchNumber = 0;
+    while (index < jobs.length) {
+      batchNumber += 1;
+      const currentBatchSize = adaptiveConfig.enabled ? adaptiveState.batchSize : batchSize;
+      const batch = jobs.slice(index, index + currentBatchSize);
+      index += batch.length;
+
+      const startedAt = Date.now();
       try {
         const embeddings = await generateEmbeddings(
           batch.map((job) => job.embeddingText),
+          adaptiveConfig.enabled ? { concurrency: adaptiveState.concurrency } : undefined,
         );
 
         const rowsToWrite: AstEmbeddingWriteRow[] = [];
@@ -236,11 +360,18 @@ export async function embedASTFiles(
 
           totalEmbedded += rowsToWrite.length;
         }
+
+        if (adaptiveConfig.enabled) {
+          tuneAdaptiveOnSuccess(adaptiveState, adaptiveConfig, batch.length, Date.now() - startedAt);
+        }
       } catch (error) {
         failedBatches++;
+        if (adaptiveConfig.enabled) {
+          tuneAdaptiveOnFailure(adaptiveState, adaptiveConfig);
+        }
         const message = error instanceof Error ? error.message : String(error);
         failedBatchDetails.push(
-          `Batch ${Math.floor(index / batchSize) + 1} in ${relPath}: ${message}`,
+          `Batch ${batchNumber} in ${relPath}: ${message}`,
         );
       }
     }
@@ -248,12 +379,24 @@ export async function embedASTFiles(
     filesProcessed++;
   }
 
-  return {
+  const result: EmbedASTFilesResult = {
     ok: failedBatches === 0,
     files: filesProcessed,
     totalEmbedded,
     failedBatches,
     failedBatchDetails:
       failedBatchDetails.length > 0 ? failedBatchDetails : undefined,
+    ...(adaptiveConfig.enabled
+      ? {
+          adaptive: {
+            enabled: true,
+            finalBatchSize: adaptiveState.batchSize,
+            finalConcurrency: adaptiveState.concurrency,
+            adjustments: adaptiveState.adjustments,
+          },
+        }
+      : {}),
   };
+
+  return result;
 }

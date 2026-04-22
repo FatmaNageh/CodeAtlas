@@ -54,10 +54,16 @@ export function normalizeToRepoPath(filePath: string, repoRoot: string): string 
 export async function embedRepository(
   repoId: string,
   repoRoot: string,
-  options?: { batchSize?: number; maxFiles?: number },
+  options?: { batchSize?: number; maxFiles?: number; adaptive?: boolean },
 ) {
   repoRoots.set(repoId, repoRoot);
-  return embedASTFiles(repoId, repoRoot, options?.batchSize, options?.maxFiles);
+  return embedASTFiles(
+    repoId,
+    repoRoot,
+    options?.batchSize,
+    options?.maxFiles,
+    options?.adaptive,
+  );
 }
 
 async function getAllFiles(repoId: string): Promise<FilePathRow[]> {
