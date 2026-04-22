@@ -3,6 +3,7 @@ import path from "path";
 
 import { generateEmbeddings } from "../../ai/embeddings";
 import { runCypher, writeCypher } from "../../db/cypher";
+import { isValidEmbeddingVector } from "../../utils/embedding";
 
 type ASTNodeRow = {
   astNodeId: string;
@@ -25,6 +26,14 @@ type EmbeddingJob = {
   endLine: number;
   embeddingText: string;
   text: string;
+};
+
+type AstEmbeddingWriteRow = {
+  astNodeId: string;
+  text: string;
+  embedding: number[];
+  startLine: number;
+  endLine: number;
 };
 
 function buildEmbeddingText(job: {
@@ -190,32 +199,42 @@ export async function embedASTFiles(
         const embeddings = await generateEmbeddings(
           batch.map((job) => job.embeddingText),
         );
+
+        const rowsToWrite: AstEmbeddingWriteRow[] = [];
         for (const [batchIndex, job] of batch.entries()) {
           const embedding = embeddings[batchIndex];
           if (!job) continue;
-          if (!embedding || (Array.isArray(embedding) && embedding.every((v) => v === null))) continue;
+          if (!isValidEmbeddingVector(embedding)) continue;
 
+          rowsToWrite.push({
+            astNodeId: job.astNodeId,
+            text: job.text,
+            embedding,
+            startLine: job.startLine,
+            endLine: job.endLine,
+          });
+        }
+
+        if (rowsToWrite.length > 0) {
           await writeCypher(
             `/*cypher*/
-            MATCH (a:AstNode {id: $astNodeId, repoId: $repoId})
+            UNWIND $rows AS row
+            MATCH (a:AstNode {id: row.astNodeId, repoId: $repoId})
             SET
-              a.text = $text,
-              a.embeddings = $embedding,
-              a.embeddingStartLine = $startLine,
-              a.embeddingEndLine = $endLine,
+              a.text = row.text,
+              a.embeddings = row.embedding,
+              a.embeddingStartLine = row.startLine,
+              a.embeddingEndLine = row.endLine,
               a.embeddingUpdatedAt = datetime()
-            RETURN a.id AS id
+            RETURN count(a) AS updated
             `,
             {
-              astNodeId: job.astNodeId,
               repoId,
-              text: job.text,
-              embedding,
-              startLine: job.startLine,
-              endLine: job.endLine,
+              rows: rowsToWrite,
             },
           );
-          totalEmbedded++;
+
+          totalEmbedded += rowsToWrite.length;
         }
       } catch (error) {
         failedBatches++;

@@ -1,9 +1,15 @@
 import { generateEmbeddings } from "@/ai/embeddings";
 import { runCypher, writeCypher } from "@/db/cypher";
+import { isValidEmbeddingVector } from "@/utils/embedding";
 
 type TextChunkRow = {
   textChunkId: string;
   content: string;
+};
+
+type TextChunkEmbeddingWriteRow = {
+  textChunkId: string;
+  embedding: number[];
 };
 
 export async function embedTextChunks(
@@ -39,25 +45,35 @@ export async function embedTextChunks(
     try {
       const embeddings = await generateEmbeddings(batch.map((row) => row.content));
 
+      const rowsToWrite: TextChunkEmbeddingWriteRow[] = [];
+
       for (const [batchIndex, row] of batch.entries()) {
         const embedding = embeddings[batchIndex];
-        if (!embedding) continue;
+        if (!isValidEmbeddingVector(embedding)) continue;
 
+        rowsToWrite.push({
+          textChunkId: row.textChunkId,
+          embedding,
+        });
+      }
+
+      if (rowsToWrite.length > 0) {
         await writeCypher(
           `/*cypher*/
-          MATCH (c:TextChunk {id: $textChunkId, repoId: $repoId})
+          UNWIND $rows AS row
+          MATCH (c:TextChunk {id: row.textChunkId, repoId: $repoId})
           SET
-            c.embeddings = $embedding,
+            c.embeddings = row.embedding,
             c.embeddingUpdatedAt = datetime()
-          RETURN c.id AS id
+          RETURN count(c) AS updated
           `,
           {
-            textChunkId: row.textChunkId,
             repoId,
-            embedding,
+            rows: rowsToWrite,
           },
         );
-        totalEmbedded++;
+
+        totalEmbedded += rowsToWrite.length;
       }
     } catch (error) {
       failedBatches++;

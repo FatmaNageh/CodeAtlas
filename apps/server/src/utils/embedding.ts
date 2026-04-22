@@ -1,8 +1,11 @@
-export function isFiniteNumber(n: any): boolean {
+export function isFiniteNumber(n: unknown): boolean {
   return typeof n === 'number' && Number.isFinite(n);
 }
 
-export function isValidEmbeddingVector(vec: number[] | null | undefined, expectedDim?: number): boolean {
+export function isValidEmbeddingVector(
+  vec: number[] | null | undefined,
+  expectedDim?: number,
+): vec is number[] {
   if (!Array.isArray(vec)) return false;
   if (vec.length === 0) return false;
   if (vec.some((v) => !isFiniteNumber(v))) return false;
