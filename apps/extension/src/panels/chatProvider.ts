@@ -1,14 +1,26 @@
 import * as vscode from "vscode";
-import { getNonce } from "./graphPanel";
 
-export function getChatHtml(webview: vscode.Webview, serverUrl: string, repoId: string): string {
+function getNonce(): string {
+  const c = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  return Array.from({ length: 32 }, () => c[Math.floor(Math.random() * c.length)]).join("");
+}
+
+function htmlAttr(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+export function getChatHtml(webview: vscode.Webview, serverUrl: string, repoId: string, repoRoot: string): string {
   const nonce = getNonce();
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none';style-src 'unsafe-inline';script-src 'nonce-${nonce}';connect-src http: https:;img-src ${webview.cspSource} data:;">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none';style-src 'unsafe-inline';script-src 'nonce-${nonce}';connect-src http://127.0.0.1: http://localhost:;img-src ${webview.cspSource} data:;">
 <title>CodeAtlas Chat</title>
 <style>
 /* ── Reset & Base ─────────────────────────────────────────────── */
@@ -603,12 +615,12 @@ body {
   <div id="bottom-bar">
     <div class="cfg-field">
       <span class="cfg-label">SRV</span>
-      <input class="cfg-input" id="cfg-s" value="${serverUrl}" placeholder="http://localhost:3000">
+      <input class="cfg-input" id="cfg-s" value="${htmlAttr(serverUrl)}" placeholder="http://localhost:3000">
     </div>
     <div class="bar-sep"></div>
     <div class="cfg-field">
       <span class="cfg-label">REPO</span>
-      <input class="cfg-input" id="cfg-r" value="${repoId}" placeholder="repo-id">
+      <input class="cfg-input" id="cfg-r" value="${htmlAttr(repoId)}" placeholder="repo-id">
     </div>
     <div class="bar-sep"></div>
     <button class="bar-btn" id="btn-graph" title="Open Graph">⬡</button>
@@ -622,6 +634,7 @@ body {
 'use strict';
 const vsc = acquireVsCodeApi();
 const $ = id => document.getElementById(id);
+const CFG = { repoRoot: ${JSON.stringify(repoRoot)} };
 
 /* ── Kind colours ─────────────────────────────────────────────── */
 const KC = {
@@ -642,6 +655,7 @@ const ST = {
   mentionIdx: 0,
   get serverUrl() { return $('cfg-s').value.trim(); },
   get repoId()    { return $('cfg-r').value.trim(); },
+  get repoRoot()  { return CFG.repoRoot; },
 };
 
 /* ── Markdown renderer ────────────────────────────────────────── */
@@ -866,7 +880,7 @@ $('btn-embed-fix').addEventListener('click', async () => {
   try {
     const res = await fetch(ST.serverUrl + '/graphrag/embedRepo', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ repoId: ST.repoId, Repo: '' }),
+      body: JSON.stringify({ repoId: ST.repoId, repoRoot: ST.repoRoot }),
     });
     const d = await res.json();
     if (d.ok !== false) { $('embed-notice').style.display = 'none'; addMsg({ role: 'bot', text: '✓ Embeddings generated! Try your question again.' }); }
@@ -886,6 +900,7 @@ $('btn-clear').addEventListener('click', () => { ST.msgs = []; renderMsgs(); });
 );
 
 /* ── Extension messages ───────────────────────────────────────── */
+vsc.postMessage({ type: 'chat/ready' });
 window.addEventListener('message', ev => {
   const msg = ev.data;
   if (msg.type === 'contextNode') {
@@ -902,9 +917,10 @@ window.addEventListener('message', ev => {
     }));
   }
   if (msg.type === 'settings/update') {
-    const { serverUrl, repoId } = msg.payload || {};
+    const { serverUrl, repoId, repoRoot } = msg.payload || {};
     if (serverUrl) $('cfg-s').value = serverUrl;
     if (repoId)    $('cfg-r').value = repoId;
+    if (repoRoot !== undefined) CFG.repoRoot = repoRoot;
   }
   if (msg.type === 'server/status') {
     const s = msg.payload || {};

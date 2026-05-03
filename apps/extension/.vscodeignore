@@ -6,3 +6,5 @@
 !icon.png
 !dist/**
 !dist/extension.cjs
+!media/**
+!media/app/**

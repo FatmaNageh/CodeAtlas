@@ -28,16 +28,16 @@ function findFreePort(): Promise<number> {
   });
 }
 
-function findServerDir(workspaceRoot: string): string | null {
-  const candidates = [
-    path.join(workspaceRoot, "apps", "server"),
-    path.join(workspaceRoot, "server"),
-    path.join(workspaceRoot, "..", "server"),
-    path.join(workspaceRoot, "..", "apps", "server"),
-    path.join(workspaceRoot, "..", "..", "apps", "server"),
-  ];
-  for (const c of candidates) {
-    if (fs.existsSync(path.join(c, "package.json"))) return path.resolve(c);
+function findServerDir(searchRoots: string[]): string | null {
+  const candidates = searchRoots.flatMap((root) => [
+    path.join(root, "apps", "server"),
+    path.join(root, "server"),
+    path.join(root, "..", "server"),
+    path.join(root, "..", "apps", "server"),
+    path.join(root, "..", "..", "apps", "server"),
+  ]);
+  for (const candidate of candidates) {
+    if (fs.existsSync(path.join(candidate, "package.json"))) return path.resolve(candidate);
   }
   return null;
 }
@@ -77,12 +77,12 @@ export class ServerManager implements vscode.Disposable {
   private _listeners: StatusListener[] = [];
   private _output: vscode.OutputChannel;
   private _startupTimer: ReturnType<typeof setTimeout> | null = null;
-  private _workspaceRoot: string;
+  private readonly _extensionRoot: string;
 
   constructor(private readonly _context: vscode.ExtensionContext) {
     this._output = vscode.window.createOutputChannel("CodeAtlas Server");
     _context.subscriptions.push(this._output);
-    this._workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? "";
+    this._extensionRoot = _context.extensionPath;
   }
 
   get state(): ServerState {
@@ -106,10 +106,23 @@ export class ServerManager implements vscode.Disposable {
       });
     }
 
+    // Kill any stale process left over from a previous error state
+    if (this._proc) {
+      try {
+        if (process.platform === "win32") {
+          cp.spawn("taskkill", ["/pid", String(this._proc.pid), "/f", "/t"], { shell: true });
+        } else {
+          this._proc.kill("SIGTERM");
+        }
+      } catch { /* ignore */ }
+      this._proc = null;
+    }
+
     this._output.show(true);
     this._output.appendLine("[CodeAtlas] Starting backend server…");
 
-    const serverDir = findServerDir(this._workspaceRoot);
+    const workspaceRoots = vscode.workspace.workspaceFolders?.map((folder) => folder.uri.fsPath) ?? [];
+    const serverDir = findServerDir([...workspaceRoots, this._extensionRoot]);
     if (!serverDir) {
       this._setState({
         status: "error", port: 0, url: "",
@@ -155,7 +168,7 @@ export class ServerManager implements vscode.Disposable {
 
     try {
       this._proc = cp.spawn(cmd, args, opts);
-    } catch (err: unknown) {
+    } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       this._setState({ status: "error", port, url: "", error: `Failed to spawn server: ${msg}` });
       return;
@@ -192,11 +205,11 @@ export class ServerManager implements vscode.Disposable {
       this._setState({ status: "error", port, url: "", error: err.message });
     });
 
-    // 60 s optimistic timeout
+    // 60 s hard timeout — if the server hasn't reported ready, treat it as an error
     this._startupTimer = setTimeout(() => {
       if (this._state.status === "starting") {
-        this._output.appendLine("[CodeAtlas] ⚠ Startup timeout (60 s) — marking as running optimistically");
-        this._setState({ status: "running", port, url: `http://127.0.0.1:${port}`, pid: this._proc?.pid });
+        this._output.appendLine("[CodeAtlas] ✗ Startup timeout (60 s) — server did not report ready. Check the Server Log.");
+        this._setState({ status: "error", port: 0, url: "", error: "Server did not start within 60 s — open Server Log for details." });
       }
     }, 60_000);
   }
@@ -223,6 +236,16 @@ export class ServerManager implements vscode.Disposable {
   }
 
   showLog(): void { this._output.show(); }
+
+  /** Called when an external server (not spawned by this manager) is confirmed reachable. */
+  notifyExternallyRunning(url: string): void {
+    if (this._state.status === "running") return;
+    try {
+      const port = Number(new URL(url).port) || 3000;
+      this._output.appendLine(`[CodeAtlas] External server detected at ${url}`);
+      this._setState({ status: "running", port, url, pid: undefined });
+    } catch { /* invalid URL — ignore */ }
+  }
 
   dispose(): void { this.stop(); this._output.dispose(); }
 

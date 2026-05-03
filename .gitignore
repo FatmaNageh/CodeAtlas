@@ -45,6 +45,7 @@ coverage
 
 # Misc
 *.tgz
+*.vsix
 .cache
 tmp
 temp

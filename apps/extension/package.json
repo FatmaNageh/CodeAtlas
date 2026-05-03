@@ -44,6 +44,11 @@
   "contributes": {
     "commands": [
       {
+        "command": "codeatlas.openApp",
+        "title": "CodeAtlas: Open App",
+        "icon": "$(graph-line)"
+      },
+      {
         "command": "codeatlas.openGraph",
         "title": "CodeAtlas: Open Knowledge Graph",
         "icon": "$(graph-line)"
@@ -68,6 +73,11 @@
       {
         "command": "codeatlas.clearHistory",
         "title": "CodeAtlas: Clear Chat History"
+      },
+      {
+        "command": "codeatlas.indexCurrentProject",
+        "title": "CodeAtlas: Index Current Project",
+        "icon": "$(database)"
       }
     ],
     "keybindings": [
@@ -107,6 +117,11 @@
           "command": "codeatlas.indexRepo",
           "when": "view == codeatlas.chatView",
           "group": "navigation@2"
+        },
+        {
+          "command": "codeatlas.indexCurrentProject",
+          "when": "view == codeatlas.chatView && workspaceFolderCount > 0",
+          "group": "navigation@3"
         }
       ]
     },
@@ -123,6 +138,11 @@
           "default": "",
           "description": "Repository ID returned by /indexRepo (12-char hex string)"
         },
+        "codeatlas.repoRoot": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path of the repository indexed for the current Repo ID"
+        },
         "codeatlas.neo4jBrowserUrl": {
           "type": "string",
           "default": "http://localhost:7474",
@@ -133,13 +153,6 @@
           "default": true,
           "description": "Auto-start the CodeAtlas backend when a matching workspace is detected"
         },
-        "codeatlas.graphNodeLimit": {
-          "type": "number",
-          "default": 500,
-          "minimum": 50,
-          "maximum": 2000,
-          "description": "Maximum number of nodes to fetch and display in the graph"
-        },
         "codeatlas.autoRefreshGraph": {
           "type": "boolean",
           "default": false,
@@ -149,9 +162,13 @@
     }
   },
   "scripts": {
-    "build": "esbuild src/extension.ts --bundle --platform=node --format=cjs --outfile=dist/extension.cjs --external:vscode",
+    "build": "pnpm --dir ../extension-web build && esbuild src/extension.ts --bundle --platform=node --format=cjs --outfile=dist/extension.cjs --external:vscode",
+    "check-types": "tsc --noEmit",
     "watch": "esbuild src/extension.ts --bundle --platform=node --format=cjs --outfile=dist/extension.cjs --external:vscode --watch",
     "package": "vsce package --no-dependencies"
+  },
+  "dependencies": {
+    "@CodeAtlas/extension-bridge": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.13.11",

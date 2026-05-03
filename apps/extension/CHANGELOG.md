@@ -17,7 +17,6 @@
 - **CodeAtlas: Settings** command with a multi-choice quick-pick (Repo ID, Server URL, Neo4j Browser URL).
 - `codeatlas.neo4jBrowserUrl` configuration setting.
 - `codeatlas.autoStartServer` toggle (default `true`).
-- `codeatlas.graphNodeLimit` setting (50–2000, default 500).
 - `codeatlas.autoRefreshGraph` setting — silently refreshes the graph every 30 s when enabled.
 - Auto-refresh badge indicator ("⟳ auto") in the graph toolbar.
 - Loading screen now shows actionable buttons ("Retry", "Open Neo4j", "Index Repo") on error.
