@@ -69,6 +69,9 @@ export async function ensureChatPersistenceSchema(): Promise<void> {
         sql.raw("CREATE UNIQUE INDEX IF NOT EXISTS chat_messages_thread_sequence_uq ON chat_messages(thread_id, sequence);"),
       );
       await db.run(
+        sql.raw("DROP INDEX IF EXISTS chat_messages_thread_sequence_idx;"),
+      );
+      await db.run(
         sql.raw("CREATE INDEX IF NOT EXISTS chat_messages_repo_thread_idx ON chat_messages(repo_id, thread_id);"),
       );
     })();
