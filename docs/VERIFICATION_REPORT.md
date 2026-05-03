@@ -514,7 +514,7 @@ Step 6: Update Neo4j with new data
 ### Embedding Generation
 - **Model:** OpenAI `text-embedding-3-small`
 - **Dimension:** 1536 (fixed for model)
-- **Batch Size:** Sequential (per-text)
+- **Batch Size / Concurrency:** Worker pool in `generateEmbeddings` (default `DEFAULT_EMBEDDING_CONCURRENCY` = 8)
 - **Latency:** ~100-300ms per text
 - **Fallback:** Null vectors on error
 
@@ -548,9 +548,9 @@ Step 6: Update Neo4j with new data
    - Impact: Transitive dependencies beyond depth 25 not re-indexed
    - Mitigation: Configurable, default 10 is usually sufficient
 
-3. **Sequential Embedding Generation:** Processes texts one-by-one
-   - Impact: Could be slow for large codebases
-   - Mitigation: Consider batch API calls in future
+3. **Embedding API Throughput Limits:** `generateEmbeddings` is concurrent, but still bounded by provider rate limits/network saturation
+   - Impact: Throughput can degrade under high load or strict API quotas
+   - Mitigation: Tune worker count via the `concurrency` option (default from `DEFAULT_EMBEDDING_CONCURRENCY` is 8) to match environment limits
 
 4. **Content-Based IDs:** Deterministic but change if code changes
    - Impact: IDs are stable across runs (unless content changes)

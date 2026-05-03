@@ -1,5 +1,10 @@
 import { Hono } from "hono";
-import { indexRepoInputSchema, isIndexingInProgress, startIndexing } from "@/services/indexing";
+import {
+  indexRepoInputSchema,
+  IndexingInProgressError,
+  isIndexingInProgress,
+  startIndexing,
+} from "@/services/indexing";
 
 export const indexRepoRoute = new Hono();
 
@@ -22,6 +27,10 @@ indexRepoRoute.post("/indexRepo", async (c) => {
     const result = await startIndexing(parsed.data);
     return c.json({ ok: true, ...result });
   } catch (err: unknown) {
+    if (err instanceof IndexingInProgressError) {
+      return c.json({ ok: false, error: err.message }, 409);
+    }
+
     const message = err instanceof Error ? err.message : String(err);
     console.error("[/indexRepo] error:", err);
     return c.json({ ok: false, error: message }, 500);

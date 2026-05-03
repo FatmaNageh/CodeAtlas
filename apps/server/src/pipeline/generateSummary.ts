@@ -69,7 +69,7 @@ export async function generateFileSummary(filePath: string, repoId: string) {
   
   const prompt = buildSummaryPrompt({
     filePath,
-    code: code.slice(0, 3000),
+    code,
     symbols,
     imports: context.references,
   });

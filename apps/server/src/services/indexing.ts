@@ -16,6 +16,13 @@ export type IndexRepoInput = z.infer<typeof indexRepoInputSchema>;
 
 let indexingInProgress = false;
 
+export class IndexingInProgressError extends Error {
+  constructor(message = "Indexing already in progress. Please wait for the current run to finish.") {
+    super(message);
+    this.name = "IndexingInProgressError";
+  }
+}
+
 export function isIndexingInProgress(): boolean {
   return indexingInProgress;
 }
@@ -27,10 +34,14 @@ export function normalizeProjectPath(projectPath: string): string {
 }
 
 export async function startIndexing(input: IndexRepoInput) {
-  const projectPath = normalizeProjectPath(input.projectPath);
+  if (indexingInProgress) {
+    throw new IndexingInProgressError();
+  }
+
+  indexingInProgress = true;
 
   try {
-    indexingInProgress = true;
+    const projectPath = normalizeProjectPath(input.projectPath);
 
     const result = await indexRepository({
       ...input,

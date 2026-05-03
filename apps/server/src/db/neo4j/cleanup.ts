@@ -54,7 +54,9 @@ export async function cleanupStaleByRunId(input: {
 export async function pruneEmptyDirectories(repoId: string): Promise<number> {
   const neo4j = getNeo4jClient();
   const session = neo4j.session();
+  const MAX_PASSES = 1000;
   let totalDeleted = 0;
+  let pass = 0;
 
   try {
     while (true) {
@@ -78,7 +80,13 @@ export async function pruneEmptyDirectories(repoId: string): Promise<number> {
       );
 
       totalDeleted += deletedThisPass;
+      pass += 1;
       if (deletedThisPass === 0) break;
+      if (pass >= MAX_PASSES) {
+        throw new Error(
+          `[cleanup] pruneEmptyDirectories exceeded max passes (${MAX_PASSES}) for repoId=${repoId}; totalDeleted=${totalDeleted}. Aborting to prevent infinite loop.`,
+        );
+      }
     }
 
     return totalDeleted;

@@ -69,9 +69,6 @@ export async function ensureChatPersistenceSchema(): Promise<void> {
         sql.raw("CREATE UNIQUE INDEX IF NOT EXISTS chat_messages_thread_sequence_uq ON chat_messages(thread_id, sequence);"),
       );
       await db.run(
-        sql.raw("CREATE INDEX IF NOT EXISTS chat_messages_thread_sequence_idx ON chat_messages(thread_id, sequence);"),
-      );
-      await db.run(
         sql.raw("CREATE INDEX IF NOT EXISTS chat_messages_repo_thread_idx ON chat_messages(repo_id, thread_id);"),
       );
     })();
@@ -221,12 +218,18 @@ export async function appendThreadMessage(input: {
 export async function clearThreadMessages(repoId: string, threadId: string): Promise<void> {
   await ensureChatPersistenceSchema();
 
-  const thread = await getChatThreadForRepo(repoId, threadId);
-  if (!thread) {
-    throw new Error("Thread does not exist for this repository.");
-  }
-
   await db.transaction(async (tx) => {
+    const threadRows = await tx
+      .select()
+      .from(chatThreads)
+      .where(and(eq(chatThreads.id, threadId), eq(chatThreads.repoId, repoId)))
+      .limit(1);
+    const thread = threadRows[0];
+
+    if (!thread) {
+      throw new Error("Thread does not exist for this repository.");
+    }
+
     await tx
       .delete(chatMessages)
       .where(and(eq(chatMessages.repoId, repoId), eq(chatMessages.threadId, threadId)));
@@ -237,6 +240,6 @@ export async function clearThreadMessages(repoId: string, threadId: string): Pro
         updatedAt: nowIso(),
         lastMessageAt: thread.createdAt,
       })
-      .where(eq(chatThreads.id, threadId));
+      .where(and(eq(chatThreads.id, threadId), eq(chatThreads.repoId, repoId)));
   });
 }

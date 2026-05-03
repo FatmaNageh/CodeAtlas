@@ -32,7 +32,6 @@ export const chatMessages = sqliteTable(
   },
   (table) => ({
     threadSequenceUq: uniqueIndex("chat_messages_thread_sequence_uq").on(table.threadId, table.sequence),
-    threadSequenceIdx: index("chat_messages_thread_sequence_idx").on(table.threadId, table.sequence),
     repoThreadIdx: index("chat_messages_repo_thread_idx").on(table.repoId, table.threadId),
   }),
 );

@@ -33,7 +33,7 @@ type StatusRow = {
 };
 
 export function normalizeToRepoPath(filePath: string, repoRoot: string): string {
-  let normalizedPath = filePath.trim().replace(/^["'](.*)["']$/, "$1");
+  let normalizedPath = filePath.trim().replace(/^(["'])(.*)\1$/, "$2");
 
   if (path.isAbsolute(normalizedPath)) {
     normalizedPath = path.relative(repoRoot, normalizedPath);
@@ -118,7 +118,7 @@ export async function askGraphRag(repoId: string, question: string) {
     chunks.length > 0 ? chunks.map((chunk) => chunk.chunkText ?? "").join("\n\n") : "";
   const maxCodeContext = 8000;
   if (codeContext.length > maxCodeContext) {
-    codeContext = codeContext.slice(-maxCodeContext);
+    codeContext = codeContext.slice(0, maxCodeContext);
   }
 
   if (!codeContext && chunks.length > 0) {
@@ -135,7 +135,7 @@ export async function askGraphRag(repoId: string, question: string) {
         const stacked = texts.filter((text) => text.length > 0).join("\n\n");
         if (stacked) {
           codeContext =
-            stacked.length > maxCodeContext ? stacked.slice(-maxCodeContext) : stacked;
+            stacked.length > maxCodeContext ? stacked.slice(0, maxCodeContext) : stacked;
         }
       } catch {
         codeContext = "";

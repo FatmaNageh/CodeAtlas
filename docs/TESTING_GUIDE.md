@@ -8,10 +8,13 @@ Quick reference for testing each component.
 # 1. Ensure Neo4j is running
 docker-compose up -d
 
-# 2. Ensure server is running
+# 2. Build server artifacts used by ./dist/... imports in tests below
+pnpm build
+
+# 3. Ensure server is running
 pnpm run dev
 
-# 3. Check .env has required keys
+# 4. Check .env has required keys
 cat apps/server/.env
 ```
 
@@ -192,7 +195,7 @@ import('./dist/ai/embeddings.js').then(async (m) => {
 ### Query Vector Search
 ```bash
 # Use the API endpoint
-curl -X POST http://localhost:3001/api/graphrag \
+curl -X POST http://localhost:3001/graphrag/ask \
   -H "Content-Type: application/json" \
   -d '{
     "repoId": "your-repo-id",
@@ -263,7 +266,7 @@ import('./dist/pipeline/indexRepo.js').then(async (m) => {
 cat .codeatlas/index-state.json
 
 # Verify in Neo4j the new function exists
-curl http://localhost:3001/api/graphrag \
+curl http://localhost:3001/graphrag/ask \
   -X POST \
   -H "Content-Type: application/json" \
   -d '{
@@ -285,7 +288,7 @@ curl http://localhost:3001/api/graphrag \
 
 ### Ask a Question
 ```bash
-curl -X POST http://localhost:3001/api/graphrag \
+curl -X POST http://localhost:3001/graphrag/ask \
   -H "Content-Type: application/json" \
   -d '{
     "repoId": "your-repo-id",
