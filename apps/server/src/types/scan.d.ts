@@ -39,11 +39,14 @@ export type TextFileIndexEntry = {
 
 export type FileIndexEntry = CodeFileIndexEntry | TextFileIndexEntry;
 
+export type ScanHashMode = "none" | "code" | "all";
+
 export type ScanResult = {
   repoRoot: string;
   entries: FileIndexEntry[];
   ignoredCount: number;
   scannedAt: string;
+  hashMode: ScanHashMode;
 };
 
 export type ScanDiff = {

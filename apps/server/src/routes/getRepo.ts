@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { getNeo4jClient } from "@/db/neo4j/client";
-import { toPlain } from "./diagnostics";
+import { toPlain } from "@/db/neo4j/value";
 
 export const graphRoute = new Hono();
 

@@ -10,11 +10,9 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
-import { Route as IrRouteImport } from './routes/ir'
-import { Route as IndexingRouteImport } from './routes/indexing'
+import { Route as HistoryRouteImport } from './routes/history'
 import { Route as GraphRouteImport } from './routes/graph'
 import { Route as FaquestionsRouteImport } from './routes/faquestions'
-import { Route as AnalyticsRouteImport } from './routes/analytics'
 import { Route as IndexRouteImport } from './routes/index'
 
 const OnboardingRoute = OnboardingRouteImport.update({
@@ -22,14 +20,9 @@ const OnboardingRoute = OnboardingRouteImport.update({
   path: '/onboarding',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IrRoute = IrRouteImport.update({
-  id: '/ir',
-  path: '/ir',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const IndexingRoute = IndexingRouteImport.update({
-  id: '/indexing',
-  path: '/indexing',
+const HistoryRoute = HistoryRouteImport.update({
+  id: '/history',
+  path: '/history',
   getParentRoute: () => rootRouteImport,
 } as any)
 const GraphRoute = GraphRouteImport.update({
@@ -42,11 +35,6 @@ const FaquestionsRoute = FaquestionsRouteImport.update({
   path: '/faquestions',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AnalyticsRoute = AnalyticsRouteImport.update({
-  id: '/analytics',
-  path: '/analytics',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -55,69 +43,39 @@ const IndexRoute = IndexRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/analytics': typeof AnalyticsRoute
   '/faquestions': typeof FaquestionsRoute
   '/graph': typeof GraphRoute
-  '/indexing': typeof IndexingRoute
-  '/ir': typeof IrRoute
+  '/history': typeof HistoryRoute
   '/onboarding': typeof OnboardingRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/analytics': typeof AnalyticsRoute
   '/faquestions': typeof FaquestionsRoute
   '/graph': typeof GraphRoute
-  '/indexing': typeof IndexingRoute
-  '/ir': typeof IrRoute
+  '/history': typeof HistoryRoute
   '/onboarding': typeof OnboardingRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/analytics': typeof AnalyticsRoute
   '/faquestions': typeof FaquestionsRoute
   '/graph': typeof GraphRoute
-  '/indexing': typeof IndexingRoute
-  '/ir': typeof IrRoute
+  '/history': typeof HistoryRoute
   '/onboarding': typeof OnboardingRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths:
-    | '/'
-    | '/analytics'
-    | '/faquestions'
-    | '/graph'
-    | '/indexing'
-    | '/ir'
-    | '/onboarding'
+  fullPaths: '/' | '/faquestions' | '/graph' | '/history' | '/onboarding'
   fileRoutesByTo: FileRoutesByTo
-  to:
-    | '/'
-    | '/analytics'
-    | '/faquestions'
-    | '/graph'
-    | '/indexing'
-    | '/ir'
-    | '/onboarding'
-  id:
-    | '__root__'
-    | '/'
-    | '/analytics'
-    | '/faquestions'
-    | '/graph'
-    | '/indexing'
-    | '/ir'
-    | '/onboarding'
+  to: '/' | '/faquestions' | '/graph' | '/history' | '/onboarding'
+  id: '__root__' | '/' | '/faquestions' | '/graph' | '/history' | '/onboarding'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  AnalyticsRoute: typeof AnalyticsRoute
   FaquestionsRoute: typeof FaquestionsRoute
   GraphRoute: typeof GraphRoute
-  IndexingRoute: typeof IndexingRoute
-  IrRoute: typeof IrRoute
+  HistoryRoute: typeof HistoryRoute
   OnboardingRoute: typeof OnboardingRoute
 }
 
@@ -130,18 +88,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OnboardingRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/ir': {
-      id: '/ir'
-      path: '/ir'
-      fullPath: '/ir'
-      preLoaderRoute: typeof IrRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/indexing': {
-      id: '/indexing'
-      path: '/indexing'
-      fullPath: '/indexing'
-      preLoaderRoute: typeof IndexingRouteImport
+    '/history': {
+      id: '/history'
+      path: '/history'
+      fullPath: '/history'
+      preLoaderRoute: typeof HistoryRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/graph': {
@@ -158,13 +109,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof FaquestionsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/analytics': {
-      id: '/analytics'
-      path: '/analytics'
-      fullPath: '/analytics'
-      preLoaderRoute: typeof AnalyticsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/': {
       id: '/'
       path: '/'
@@ -177,11 +121,9 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  AnalyticsRoute: AnalyticsRoute,
   FaquestionsRoute: FaquestionsRoute,
   GraphRoute: GraphRoute,
-  IndexingRoute: IndexingRoute,
-  IrRoute: IrRoute,
+  HistoryRoute: HistoryRoute,
   OnboardingRoute: OnboardingRoute,
 }
 export const routeTree = rootRouteImport

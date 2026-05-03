@@ -3,7 +3,7 @@ import path from 'path';
 import { assembleFileContext } from '../retrieval/context';
 import { generateTextWithContext } from '../ai/generation';
 import { buildSummaryPrompt } from '../prompts/summary';
-import { runCypher } from '../db/cypher';
+import { runCypher, writeCypher } from '../db/cypher';
 import { repoRoots } from '../state/repoRoots';
 
 type FileNodeLabel = 'CodeFile' | 'TextFile';
@@ -79,7 +79,7 @@ export async function generateFileSummary(filePath: string, repoId: string) {
     maxTokens: 800,
   });
   
-  const result = await runCypher(
+  const result = await writeCypher(
     `/*cypher*/
      MATCH (f:${fileLabel} {repoId: $repoId, path: $filePath})
      SET f.summary = $summary,

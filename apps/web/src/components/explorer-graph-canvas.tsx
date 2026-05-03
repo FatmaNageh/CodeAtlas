@@ -45,6 +45,7 @@ export type GraphCanvasHandle = {
 	zoomOut: () => void;
 	fit: () => void;
 	setLayout: (l: "force" | "radial" | "hierarchical") => void;
+	focusNode: (nodeId: string) => void;
 };
 
 // ─── Public helpers ───────────────────────────────────────────────────────────
@@ -62,6 +63,41 @@ export function isAstNode(node: Neo4jNode): boolean {
 			normalized === "syntaxnode"
 		);
 	});
+}
+
+function propertyString(value: unknown): string | null {
+	return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function propertyStringArray(value: unknown): string[] {
+	return Array.isArray(value)
+		? value
+				.filter((item): item is string => typeof item === "string")
+				.map((item) => item.trim())
+				.filter(Boolean)
+		: [];
+}
+
+function astDisplayLabel(node: Neo4jNode): string {
+	const p = node.properties ?? {};
+	const primary =
+		propertyString(p.label) ??
+		propertyStringArray(p.topLevelSymbols)[0] ??
+		propertyStringArray(p.symbolNames)[0] ??
+		propertyString(p.summaryCandidate);
+	if (primary) return primary;
+
+	const unitKind = propertyString(p.unitKind) ?? "ast";
+	const startLine =
+		typeof p.startLine === "number" ? p.startLine : null;
+	const endLine = typeof p.endLine === "number" ? p.endLine : null;
+	if (startLine !== null && endLine !== null) {
+		return `${unitKind} ${startLine}-${endLine}`;
+	}
+	if (startLine !== null) {
+		return `${unitKind} line ${startLine}`;
+	}
+	return unitKind;
 }
 
 export function classifyNode(node: Neo4jNode): ExplorerNodeKind {
@@ -89,8 +125,12 @@ export function classifyNode(node: Neo4jNode): ExplorerNodeKind {
 }
 export function nodeDisplayLabel(node: Neo4jNode): string {
 	const p = node.properties ?? {};
+	if (isAstNode(node)) {
+		return astDisplayLabel(node);
+	}
 	return String(
 		p.name ??
+			p.label ??
 			p.displayName ??
 			p.path?.split(/[\\\/]/).pop() ??
 			p.filePath?.split(/[\\\/]/).pop() ??
@@ -196,14 +236,11 @@ const C = {
 			labelBg: "#ffe4e6",
 			labelText: "#9f1239",
 		},
+		changed: { ring: "#f97316", glow: "#fb923c" },
 		multi: { ring: "#f59e0b", glow: "#f59e0b" }, // multi-select: amber
 		bg: "#f2f1ed",
 		dot: "rgba(0,0,0,0.06)",
-		edge: {
-			CONTAINS: "#7c3aed",
-			IMPORTS: "#0369a1",
-			CALLS: "#059669",
-		} as Record<string, string>,
+		edge: "#64748b",
 	},
 	dark: {
 		folder: {
@@ -242,14 +279,11 @@ const C = {
 			labelBg: "#4c0519",
 			labelText: "#fda4af",
 		},
+		changed: { ring: "#fb923c", glow: "#fdba74" },
 		multi: { ring: "#fbbf24", glow: "#fbbf24" },
 		bg: "#0d0d0c",
 		dot: "rgba(255,255,255,0.055)",
-		edge: {
-			CONTAINS: "#8b5cf6",
-			IMPORTS: "#60a5fa",
-			CALLS: "#34d399",
-		} as Record<string, string>,
+		edge: "#94a3b8",
 	},
 } as const;
 type KindKey = "folder" | "file" | "class" | "fn" | "ast" | "tour";
@@ -313,14 +347,6 @@ function astSymbolIconNode(node: SimNode): IconNode {
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-const edgeCat = (t: string) => {
-	const u = t.toUpperCase();
-	return u.includes("CALL")
-		? "CALLS"
-		: u.includes("IMPORT")
-			? "IMPORTS"
-			: "CONTAINS";
-};
 const nodeR = (k: ExplorerNodeKind) =>
 	k === "folder"
 		? 22
@@ -414,6 +440,8 @@ function hierarchicalLayout(nodes: SimNode[], links: SimLink[], W: number, H: nu
 		const t = type.toUpperCase();
 		return (
 			t.includes("CONTAIN") ||
+			t.includes("HAS_AST") ||
+			t.includes("NEXT_AST") ||
 			t.includes("DECLARE") ||
 			t.includes("HAS_AST_ROOT") ||
 			t.includes("AST_CHILD")
@@ -535,6 +563,7 @@ export const ExplorerGraphCanvas = forwardRef<
 		mode: string;
 		pathNodeIds: string[];
 		highlightNodeIds: string[];
+		changedNodeIds?: string[];
 		tourHighlightNodeIds?: string[];
 		activeTourNodeId?: string | null;
 	}
@@ -548,6 +577,7 @@ export const ExplorerGraphCanvas = forwardRef<
 		mode: _mode,
 		pathNodeIds,
 		highlightNodeIds,
+		changedNodeIds = [],
 		tourHighlightNodeIds,
 		activeTourNodeId,
 	},
@@ -644,6 +674,26 @@ export const ExplorerGraphCanvas = forwardRef<
 							.scale(sc),
 					);
 			}, 400);
+		},
+		focusNode: (nodeId) => {
+			const c = ctrlRef.current;
+			if (!c) return;
+			const match = c.simNodes.find((node) => String(node.id) === nodeId);
+			const pos = match
+				? { x: match.x ?? 0, y: match.y ?? 0 }
+				: nodePosRef.current.get(nodeId);
+			if (!pos) return;
+			const currentScale = zoomTransformRef.current.k || 1;
+			const scale = Math.max(1.15, Math.min(currentScale, 1.8));
+			c.svgSel
+				.transition()
+				.duration(420)
+				.call(
+					c.zoom.transform,
+					d3.zoomIdentity
+						.translate(c.W / 2 - pos.x * scale, c.H / 2 - pos.y * scale)
+						.scale(scale),
+				);
 		},
 	}));
 
@@ -759,25 +809,20 @@ export const ExplorerGraphCanvas = forwardRef<
 		fm.append("feMergeNode").attr("in", "b");
 		fm.append("feMergeNode").attr("in", "SourceGraphic");
 
-		// Arrow markers
-		const arrowId: Record<string, string> = {};
-		(["CONTAINS", "IMPORTS", "CALLS"] as const).forEach((cat) => {
-			const id = `a-${cat}-${Math.random().toString(36).slice(2)}`;
-			arrowId[cat] = id;
-			defs
-				.append("marker")
-				.attr("id", id)
-				.attr("viewBox", "0 -4 8 8")
-				.attr("refX", 7)
-				.attr("refY", 0)
-				.attr("markerWidth", 5)
-				.attr("markerHeight", 5)
-				.attr("orient", "auto")
-				.append("path")
-				.attr("d", "M0,-4L8,0L0,4")
-				.attr("fill", T.edge[cat])
-				.attr("fill-opacity", 0.85);
-		});
+		const edgeArrowId = `a-edge-${Math.random().toString(36).slice(2)}`;
+		defs
+			.append("marker")
+			.attr("id", edgeArrowId)
+			.attr("viewBox", "0 -4 8 8")
+			.attr("refX", 7)
+			.attr("refY", 0)
+			.attr("markerWidth", 5)
+			.attr("markerHeight", 5)
+			.attr("orient", "auto")
+			.append("path")
+			.attr("d", "M0,-4L8,0L0,4")
+			.attr("fill", T.edge)
+			.attr("fill-opacity", 0.85);
 
 		svg
 			.append("rect")
@@ -874,17 +919,11 @@ export const ExplorerGraphCanvas = forwardRef<
 			.data(prepared.simLinks, (d) => d.id)
 			.join("line")
 			.attr("class", "graph-link")
-			.attr("stroke", (d) => T.edge[edgeCat(d.type)] ?? T.edge.CONTAINS)
-			.attr("stroke-dasharray", (d) => {
-				const c = edgeCat(d.type);
-				return c === "CALLS" ? "3 5" : c === "IMPORTS" ? "6 3" : "none";
-			})
+			.attr("stroke", T.edge)
+			.attr("stroke-dasharray", "none")
 			.attr("stroke-width", 1)
 			.attr("stroke-opacity", 0.25)
-			.attr("marker-end", (d) => {
-				const c = edgeCat(d.type);
-				return c !== "CONTAINS" ? `url(#${arrowId[c]})` : null;
-			})
+			.attr("marker-end", `url(#${edgeArrowId})`)
 			.attr("x1", (d) => (d.source as SimNode).x ?? 0)
 			.attr("y1", (d) => (d.source as SimNode).y ?? 0)
 			.attr("x2", ex2)
@@ -1086,6 +1125,7 @@ export const ExplorerGraphCanvas = forwardRef<
 		if (!svgRef.current) return;
 		const T = getTheme();
 		const multiSet = new Set(selectedNodeIds);
+		const changedSet = new Set(changedNodeIds);
 		const gid = glowIdRef.current;
 		const pathSet = new Set(pathNodeIds);
 		const hlSet = new Set(highlightNodeIds);
@@ -1115,32 +1155,73 @@ export const ExplorerGraphCanvas = forwardRef<
 			.selectAll<SVGGElement, SimNode>("[data-nid]")
 			.each(function (d) {
 				const id = String(d.id);
-				const isPrimary = id === selectedNodeId;
-				const isMulti = multiSet.has(id) && !isPrimary;
 				const isTour = id === activeTourNodeId;
+				const isPrimary = id === selectedNodeId && !isTour;
+				const isMulti = multiSet.has(id) && !isPrimary;
+				const isTourRelated =
+					tourSet.has(id) && !isPrimary && !isMulti && !isTour;
+				const isChanged = changedSet.has(id) && !isPrimary && !isMulti && !isTour;
 				const opacity = nodeOpacity(id);
-				const color = isPrimary
-					? (T[d.kind as KindKey]?.bright ?? T.file.bright)
-					: isMulti
+				const color = isTour
+					? T.tour.bright
+					: isPrimary
+						? (T[d.kind as KindKey]?.bright ?? T.file.bright)
+						: isMulti
 						? T.multi.ring
-						: isTour
-							? T.tour.bright
-							: "none";
+							: isTourRelated
+								? T.tour.fill
+								: isChanged
+									? T.changed.ring
+									: "none";
+				const baseTheme = T[d.kind as KindKey] ?? T.file;
+				const circleFill = isTour
+					? T.tour.bright
+					: isTourRelated
+						? T.tour.fill
+						: baseTheme.fill;
+				const labelFill = isTour || isTourRelated ? T.tour.labelBg : baseTheme.labelBg;
+				const labelText = isTour || isTourRelated ? T.tour.labelText : baseTheme.labelText;
 				const el = d3.select(this);
 				el.select(".ring")
 					.attr("stroke", color)
-					.attr("stroke-opacity", isPrimary || isMulti || isTour ? 0.85 : 0)
-					.attr("filter", isPrimary ? `url(#${gid})` : "none");
+					.attr(
+						"stroke-opacity",
+						isTour || isPrimary || isMulti || isChanged
+							? 0.85
+							: isTourRelated
+								? 0.45
+								: 0,
+					)
+					.attr("filter", isTour || isPrimary || isChanged ? `url(#${gid})` : "none");
 				el.select(".circ")
+					.attr("fill", circleFill)
 					.attr(
 						"stroke",
-						isPrimary || isMulti ? color : "rgba(255,255,255,0.35)",
+						isPrimary || isMulti || isChanged || isTourRelated
+							? color
+							: "rgba(255,255,255,0.35)",
 					)
-					.attr("stroke-width", isPrimary || isMulti ? 2.5 : 1.5)
+					.attr(
+						"stroke-width",
+						isPrimary || isMulti
+							? 2.5
+							: isTour
+								? 2.35
+								: isTourRelated || isChanged
+									? 2.2
+									: 1.5,
+					)
 					.attr("opacity", opacity);
-				el.select(".icon").attr("opacity", opacity);
-				el.select(".lpill").attr("opacity", opacity);
-				el.select(".ltxt").attr("opacity", opacity);
+				el.select(".icon")
+					.attr("opacity", opacity)
+					.attr("stroke", isTour || isTourRelated ? "rgba(255,255,255,0.98)" : "rgba(255,255,255,0.95)");
+				el.select(".lpill")
+					.attr("opacity", opacity)
+					.attr("fill", labelFill)
+					.attr("stroke", isTour || isTourRelated ? T.tour.fill : baseTheme.fill);
+				el.select(".ltxt")
+					.attr("opacity", opacity)
+					.attr("fill", labelText);
 			});
 
 		svg
@@ -1170,6 +1251,7 @@ export const ExplorerGraphCanvas = forwardRef<
 	}, [
 		selectedNodeId,
 		selectedNodeIds,
+		changedNodeIds,
 		activeTourNodeId,
 		pathNodeIds,
 		highlightNodeIds,

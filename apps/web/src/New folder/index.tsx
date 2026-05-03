@@ -868,11 +868,8 @@ function FullFooter() {
             <Link to="/graph" className="ca-footer-link">
               Graph Viewer
             </Link>
-            <Link to="/indexing" className="ca-footer-link">
-              Indexing
-            </Link>
-            <Link to="/analytics" className="ca-footer-link">
-              Analytics
+            <Link to="/history" className="ca-footer-link">
+              Graph History
             </Link>
             <Link to="/onboarding" className="ca-footer-link">
               Get Started

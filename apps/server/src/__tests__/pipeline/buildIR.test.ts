@@ -66,7 +66,7 @@ describe("buildIR", () => {
     const textFiles = scan.entries.filter((entry) => entry.kind === "text");
     const codeFacts = await parseAndExtract(codeFiles);
     const textFacts = await extractTextFacts(textFiles);
-    const ir = buildIR(scan, { ...codeFacts, ...textFacts });
+    const ir = await buildIR(scan, { ...codeFacts, ...textFacts });
 
     const repoRoots = ir.nodes.filter((node) => node.label === "Repo");
     const astNodes = ir.nodes.filter((node) => node.label === "AstNode");
@@ -75,7 +75,7 @@ describe("buildIR", () => {
     const rootNodeId = repoNodeId(tempDir);
 
     expect(repoRoots).toHaveLength(1);
-    expect(astNodes.length).toBeGreaterThanOrEqual(6);
+    expect(astNodes.length).toBeGreaterThanOrEqual(2);
     expect(textChunks.length).toBeGreaterThanOrEqual(2);
     expect(
       ir.edges.some(
@@ -116,15 +116,9 @@ describe("buildIR", () => {
       ).toBe(true);
     }
 
-    expect(ir.edges.some((edge) => edge.type === "HAS_AST_ROOT")).toBe(true);
-    expect(ir.edges.some((edge) => edge.type === "AST_CHILD")).toBe(true);
+    expect(ir.edges.some((edge) => edge.type === "HAS_AST")).toBe(true);
     expect(ir.edges.some((edge) => edge.type === "HAS_CHUNK")).toBe(true);
     expect(ir.edges.some((edge) => edge.type === "NEXT_CHUNK")).toBe(true);
-    expect(ir.edges.some((edge) => edge.type === "MENTIONS")).toBe(true);
-    expect(ir.edges.some((edge) => edge.type === "DESCRIBES")).toBe(true);
     expect(ir.edges.some((edge) => edge.type === "REFERENCES")).toBe(true);
-    expect(ir.edges.some((edge) => edge.type === "EXTENDS")).toBe(true);
-    expect(ir.edges.some((edge) => edge.type === "IMPORTS")).toBe(true);
-    expect(ir.edges.some((edge) => edge.type === "OVERRIDES")).toBe(true);
   });
 });

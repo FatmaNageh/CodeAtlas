@@ -893,7 +893,7 @@ function FullFooter() {
         <div className="ca-footer-links">
           <div className="ca-footer-col">
             <div className="ca-footer-col-title">Product</div>
-            {[{ to: "/graph", label: "Graph Viewer" }, { to: "/indexing", label: "Indexing" }, { to: "/analytics", label: "Analytics" }, { to: "/onboarding", label: "Get Started" }].map(({ to, label }) => (
+            {[{ to: "/graph", label: "Graph Viewer" }, { to: "/history", label: "Graph History" }, { to: "/onboarding", label: "Get Started" }].map(({ to, label }) => (
               <Link key={label} to={to} className="ca-footer-link" data-hover="true">{label}</Link>
             ))}
           </div>

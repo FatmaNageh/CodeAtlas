@@ -30,7 +30,8 @@ const SCHEMA_QUERIES = [
   "CREATE INDEX textchunk_identity_key IF NOT EXISTS FOR (n:TextChunk) ON (n.identityKey)",
 
   "CREATE INDEX astnode_file_path IF NOT EXISTS FOR (n:AstNode) ON (n.repoId, n.filePath)",
-  "CREATE INDEX astnode_normalized_kind IF NOT EXISTS FOR (n:AstNode) ON (n.repoId, n.normalizedKind)",
+  "CREATE INDEX astnode_unit_kind IF NOT EXISTS FOR (n:AstNode) ON (n.repoId, n.unitKind)",
+  "CREATE INDEX astnode_segment_index IF NOT EXISTS FOR (n:AstNode) ON (n.repoId, n.fileId, n.segmentIndex)",
   "CREATE INDEX astnode_identity_key IF NOT EXISTS FOR (n:AstNode) ON (n.identityKey)",
 ] as const;
 

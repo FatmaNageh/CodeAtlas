@@ -9,9 +9,37 @@ export type FileContext = {
   references: string[];
 };
 
+function buildChunkRetrievalText(chunk: FileASTChunkRow): string {
+  const parts: string[] = [];
+
+  if (chunk.name) {
+    parts.push(`Label: ${chunk.name}`);
+  }
+  if (chunk.unitKind) {
+    parts.push(`Unit kind: ${chunk.unitKind}`);
+  }
+  if (chunk.segmentReason) {
+    parts.push(`Segment reason: ${chunk.segmentReason}`);
+  }
+  if (chunk.topLevelSymbols && chunk.topLevelSymbols.length > 0) {
+    parts.push(`Top-level symbols: ${chunk.topLevelSymbols.join(", ")}`);
+  }
+  if (chunk.keywords && chunk.keywords.length > 0) {
+    parts.push(`Keywords: ${chunk.keywords.join(", ")}`);
+  }
+  if (chunk.summaryCandidate) {
+    parts.push(`Summary: ${chunk.summaryCandidate}`);
+  }
+  if (chunk.text) {
+    parts.push(chunk.text);
+  }
+
+  return parts.join("\n");
+}
+
 export async function assembleFileContext(filePath: string, repoId: string): Promise<FileContext> {
   const fileChunks = await getFileChunks(filePath, repoId);
-  const sampleText = fileChunks.map((chunk) => chunk.text ?? "").find(Boolean) ?? "";
+  const sampleText = fileChunks.map((chunk) => buildChunkRetrievalText(chunk)).find(Boolean) ?? "";
   let similarChunks: SimilarASTNodeRow[] = [];
   
   if (sampleText) {

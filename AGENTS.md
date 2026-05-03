@@ -3,8 +3,7 @@
 - this project uses turborepo
 - DO NOT use any or unknown types, make sure your code is type-safe
 - when you're done run type checks with "pnpm run check-types"
--this is an early stage project so breaking changes are expected (but do alert me at the end of your message of the breaking changes )
+  -this is an early stage project so breaking changes are expected (but do alert me at the end of your message of the breaking changes )
 - prefer import aliases
-- when writing cypher queries start the string with ```/*cypher*/``` so the neo4j extension can activate
-- when writing cypher queries , prefer session.executeWrite() & session.executeRead() over session.run()
+- when writing cypher queries start the string with `/*cypher*/` so the neo4j extension can activate
 - when tasked with frontend/UI work, use the frontend design skill

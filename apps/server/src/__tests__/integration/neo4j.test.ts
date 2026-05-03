@@ -130,7 +130,7 @@ describe('Integration tests (requires Neo4j)', () => {
 
     if (embedResult.totalEmbedded > 0) {
       const chunkNodes = await runCypher(
-        'MATCH (a:ASTNode {repoId: $repoId}) WHERE a.embedding IS NOT NULL RETURN a.name as symbol, a.fileRelPath as relPath, size(a.embedding) as dim',
+        'MATCH (a:AstNode {repoId: $repoId}) WHERE a.embeddings IS NOT NULL RETURN a.name as symbol, a.fileRelPath as relPath, size(a.embeddings) as dim',
         { repoId: indexResult.repoId },
       );
       expect(chunkNodes.length).toBeGreaterThanOrEqual(1);
@@ -241,5 +241,115 @@ describe('Integration tests (requires Neo4j)', () => {
     );
     expect(dirNodes[0]).toBeDefined();
     expect(Number(dirNodes[0]?.count)).toBeGreaterThanOrEqual(1);
+  });
+
+  it('verifies node property completeness and no orphaned code files', async () => {
+    const testDir = path.join(tempDir, 'property-integrity-test');
+    await fs.mkdir(path.join(testDir, 'src'), { recursive: true });
+    await fs.writeFile(
+      path.join(testDir, 'src', 'dep.ts'),
+      'export function dep(): string { return "dep"; }',
+      'utf-8',
+    );
+    await fs.writeFile(
+      path.join(testDir, 'src', 'main.ts'),
+      'import { dep } from "./dep"; export function run(): string { return dep(); }',
+      'utf-8',
+    );
+
+    const result = await indexRepository({
+      projectPath: testDir,
+      mode: 'full',
+      saveDebugJson: false,
+      dryRun: false,
+    });
+
+    const missingRequiredProps = await runCypher<{ count: number }>(
+      `/*cypher*/
+      MATCH (f:CodeFile {repoId: $repoId})
+      WHERE f.path IS NULL OR f.relPath IS NULL OR f.language IS NULL OR f.id IS NULL
+      RETURN count(f) AS count`,
+      { repoId: result.repoId },
+    );
+    expect(Number(missingRequiredProps[0]?.count ?? 0)).toBe(0);
+
+    const orphanCodeFiles = await runCypher<{ count: number }>(
+      `/*cypher*/
+      MATCH (f:CodeFile {repoId: $repoId})
+      WHERE NOT ( (:Repo {repoId: $repoId})-[:CONTAINS*1..]->(f) )
+      RETURN count(f) AS count`,
+      { repoId: result.repoId },
+    );
+    expect(Number(orphanCodeFiles[0]?.count ?? 0)).toBe(0);
+
+    const brokenReferences = await runCypher<{ count: number }>(
+      `/*cypher*/
+      MATCH (src:CodeFile {repoId: $repoId})-[r:REFERENCES]->(target)
+      WHERE coalesce(r.referenceKind, '') IN ['local-import', 'typescript-module-resolution']
+        AND NOT (target:CodeFile OR target:TextFile)
+      RETURN count(r) AS count`,
+      { repoId: result.repoId },
+    );
+    expect(Number(brokenReferences[0]?.count ?? 0)).toBe(0);
+  });
+
+  it('indexes explicit Go and Ruby files with AST nodes', async () => {
+    const testDir = path.join(tempDir, 'go-ruby-test');
+    await fs.mkdir(path.join(testDir, 'src'), { recursive: true });
+    await fs.writeFile(
+      path.join(testDir, 'src', 'main.go'),
+      [
+        'package main',
+        '',
+        'func Add(a int, b int) int {',
+        '  return a + b',
+        '}',
+      ].join('\n'),
+      'utf-8',
+    );
+    await fs.writeFile(
+      path.join(testDir, 'src', 'user_service.rb'),
+      [
+        'class UserService',
+        '  def create_user(name)',
+        '    "created #{name}"',
+        '  end',
+        'end',
+      ].join('\n'),
+      'utf-8',
+    );
+
+    const result = await indexRepository({
+      projectPath: testDir,
+      mode: 'full',
+      saveDebugJson: false,
+      dryRun: false,
+    });
+
+    const languageRows = await runCypher<{ path: string; language: string }>(
+      `/*cypher*/
+      MATCH (f:CodeFile {repoId: $repoId})
+      WHERE f.path IN ['src/main.go', 'src/user_service.rb']
+      RETURN f.path AS path, f.language AS language
+      ORDER BY path`,
+      { repoId: result.repoId },
+    );
+
+    expect(languageRows).toHaveLength(2);
+    expect(languageRows.find((row) => row.path === 'src/main.go')?.language).toBe('go');
+    expect(languageRows.find((row) => row.path === 'src/user_service.rb')?.language).toBe('ruby');
+
+    const astCounts = await runCypher<{ path: string; astCount: number }>(
+      `/*cypher*/
+      MATCH (f:CodeFile {repoId: $repoId})-[:HAS_AST]->(a:AstNode {repoId: $repoId})
+      WHERE f.path IN ['src/main.go', 'src/user_service.rb']
+      RETURN f.path AS path, count(a) AS astCount
+      ORDER BY path`,
+      { repoId: result.repoId },
+    );
+
+    expect(astCounts).toHaveLength(2);
+    expect(Number(astCounts.find((row) => row.path === 'src/main.go')?.astCount ?? 0)).toBeGreaterThan(0);
+    expect(Number(astCounts.find((row) => row.path === 'src/user_service.rb')?.astCount ?? 0)).toBeGreaterThan(0);
   });
 });

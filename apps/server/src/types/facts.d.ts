@@ -1,3 +1,4 @@
+import type { AstUnitKind, ParseStatus } from "./graphProperties";
 import type { SupportedLanguage } from "./scan";
 
 
@@ -10,12 +11,17 @@ export type Range = {
 
 
 export type SymbolKind =
+  | "constructor"
   | "function"
-  | "method"
   | "class"
+  | "enum"
   | "interface"
+  | "method"
   | "module"
-  | "namespace";
+  | "namespace"
+  | "protocol"
+  | "struct"
+  | "trait";
 
 export type RawSymbol = {
   kind: SymbolKind;
@@ -53,10 +59,33 @@ export type CodeFacts = {
   language: SupportedLanguage;
   imports: RawImport[];
   astNodes: RawSymbol[];
+  callSites: RawCallSite[];
+  parseStatus?: ParseStatus;
+  parser?: string | null;
   parseErrors?: number;
   lineCount?: number;
   textPreview?: string;
   textHash?: string;
+};
+
+export type CodeSegment = {
+  index: number;
+  unitKind: AstUnitKind;
+  label: string;
+  summaryCandidate: string;
+  segmentReason: string;
+  startLine: number;
+  startCol: number;
+  endLine: number;
+  endCol: number;
+  text: string;
+  charCount: number;
+  tokenEstimate: number;
+  symbolNames: string[];
+  topLevelSymbols: string[];
+  keywords: string[];
+  imports: string[];
+  calls: string[];
 };
 
 export type TextFacts = {

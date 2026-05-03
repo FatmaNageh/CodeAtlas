@@ -7,10 +7,14 @@ export const healthRoute = new Hono();
 healthRoute.get("/health", async (c) => {
   const neo4j = getNeo4jClient();
   const neo4jOk = await neo4j.ping().catch(() => false);
+  const status = neo4jOk ? 200 : 503;
 
-  return c.json({
-    ok: true,
-    neo4j: neo4jOk ? "ok" : "unreachable",
-    timestamp: new Date().toISOString(),
-  });
+  return c.json(
+    {
+      ok: neo4jOk,
+      neo4j: neo4jOk ? "ok" : "unreachable",
+      timestamp: new Date().toISOString(),
+    },
+    status,
+  );
 });

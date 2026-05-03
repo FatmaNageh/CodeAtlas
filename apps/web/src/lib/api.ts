@@ -32,6 +32,36 @@ export type IndexRepoRequest = {
   saveDebugJson?: boolean;
   computeHash?: boolean;
   dryRun?: boolean;
+  ignorePatterns?: string[];
+};
+
+export type IndexRepoResponse = {
+  ok: true;
+  repoId: string;
+  runId: string;
+  repoRoot: string;
+  mode: IndexMode;
+  dryRun: boolean;
+  scanned: {
+    totalFiles: number;
+    ignoredCount: number;
+    processedFiles: number;
+    impactedDependents: string[];
+    diff: {
+      added: Array<{ relPath: string }>;
+      changed: Array<{ relPath: string }>;
+      removed: Array<{ relPath: string }>;
+      unchanged: Array<{ relPath: string }>;
+    };
+  };
+  stats: {
+    files: number;
+    dirs: number;
+    textChunks: number;
+    astNodes: number;
+    edges: number;
+  };
+  debugDir: string | null;
 };
 
 export async function healthCheck(baseUrl = ""): Promise<any> {
@@ -43,7 +73,7 @@ export async function healthCheck(baseUrl = ""): Promise<any> {
 export async function indexRepo(
   body: IndexRepoRequest,
   baseUrl = ""
-): Promise<any> {
+): Promise<IndexRepoResponse> {
   const res = await fetch(`${baseUrl}/indexRepo`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -53,7 +83,70 @@ export async function indexRepo(
     const text = await res.text().catch(() => "");
     throw new Error(`Index failed: ${res.status} ${res.statusText}${text ? `\n${text}` : ""}`);
   }
-  return res.json();
+  return res.json() as Promise<IndexRepoResponse>;
+}
+
+export type RepositoryValidationResponse =
+  | {
+      ok: true;
+      projectPath: string;
+      supportedFiles: {
+        total: number;
+        code: number;
+        documentation: number;
+        byLanguage: Partial<Record<string, number>>;
+      };
+      ignoredCount: number;
+      ignorePatterns: string[];
+    }
+  | {
+      ok: false;
+      projectPath?: string;
+      error: string;
+    };
+
+export async function validateRepository(
+  body: { projectPath: string; ignorePatterns?: string[] },
+  baseUrl = "",
+): Promise<RepositoryValidationResponse> {
+  const res = await fetch(`${baseUrl}/repository/validate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return res.json() as Promise<RepositoryValidationResponse>;
+}
+
+export type DeleteRepositoryGraphResponse =
+  | {
+      ok: true;
+      repoId: string;
+      repoRoot: string;
+    }
+  | {
+      ok: false;
+      repoId?: string;
+      error: string;
+    };
+
+export async function deleteRepositoryGraph(
+  body: { repoId: string },
+  baseUrl = "",
+): Promise<DeleteRepositoryGraphResponse> {
+  const res = await fetch(`${baseUrl}/repository/delete`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  if (!text.trim()) {
+    throw new Error(`Delete failed: ${res.status} ${res.statusText} — server returned an empty response`);
+  }
+  try {
+    return JSON.parse(text) as DeleteRepositoryGraphResponse;
+  } catch {
+    throw new Error(`Delete failed: ${res.status} ${res.statusText}\n${text.slice(0, 300)}`);
+  }
 }
 
 export async function fetchIr(repoId: string, baseUrl = ""): Promise<any> {
@@ -75,6 +168,130 @@ export async function fetchNeo4jSubgraph(repoId: string, baseUrl = "", limit = 5
     throw new Error(`Fetch subgraph failed: ${res.status} ${res.statusText}${text ? `\n${text}` : ""}`);
   }
   return res.json();
+}
+
+export type RepoRecord = {
+  repoId: string;
+  rootPath: string;
+  indexedAt?: string;
+  [key: string]: unknown;
+};
+
+export type ChatThreadRecord = {
+  id: string;
+  repoId: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  lastMessageAt: string;
+};
+
+export type ChatThreadMessageRecord = {
+  id: string;
+  threadId: string;
+  repoId: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  contextFiles: string[];
+  createdAt: string;
+  sequence: number;
+};
+
+export async function fetchRepos(baseUrl = ""): Promise<RepoRecord[]> {
+  const res = await fetch(`${baseUrl}/diagnostics/repos`);
+  if (!res.ok) throw new Error(`Fetch repos failed: ${res.status} ${res.statusText}`);
+  const data = await res.json() as { ok: boolean; repos: RepoRecord[] };
+  return data.repos ?? [];
+}
+
+export async function fetchChatThreads(
+  repoId: string,
+  baseUrl = "",
+): Promise<ChatThreadRecord[]> {
+  const res = await fetch(
+    `${baseUrl}/chat/threads?repoId=${encodeURIComponent(repoId)}`,
+  );
+  const data = (await res.json().catch(() => ({}))) as {
+    ok?: boolean;
+    error?: string;
+    threads?: ChatThreadRecord[];
+  };
+
+  if (!res.ok || data.ok !== true) {
+    throw new Error(data.error ?? `Fetch chat threads failed: ${res.status} ${res.statusText}`);
+  }
+
+  return data.threads ?? [];
+}
+
+export async function createChatThread(
+  body: { repoId: string; title?: string },
+  baseUrl = "",
+): Promise<ChatThreadRecord> {
+  const res = await fetch(`${baseUrl}/chat/threads`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => ({}))) as {
+    ok?: boolean;
+    error?: string;
+    thread?: ChatThreadRecord;
+  };
+
+  if (!res.ok || data.ok !== true || !data.thread) {
+    throw new Error(data.error ?? `Create chat thread failed: ${res.status} ${res.statusText}`);
+  }
+
+  return data.thread;
+}
+
+export async function fetchThreadMessages(
+  repoId: string,
+  threadId: string,
+  baseUrl = "",
+): Promise<{ thread: ChatThreadRecord; messages: ChatThreadMessageRecord[] }> {
+  const res = await fetch(
+    `${baseUrl}/chat/threads/${encodeURIComponent(threadId)}/messages?repoId=${encodeURIComponent(repoId)}`,
+  );
+  const data = (await res.json().catch(() => ({}))) as {
+    ok?: boolean;
+    error?: string;
+    thread?: ChatThreadRecord;
+    messages?: ChatThreadMessageRecord[];
+  };
+
+  if (!res.ok || data.ok !== true || !data.thread) {
+    throw new Error(data.error ?? `Fetch thread messages failed: ${res.status} ${res.statusText}`);
+  }
+
+  return {
+    thread: data.thread,
+    messages: data.messages ?? [],
+  };
+}
+
+export async function clearThreadMessages(
+  body: { repoId: string; threadId: string },
+  baseUrl = "",
+): Promise<void> {
+  const res = await fetch(
+    `${baseUrl}/chat/threads/${encodeURIComponent(body.threadId)}/clear`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repoId: body.repoId }),
+    },
+  );
+
+  const data = (await res.json().catch(() => ({}))) as {
+    ok?: boolean;
+    error?: string;
+  };
+
+  if (!res.ok || data.ok !== true) {
+    throw new Error(data.error ?? `Clear thread failed: ${res.status} ${res.statusText}`);
+  }
 }
 
 export async function fetchTour(repoId: string, baseUrl = "", limit = 12): Promise<TourResponse> {

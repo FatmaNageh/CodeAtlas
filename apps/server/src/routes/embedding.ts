@@ -1,15 +1,21 @@
 import { Hono } from "hono";
-import { embedASTFiles } from "../pipeline/embed/embedASTFiles";
 import { inspect } from 'util';
+import { embedRepository } from "@/services/graphrag";
 
 export const embedRoute = new Hono();
 
 // POST /embedASTFiles
 embedRoute.post("/embedASTFiles", async (c) => {
   // Parse JSON body safely
-  const body: { repoId?: string; projectPath?: string } = await c.req.json().catch(() => ({}));
+  const body: {
+    repoId?: string;
+    projectPath?: string;
+    batchSize?: number;
+    maxFiles?: number;
+    adaptive?: boolean;
+  } = await c.req.json().catch(() => ({}));
 
-  const { repoId, projectPath } = body;
+  const { repoId, projectPath, batchSize, maxFiles, adaptive } = body;
 
   if (!repoId || !projectPath) {
     return c.json(
@@ -21,7 +27,11 @@ embedRoute.post("/embedASTFiles", async (c) => {
   console.log(`[EMBED-ROUTE] Embedding AST files for repoId=${repoId}, projectPath=${projectPath}`);
 
   try {
-    const result = await embedASTFiles(repoId, projectPath);
+    const result = await embedRepository(repoId, projectPath, {
+      batchSize,
+      maxFiles,
+      adaptive,
+    });
     return c.json({ ...result, ok: true });
   } catch (err: unknown) {
     // Log detailed error to server console for debugging

@@ -13,9 +13,10 @@ export async function summarizeFiles(repoId: string): Promise<SummarizeResult> {
 
   try {
     const files = await runCypher(
-      `MATCH (f:CodeFile {repoId: $repoId})
-       RETURN f.relPath as filePath
-       ORDER BY f.relPath`,
+      `/*cypher*/
+       MATCH (f:CodeFile {repoId: $repoId})
+       RETURN coalesce(f.path, f.relPath) AS filePath
+       ORDER BY filePath`,
       { repoId }
     );
 
