@@ -26,6 +26,30 @@ export type TourResponse = {
   steps: TourStep[];
 };
 
+export type EvaluatorRunRecord = {
+  id: string;
+  evaluationType: "ask" | "summarize" | "tour";
+  repoId: string;
+  threadId: string | null;
+  sourcePayloadJson: string | null;
+  question: string;
+  response: string;
+  referenceAnswer: string | null;
+  retrievedContext: string | null;
+  retrievalCount: number;
+  correctnessScore: number | null;
+  correctnessRationale: string | null;
+  groundednessScore: number | null;
+  groundednessRationale: string | null;
+  relevanceScore: number | null;
+  relevanceRationale: string | null;
+  retrievalRelevanceScore: number | null;
+  retrievalRelevanceRationale: string | null;
+  latencyMs: number;
+  model: string;
+  createdAt: string;
+};
+
 export type IndexRepoRequest = {
   projectPath: string;
   mode: IndexMode;
@@ -306,4 +330,93 @@ export async function fetchTour(repoId: string, baseUrl = "", limit = 12): Promi
   }
 
   return data as TourResponse;
+}
+
+export async function fetchEvaluatorRuns(
+  repoId: string,
+  baseUrl = "",
+  limit = 25,
+): Promise<EvaluatorRunRecord[]> {
+  const safeLimit = Math.max(1, Math.floor(Number(limit) || 25));
+  const res = await fetch(
+    `${baseUrl}/graphrag/evaluators/runs?repoId=${encodeURIComponent(repoId)}&limit=${encodeURIComponent(String(safeLimit))}`,
+  );
+  const data = (await res.json().catch(() => ({}))) as {
+    ok?: boolean;
+    error?: string;
+    runs?: EvaluatorRunRecord[];
+  };
+
+  if (!res.ok || data.ok !== true) {
+    throw new Error(data.error ?? `Fetch evaluator runs failed: ${res.status} ${res.statusText}`);
+  }
+
+  return data.runs ?? [];
+}
+
+export async function createEvaluatorRun(
+  body: {
+    evaluationType?: "ask" | "summarize" | "tour";
+    repoId: string;
+    threadId?: string | null;
+    question: string;
+    response: string;
+    referenceAnswer?: string | null;
+    retrievedContext?: string;
+    retrievalCount?: number;
+    latencyMs?: number;
+    sourcePayloadJson?: string | null;
+  },
+  baseUrl = "",
+): Promise<EvaluatorRunRecord> {
+  const res = await fetch(`${baseUrl}/graphrag/evaluators/run`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => ({}))) as {
+    ok?: boolean;
+    error?: string;
+    run?: EvaluatorRunRecord;
+  };
+
+  if (!res.ok || data.ok !== true || !data.run) {
+    throw new Error(data.error ?? `Create evaluator run failed: ${res.status} ${res.statusText}`);
+  }
+
+  return data.run;
+}
+
+export async function createEvaluatorDatasetRuns(
+  body: {
+    evaluationType?: "ask" | "summarize" | "tour";
+    repoId: string;
+    entries: Array<{
+      question: string;
+      response: string;
+      referenceAnswer: string;
+      retrievedContext?: string;
+      retrievalCount?: number;
+      latencyMs?: number;
+    }>;
+  },
+  baseUrl = "",
+): Promise<{ created: number; runs: EvaluatorRunRecord[] }> {
+  const res = await fetch(`${baseUrl}/graphrag/evaluators/dataset-run`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => ({}))) as {
+    ok?: boolean;
+    error?: string;
+    created?: number;
+    runs?: EvaluatorRunRecord[];
+  };
+
+  if (!res.ok || data.ok !== true) {
+    throw new Error(data.error ?? `Dataset evaluator run failed: ${res.status} ${res.statusText}`);
+  }
+
+  return { created: data.created ?? 0, runs: data.runs ?? [] };
 }

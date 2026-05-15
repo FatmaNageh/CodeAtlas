@@ -18,6 +18,11 @@ import {
   appendThreadMessage,
   resolveThreadForQuestion,
 } from "@CodeAtlas/db/chat";
+import {
+  createEvaluatorRun,
+  listEvaluatorRuns,
+} from "@CodeAtlas/db/evaluators";
+import { models } from "@/config/openrouter";
 
 export const graphragRoute = new Hono();
 
@@ -81,6 +86,231 @@ type AskSource = {
   score: number;
   sourceKind: string;
 };
+
+type EvaluatorScore = {
+  score: number;
+  rationale: string;
+  majorErrors: number;
+  minorErrors: number;
+  unsupportedClaims: number;
+};
+
+type EvaluatorInput = {
+  evaluationType: "ask" | "summarize" | "tour";
+  repoId: string;
+  threadId: string | null;
+  question: string;
+  response: string;
+  referenceAnswer: string | null;
+  retrievedContext: string;
+  retrievalCount: number;
+  latencyMs: number;
+  sourcePayloadJson?: string | null;
+};
+
+function normalizeScore(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  if (value < 0) return 0;
+  if (value > 1) return 1;
+  return value;
+}
+
+function clipText(value: string, maxChars: number): string {
+  if (value.length <= maxChars) return value;
+  return `${value.slice(0, maxChars)}\n...[truncated]`;
+}
+
+function parseJudgeResponse(text: string): EvaluatorScore {
+  const fallback: EvaluatorScore = {
+    score: 0,
+    rationale: "Judge output parsing failed.",
+    majorErrors: 1,
+    minorErrors: 0,
+    unsupportedClaims: 1,
+  };
+  try {
+    const payload = JSON.parse(text) as {
+      score?: number;
+      rationale?: string;
+      majorErrors?: number;
+      minorErrors?: number;
+      unsupportedClaims?: number;
+    };
+    return {
+      score: normalizeScore(typeof payload.score === "number" ? payload.score : 0),
+      rationale:
+        typeof payload.rationale === "string" && payload.rationale.trim().length > 0
+          ? payload.rationale.trim()
+          : "No rationale provided.",
+      majorErrors:
+        typeof payload.majorErrors === "number" && Number.isFinite(payload.majorErrors)
+          ? Math.max(0, Math.floor(payload.majorErrors))
+          : 0,
+      minorErrors:
+        typeof payload.minorErrors === "number" && Number.isFinite(payload.minorErrors)
+          ? Math.max(0, Math.floor(payload.minorErrors))
+          : 0,
+      unsupportedClaims:
+        typeof payload.unsupportedClaims === "number" && Number.isFinite(payload.unsupportedClaims)
+          ? Math.max(0, Math.floor(payload.unsupportedClaims))
+          : 0,
+    };
+  } catch {
+    const scoreMatch = text.match(/"score"\s*:\s*([0-9]*\.?[0-9]+)/i);
+    const scoreRaw = scoreMatch ? Number(scoreMatch[1]) : 0;
+    return {
+      score: normalizeScore(scoreRaw),
+      rationale: text.trim().slice(0, 300) || fallback.rationale,
+      majorErrors: 0,
+      minorErrors: 0,
+      unsupportedClaims: 0,
+    };
+  }
+}
+
+function applyPenaltyCalibration(score: EvaluatorScore): EvaluatorScore {
+  const penalty =
+    score.majorErrors * 0.2 +
+    score.minorErrors * 0.07 +
+    score.unsupportedClaims * 0.12;
+  const adjusted = normalizeScore(score.score - penalty);
+  return {
+    ...score,
+    score: adjusted,
+    rationale: `${score.rationale} [calibrated: major=${score.majorErrors}, minor=${score.minorErrors}, unsupported=${score.unsupportedClaims}, penalty=${penalty.toFixed(2)}]`,
+  };
+}
+
+async function runJudgeEvaluation(metric: {
+  name: string;
+  instructions: string;
+  question: string;
+  response: string;
+  comparisonText: string;
+}): Promise<EvaluatorScore> {
+  const prompt = [
+    "You are a strict RAG evaluator.",
+    "Return ONLY valid JSON with shape: {\"score\": number, \"rationale\": string, \"majorErrors\": number, \"minorErrors\": number, \"unsupportedClaims\": number}",
+    "score must be between 0 and 1.",
+    "Use this rubric: 0.9-1.0 excellent, 0.7-0.89 good with small gaps, 0.4-0.69 partial, 0.1-0.39 weak, 0.0-0.09 wrong.",
+    "majorErrors counts factual mistakes that change meaning.",
+    "minorErrors counts omissions/wording problems.",
+    "unsupportedClaims counts claims not supported by comparison context.",
+    `Metric: ${metric.name}`,
+    `Instructions: ${metric.instructions}`,
+    "Question:",
+    clipText(metric.question, 3000),
+    "Response:",
+    clipText(metric.response, 5000),
+    "Comparison Context:",
+    clipText(metric.comparisonText, 6000),
+  ].join("\n\n");
+
+  const raw = await generateTextWithContext(prompt, { temperature: 0, maxTokens: 220 });
+  return applyPenaltyCalibration(parseJudgeResponse(raw));
+}
+
+async function evaluateByType(input: EvaluatorInput) {
+  const questionForPrompt =
+    input.evaluationType === "ask"
+      ? input.question
+      : input.evaluationType === "summarize"
+        ? `Summarization task: ${input.question}`
+        : `Tour generation task: ${input.question}`;
+
+  const relevanceInstructions =
+    input.evaluationType === "ask"
+      ? "Score how well the response addresses the question directly and helpfully."
+      : input.evaluationType === "summarize"
+        ? "Score how well the summary covers the requested scope and key points of the target files."
+        : "Score how useful the generated tour is for onboarding and understanding important repository files.";
+
+  const groundednessInstructions =
+    input.evaluationType === "ask"
+      ? "Score how faithfully the response is supported by the retrieved context. Penalize hallucinations."
+      : input.evaluationType === "summarize"
+        ? "Score whether the summary remains faithful to provided source context and does not invent details."
+        : "Score whether the tour explanation is faithful to the graph-derived metadata and step details in context.";
+
+  const retrievalRelevanceInstructions =
+    input.evaluationType === "ask"
+      ? "Score how relevant the retrieved context is to answering the user question."
+      : input.evaluationType === "summarize"
+        ? "Score how relevant the selected source context is for generating a useful summary."
+        : "Score how relevant the selected tour files are for a first-pass repository orientation.";
+
+  const relevance = await runJudgeEvaluation({
+    name: "Relevance",
+    instructions: relevanceInstructions,
+    question: questionForPrompt,
+    response: input.response,
+    comparisonText: input.question,
+  });
+
+  const groundedness = input.retrievedContext.trim().length > 0
+    ? await runJudgeEvaluation({
+      name: "Groundedness",
+      instructions: groundednessInstructions,
+      question: questionForPrompt,
+      response: input.response,
+      comparisonText: input.retrievedContext,
+    })
+    : { score: 0, rationale: "No retrieved context was available for groundedness evaluation." };
+
+  const retrievalRelevance = input.retrievedContext.trim().length > 0
+    ? await runJudgeEvaluation({
+      name: "Retrieval relevance",
+      instructions: retrievalRelevanceInstructions,
+      question: questionForPrompt,
+      response: input.response,
+      comparisonText: input.retrievedContext,
+    })
+    : { score: 0, rationale: "No retrieved context was available for retrieval relevance evaluation." };
+
+  const correctness = input.referenceAnswer && input.referenceAnswer.trim().length > 0
+    ? await runJudgeEvaluation({
+      name: "Correctness",
+      instructions:
+        "Score whether the response is correct compared to the reference answer. Focus on factual agreement.",
+      question: questionForPrompt,
+      response: input.response,
+      comparisonText: input.referenceAnswer,
+    })
+    : null;
+
+  return {
+    relevance,
+    groundedness,
+    retrievalRelevance,
+    correctness,
+  };
+}
+
+async function persistEvaluationRun(input: EvaluatorInput) {
+  const scores = await evaluateByType(input);
+
+  return createEvaluatorRun({
+    evaluationType: input.evaluationType,
+    repoId: input.repoId,
+    threadId: input.threadId,
+    sourcePayloadJson: input.sourcePayloadJson ?? null,
+    question: input.question,
+    response: input.response,
+    referenceAnswer: input.referenceAnswer,
+    retrievedContext: input.retrievedContext,
+    retrievalCount: input.retrievalCount,
+    correctnessScore: scores.correctness?.score ?? null,
+    correctnessRationale: scores.correctness?.rationale ?? null,
+    groundednessScore: scores.groundedness.score,
+    groundednessRationale: scores.groundedness.rationale,
+    relevanceScore: scores.relevance.score,
+    relevanceRationale: scores.relevance.rationale,
+    retrievalRelevanceScore: scores.retrievalRelevance.score,
+    retrievalRelevanceRationale: scores.retrievalRelevance.rationale,
+    latencyMs: input.latencyMs,
+    model: models.chat,
+  });
+}
 
 function formatRetrievedChunk(chunk: SimilarASTNodeRow): string {
   const parts: string[] = [];
@@ -351,6 +581,7 @@ graphragRoute.post("/summarize", async (c) => {
   }
 
   try {
+    const summarizeStartedAt = Date.now();
     let files: string[];
 
     if (filePaths && filePaths.length > 0) {
@@ -371,6 +602,44 @@ graphragRoute.post("/summarize", async (c) => {
     }
 
     const { results, errors } = await generateBatchSummaries(files, repoId);
+
+    const summaryLines = (Array.isArray(results) ? results : [])
+      .map((item) => {
+        const candidate = item as { path?: unknown; summary?: unknown; text?: unknown };
+        const filePath = typeof candidate.path === "string" ? candidate.path : "unknown";
+        const summary =
+          typeof candidate.summary === "string"
+            ? candidate.summary
+            : typeof candidate.text === "string"
+              ? candidate.text
+              : JSON.stringify(item);
+        return `File: ${filePath}\nSummary:\n${summary}`;
+      })
+      .join("\n\n");
+
+    const retrievalContext = [
+      `Requested files (${files.length}):`,
+      files.slice(0, 50).join("\n"),
+      errors.length > 0 ? `Errors:\n${errors.map((err) => String(err)).join("\n")}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
+    persistEvaluationRun({
+      evaluationType: "summarize",
+      repoId,
+      threadId: null,
+      question: `Generate concise summaries for ${files.length} file(s).`,
+      response: summaryLines || "No summaries generated.",
+      referenceAnswer: null,
+      retrievedContext: retrievalContext,
+      retrievalCount: files.length,
+      latencyMs: Date.now() - summarizeStartedAt,
+      sourcePayloadJson: JSON.stringify({ files, resultCount: results.length, errorCount: errors.length }),
+    }).catch((evalError) => {
+      console.warn("[GRAPHRAG] Failed to persist summarize evaluator run:", evalError);
+    });
+
     return c.json({ ok: true, results, errors });
   } catch (err) {
     return c.json({ ok: false, error: String(err) }, 500);
@@ -390,8 +659,164 @@ graphragRoute.get("/tour", async (c) => {
   }
 
   try {
+    const tourStartedAt = Date.now();
     const result = await buildGraphTour(repoId, requestedLimit);
+
+    const tourResponseText = result.steps
+      .map(
+        (step) =>
+          `#${step.rank} ${step.filePath}\nscore=${step.score.toFixed(3)} degree=${step.metrics.totalDegree} depth=${step.metrics.depth}\n${step.summary}`,
+      )
+      .join("\n\n");
+    const tourContext = result.steps
+      .map(
+        (step) =>
+          `file=${step.filePath}; graphScore=${step.scoreBreakdown.graphScore.toFixed(3)}; inDegree=${step.metrics.inDegree}; outDegree=${step.metrics.outDegree}; totalDegree=${step.metrics.totalDegree}; depth=${step.metrics.depth}`,
+      )
+      .join("\n");
+
+    persistEvaluationRun({
+      evaluationType: "tour",
+      repoId,
+      threadId: null,
+      question: `Generate an onboarding tour of top ${result.steps.length} important files.`,
+      response: tourResponseText || "No tour steps generated.",
+      referenceAnswer: null,
+      retrievedContext: tourContext,
+      retrievalCount: result.steps.length,
+      latencyMs: Date.now() - tourStartedAt,
+      sourcePayloadJson: JSON.stringify({ limit: requestedLimit ?? null, generatedAt: result.generatedAt }),
+    }).catch((evalError) => {
+      console.warn("[GRAPHRAG] Failed to persist tour evaluator run:", evalError);
+    });
+
     return c.json(result);
+  } catch (err) {
+    return c.json({ ok: false, error: String(err) }, 500);
+  }
+});
+
+// GET /graphrag/evaluators/runs - List persisted evaluator runs
+graphragRoute.get("/evaluators/runs", async (c) => {
+  const repoId = c.req.query("repoId")?.trim();
+  const limitRaw = c.req.query("limit");
+  const parsedLimit = limitRaw == null ? 25 : Number.parseInt(limitRaw, 10);
+  const limit = Number.isFinite(parsedLimit) ? parsedLimit : 25;
+
+  if (!repoId) {
+    return c.json({ ok: false, error: "Missing repoId" }, 400);
+  }
+
+  try {
+    const runs = await listEvaluatorRuns(repoId, limit);
+    return c.json({ ok: true, repoId, runs });
+  } catch (err) {
+    return c.json({ ok: false, error: String(err) }, 500);
+  }
+});
+
+// POST /graphrag/evaluators/run - Evaluate a single response
+graphragRoute.post("/evaluators/run", async (c) => {
+  const body = await c.req.json().catch(() => ({} as Record<string, unknown>));
+  const evaluationTypeRaw = typeof body.evaluationType === "string" ? body.evaluationType.trim() : "ask";
+  const evaluationType =
+    evaluationTypeRaw === "summarize" || evaluationTypeRaw === "tour" ? evaluationTypeRaw : "ask";
+  const repoId = typeof body.repoId === "string" ? body.repoId.trim() : "";
+  const threadId = typeof body.threadId === "string" ? body.threadId.trim() : "";
+  const question = typeof body.question === "string" ? body.question.trim() : "";
+  const response = typeof body.response === "string" ? body.response.trim() : "";
+  const referenceAnswer =
+    typeof body.referenceAnswer === "string" ? body.referenceAnswer.trim() : "";
+  const retrievedContext =
+    typeof body.retrievedContext === "string" ? body.retrievedContext : "";
+  const retrievalCountRaw =
+    typeof body.retrievalCount === "number" ? body.retrievalCount : Number(body.retrievalCount ?? 0);
+  const retrievalCount = Number.isFinite(retrievalCountRaw)
+    ? Math.max(0, Math.floor(retrievalCountRaw))
+    : 0;
+  const latencyMsRaw = typeof body.latencyMs === "number" ? body.latencyMs : Number(body.latencyMs ?? 0);
+  const latencyMs = Number.isFinite(latencyMsRaw) ? Math.max(0, Math.floor(latencyMsRaw)) : 0;
+  const sourcePayloadJson =
+    typeof body.sourcePayloadJson === "string" ? body.sourcePayloadJson : null;
+
+  if (!repoId || !question || !response) {
+    return c.json({ ok: false, error: "Missing repoId, question, or response" }, 400);
+  }
+
+  try {
+    const run = await persistEvaluationRun({
+      evaluationType,
+      repoId,
+      threadId: threadId || null,
+      question,
+      response,
+      referenceAnswer: referenceAnswer || null,
+      retrievedContext,
+      retrievalCount,
+      latencyMs,
+      sourcePayloadJson,
+    });
+
+    return c.json({ ok: true, run });
+  } catch (err) {
+    return c.json({ ok: false, error: String(err) }, 500);
+  }
+});
+
+// POST /graphrag/evaluators/dataset-run - Evaluate a batch with reference answers
+graphragRoute.post("/evaluators/dataset-run", async (c) => {
+  const body = await c.req.json().catch(() => ({} as Record<string, unknown>));
+  const repoId = typeof body.repoId === "string" ? body.repoId.trim() : "";
+  const evaluationTypeRaw = typeof body.evaluationType === "string" ? body.evaluationType.trim() : "ask";
+  const evaluationType =
+    evaluationTypeRaw === "summarize" || evaluationTypeRaw === "tour" ? evaluationTypeRaw : "ask";
+  const entriesRaw = Array.isArray(body.entries) ? body.entries : [];
+
+  if (!repoId || entriesRaw.length === 0) {
+    return c.json({ ok: false, error: "Missing repoId or entries" }, 400);
+  }
+
+  try {
+    const createdRuns = [];
+    for (const entry of entriesRaw) {
+      const candidate = entry as Record<string, unknown>;
+      const question = typeof candidate.question === "string" ? candidate.question.trim() : "";
+      const response = typeof candidate.response === "string" ? candidate.response.trim() : "";
+      const referenceAnswer =
+        typeof candidate.referenceAnswer === "string" ? candidate.referenceAnswer.trim() : "";
+      const retrievedContext =
+        typeof candidate.retrievedContext === "string" ? candidate.retrievedContext : "";
+      const retrievalCountRaw =
+        typeof candidate.retrievalCount === "number"
+          ? candidate.retrievalCount
+          : Number(candidate.retrievalCount ?? 0);
+      const retrievalCount = Number.isFinite(retrievalCountRaw)
+        ? Math.max(0, Math.floor(retrievalCountRaw))
+        : 0;
+      const latencyMsRaw =
+        typeof candidate.latencyMs === "number" ? candidate.latencyMs : Number(candidate.latencyMs ?? 0);
+      const latencyMs = Number.isFinite(latencyMsRaw) ? Math.max(0, Math.floor(latencyMsRaw)) : 0;
+
+      if (!question || !response || !referenceAnswer) {
+        continue;
+      }
+
+      const run = await persistEvaluationRun({
+        evaluationType,
+        repoId,
+        threadId: null,
+        question,
+        response,
+        referenceAnswer,
+        retrievedContext,
+        retrievalCount,
+        latencyMs,
+        sourcePayloadJson: JSON.stringify({ dataset: true }),
+      });
+      createdRuns.push(run);
+    }
+
+    return c.json({ ok: true, repoId, created: createdRuns.length, runs: createdRuns });
   } catch (err) {
     return c.json({ ok: false, error: String(err) }, 500);
   }
@@ -413,6 +838,7 @@ graphragRoute.post("/ask", async (c) => {
   }
 
   try {
+    const askStartedAt = Date.now();
     const thread = await resolveThreadForQuestion({
       repoId,
       threadId,
@@ -582,6 +1008,25 @@ graphragRoute.post("/ask", async (c) => {
       role: "assistant",
       content: answer,
       sourcesJson: JSON.stringify(allSources),
+    });
+
+    const retrievalContextForEval = [nodeContextResult.context, codeContext, summaryContext]
+      .filter(Boolean)
+      .join("\n\n");
+
+    persistEvaluationRun({
+      evaluationType: "ask",
+      repoId,
+      threadId: thread.id,
+      question,
+      response: answer,
+      referenceAnswer: null,
+      retrievedContext: retrievalContextForEval,
+      retrievalCount: expandedChunks.length,
+      latencyMs: Date.now() - askStartedAt,
+      sourcePayloadJson: JSON.stringify({ sourceCount: allSources.length }),
+    }).catch((evalError) => {
+      console.warn("[GRAPHRAG] Failed to persist evaluator run:", evalError);
     });
 
     return c.json({

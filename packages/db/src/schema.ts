@@ -1,4 +1,4 @@
-import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const chatThreads = sqliteTable(
   "chat_threads",
@@ -33,5 +33,36 @@ export const chatMessages = sqliteTable(
   (table) => ({
     threadSequenceUq: uniqueIndex("chat_messages_thread_sequence_uq").on(table.threadId, table.sequence),
     repoThreadIdx: index("chat_messages_repo_thread_idx").on(table.repoId, table.threadId),
+  }),
+);
+
+export const evaluatorRuns = sqliteTable(
+  "evaluator_runs",
+  {
+    id: text("id").primaryKey(),
+    evaluationType: text("evaluation_type").notNull(),
+    repoId: text("repo_id").notNull(),
+    threadId: text("thread_id"),
+    sourcePayloadJson: text("source_payload_json"),
+    question: text("question").notNull(),
+    response: text("response").notNull(),
+    referenceAnswer: text("reference_answer"),
+    retrievedContext: text("retrieved_context"),
+    retrievalCount: integer("retrieval_count").notNull(),
+    correctnessScore: real("correctness_score"),
+    correctnessRationale: text("correctness_rationale"),
+    groundednessScore: real("groundedness_score"),
+    groundednessRationale: text("groundedness_rationale"),
+    relevanceScore: real("relevance_score"),
+    relevanceRationale: text("relevance_rationale"),
+    retrievalRelevanceScore: real("retrieval_relevance_score"),
+    retrievalRelevanceRationale: text("retrieval_relevance_rationale"),
+    latencyMs: integer("latency_ms").notNull(),
+    model: text("model").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({
+    repoCreatedIdx: index("evaluator_runs_repo_created_idx").on(table.repoId, table.createdAt),
+    threadCreatedIdx: index("evaluator_runs_thread_created_idx").on(table.threadId, table.createdAt),
   }),
 );

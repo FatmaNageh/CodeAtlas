@@ -31,6 +31,8 @@ import {
 import {
 	clearThreadMessages,
 	createChatThread,
+	createEvaluatorRun,
+	fetchEvaluatorRuns,
 	fetchChatThreads,
 	fetchNeo4jSubgraph,
 	fetchThreadMessages,
@@ -38,6 +40,7 @@ import {
 	indexRepo,
 	type ChatThreadRecord,
 	type IndexRepoResponse,
+	type EvaluatorRunRecord,
 	type TourResponse,
 } from "@/lib/api";
 import {
@@ -64,7 +67,7 @@ export const Route = createFileRoute("/graph")({
 
 type Mode = "select" | "neighbour" | "path" | "insight";
 type RightTab = "detail" | "parsing" | "insights" | "ai";
-type TopView = "explorer" | "tour";
+type TopView = "explorer" | "tour" | "evaluators";
 type ChatMessageBase = {
 	id: string;
 	text: string;
@@ -129,6 +132,50 @@ type StatusTone = {
 	color: string;
 	label: string;
 };
+
+type EvaluatorMetricKey =
+	| "correctness"
+	| "groundedness"
+	| "relevance"
+	| "retrievalRelevance";
+
+type EvaluatorScoreSet = Record<EvaluatorMetricKey, number | null>;
+
+type EvaluatorRun = {
+	id: string;
+	name: string;
+	evaluationType: "ask" | "summarize" | "tour";
+	repoId: string;
+	threadId: string | null;
+	sourcePayloadJson: string | null;
+	createdAt: string;
+	model: string;
+	latencyP50Ms: number;
+	latencyP99Ms: number;
+	inputTokens: number;
+	outputTokens: number;
+	costUsd: number;
+	scores: EvaluatorScoreSet;
+	notes: string;
+	question: string;
+	response: string;
+	referenceAnswer: string | null;
+	retrievedContext: string | null;
+	retrievalCount: number;
+};
+
+type EvaluatorTypeFilter = "all" | "ask" | "summarize" | "tour";
+
+const evaluatorMetricMeta: Array<{
+	key: EvaluatorMetricKey;
+	label: string;
+	color: string;
+}> = [
+	{ key: "correctness", label: "Correctness", color: "#8b5cf6" },
+	{ key: "groundedness", label: "Groundedness", color: "#a78bfa" },
+	{ key: "relevance", label: "Relevance", color: "#60a5fa" },
+	{ key: "retrievalRelevance", label: "Retrieval Relevance", color: "#93c5fd" },
+];
 
 function isAskSuccessResponse(
 	value: object | null,
@@ -804,6 +851,13 @@ function GraphExplorerPage() {
 	const [tourLoading, setTourLoading] = useState(false);
 	const [tourError, setTourError] = useState<string>("");
 	const [topFilesCount, setTopFilesCount] = useState(12);
+	const [evaluatorRuns, setEvaluatorRuns] = useState<EvaluatorRun[]>([]);
+	const [selectedEvaluatorRunId, setSelectedEvaluatorRunId] = useState<string>("");
+	const [evaluatorTypeFilter, setEvaluatorTypeFilter] = useState<EvaluatorTypeFilter>("all");
+	const [evaluatorLoading, setEvaluatorLoading] = useState(false);
+	const [evaluatorError, setEvaluatorError] = useState<string>("");
+	const [referenceAnswerDraft, setReferenceAnswerDraft] = useState("");
+	const [evaluateCorrectnessLoading, setEvaluateCorrectnessLoading] = useState(false);
 	const leftSidebarResizeRef = useRef<{
 		startX: number;
 		startWidth: number;
@@ -821,6 +875,209 @@ function GraphExplorerPage() {
 
 	const projectName =
 		repoRoot.split(/[\\/]/).filter(Boolean).pop() ?? repoId ?? "Repository";
+
+	const mapEvaluatorRun = (run: EvaluatorRunRecord): EvaluatorRun => ({
+		// Lightweight approximation until backend persists exact token usage/cost.
+		// 1 token ~= 4 chars (English-ish heuristic).
+		// Input combines prompt-side fields we have locally.
+		
+		
+		id: run.id,
+		name: `eval-${run.id.slice(-6)}`,
+		evaluationType: run.evaluationType,
+		repoId: run.repoId,
+		threadId: run.threadId,
+		sourcePayloadJson: run.sourcePayloadJson,
+		createdAt: run.createdAt,
+		model: run.model,
+		latencyP50Ms: run.latencyMs,
+		latencyP99Ms: run.latencyMs,
+		inputTokens: Math.max(
+			1,
+			Math.round(
+				(run.question.length +
+					(run.retrievedContext?.length ?? 0) +
+					(run.referenceAnswer?.length ?? 0)) /
+					4,
+			),
+		),
+		outputTokens: Math.max(1, Math.round(run.response.length / 4)),
+		costUsd: 0,
+		scores: {
+			correctness: run.correctnessScore,
+			groundedness: run.groundednessScore,
+			relevance: run.relevanceScore,
+			retrievalRelevance: run.retrievalRelevanceScore,
+		},
+		notes:
+			run.groundednessRationale ??
+			run.relevanceRationale ??
+			run.retrievalRelevanceRationale ??
+			run.correctnessRationale ??
+			"No rationale available.",
+		question: run.question,
+		response: run.response,
+		referenceAnswer: run.referenceAnswer,
+		retrievedContext: run.retrievedContext,
+		retrievalCount: run.retrievalCount,
+	});
+
+	const filteredEvaluatorRuns = useMemo(
+		() =>
+			evaluatorTypeFilter === "all"
+				? evaluatorRuns
+				: evaluatorRuns.filter((run) => run.evaluationType === evaluatorTypeFilter),
+		[evaluatorRuns, evaluatorTypeFilter],
+	);
+
+	const selectedEvaluatorRun = useMemo(
+		() =>
+			filteredEvaluatorRuns.find((run) => run.id === selectedEvaluatorRunId) ??
+			filteredEvaluatorRuns[0] ??
+			null,
+		[filteredEvaluatorRuns, selectedEvaluatorRunId],
+	);
+
+	const selectedRunCostUsd = useMemo(() => {
+		if (!selectedEvaluatorRun) return 0;
+		const inputCostPer1K = 0.00015;
+		const outputCostPer1K = 0.0006;
+		return (
+			(selectedEvaluatorRun.inputTokens / 1000) * inputCostPer1K +
+			(selectedEvaluatorRun.outputTokens / 1000) * outputCostPer1K
+		);
+	}, [selectedEvaluatorRun]);
+
+	useEffect(() => {
+		setReferenceAnswerDraft(selectedEvaluatorRun?.referenceAnswer ?? "");
+	}, [selectedEvaluatorRun?.id, selectedEvaluatorRun?.referenceAnswer]);
+
+	useEffect(() => {
+		if (filteredEvaluatorRuns.length === 0) {
+			if (selectedEvaluatorRunId) setSelectedEvaluatorRunId("");
+			return;
+		}
+		if (!filteredEvaluatorRuns.some((run) => run.id === selectedEvaluatorRunId)) {
+			setSelectedEvaluatorRunId(filteredEvaluatorRuns[0]?.id ?? "");
+		}
+	}, [filteredEvaluatorRuns, selectedEvaluatorRunId]);
+
+	const evaluatorMetricDisplay = useMemo(() => {
+		if (selectedEvaluatorRun) {
+			return evaluatorMetricMeta.map((metric) => ({
+				...metric,
+				value: selectedEvaluatorRun.scores[metric.key],
+			}));
+		}
+		return evaluatorMetricMeta.map((metric) => {
+			const values = filteredEvaluatorRuns
+				.map((run) => run.scores[metric.key])
+				.filter((value): value is number => value !== null);
+			const avg =
+				values.length > 0
+					? values.reduce((sum, value) => sum + value, 0) / values.length
+					: null;
+			return { ...metric, value: avg };
+		});
+	}, [filteredEvaluatorRuns, selectedEvaluatorRun]);
+
+	const evaluatorOpsSummary = useMemo(() => {
+		if (selectedEvaluatorRun) {
+			return {
+				latencyP50Ms: selectedEvaluatorRun.latencyP50Ms,
+				latencyP99Ms: selectedEvaluatorRun.latencyP99Ms,
+				inputTokens: selectedEvaluatorRun.inputTokens,
+				outputTokens: selectedEvaluatorRun.outputTokens,
+				costUsd: selectedRunCostUsd,
+			};
+		}
+		if (filteredEvaluatorRuns.length === 0) {
+			return {
+				latencyP50Ms: 0,
+				latencyP99Ms: 0,
+				inputTokens: 0,
+				outputTokens: 0,
+				costUsd: 0,
+			};
+		}
+		const totals = filteredEvaluatorRuns.reduce(
+			(acc, run) => ({
+				latencyP50Ms: acc.latencyP50Ms + run.latencyP50Ms,
+				latencyP99Ms: acc.latencyP99Ms + run.latencyP99Ms,
+				inputTokens: acc.inputTokens + run.inputTokens,
+				outputTokens: acc.outputTokens + run.outputTokens,
+				costUsd: acc.costUsd + run.costUsd,
+			}),
+			{ latencyP50Ms: 0, latencyP99Ms: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 },
+		);
+		const count = filteredEvaluatorRuns.length;
+		return {
+			latencyP50Ms: Math.round(totals.latencyP50Ms / count),
+			latencyP99Ms: Math.round(totals.latencyP99Ms / count),
+			inputTokens: Math.round(totals.inputTokens / count),
+			outputTokens: Math.round(totals.outputTokens / count),
+			costUsd: totals.costUsd / count,
+		};
+	}, [filteredEvaluatorRuns, selectedEvaluatorRun, selectedRunCostUsd]);
+
+	const loadEvaluatorRuns = async () => {
+		if (!repoId.trim()) {
+			setEvaluatorRuns([]);
+			setEvaluatorError("No repository loaded. Index a repo first.");
+			return;
+		}
+
+		setEvaluatorLoading(true);
+		setEvaluatorError("");
+		try {
+			const runs = await fetchEvaluatorRuns(repoId.trim(), baseUrl, 50);
+			const mapped = runs.map(mapEvaluatorRun);
+			setEvaluatorRuns(mapped);
+			setSelectedEvaluatorRunId((current) => current || mapped[0]?.id || "");
+		} catch (error: unknown) {
+			const message =
+				error instanceof Error ? error.message : "Failed to load evaluator runs";
+			setEvaluatorError(message);
+			setEvaluatorRuns([]);
+		} finally {
+			setEvaluatorLoading(false);
+		}
+	};
+
+	const evaluateSelectedRunWithReference = async () => {
+		if (!selectedEvaluatorRun) return;
+		const referenceAnswer = referenceAnswerDraft.trim();
+		if (!referenceAnswer) {
+			toast.error("Reference answer is required for correctness evaluation.");
+			return;
+		}
+		setEvaluateCorrectnessLoading(true);
+		try {
+			await createEvaluatorRun(
+				{
+					evaluationType: selectedEvaluatorRun.evaluationType,
+					repoId: selectedEvaluatorRun.repoId,
+					threadId: selectedEvaluatorRun.threadId,
+					question: selectedEvaluatorRun.question,
+					response: selectedEvaluatorRun.response,
+					referenceAnswer,
+					retrievedContext: selectedEvaluatorRun.retrievedContext ?? "",
+					retrievalCount: selectedEvaluatorRun.retrievalCount,
+					latencyMs: selectedEvaluatorRun.latencyP50Ms,
+					sourcePayloadJson: selectedEvaluatorRun.sourcePayloadJson,
+				},
+				baseUrl,
+			);
+			toast.success("Correctness re-evaluated with reference answer.");
+			await loadEvaluatorRuns();
+		} catch (error: unknown) {
+			const message =
+				error instanceof Error ? error.message : "Failed to evaluate correctness";
+			toast.error(message);
+		} finally {
+			setEvaluateCorrectnessLoading(false);
+		}
+	};
 
 	const loadGraph = async (limit: number) => {
 		if (!repoId.trim()) return;
@@ -932,6 +1189,11 @@ function GraphExplorerPage() {
 		setVisibleKinds((current) =>
 			current.file ? current : { ...current, file: true },
 		);
+	}, [topView, repoId, baseUrl]);
+
+	useEffect(() => {
+		if (topView !== "evaluators") return;
+		void loadEvaluatorRuns();
 	}, [topView, repoId, baseUrl]);
 
 	const syncThreads = async (
@@ -2164,6 +2426,16 @@ function GraphExplorerPage() {
 						>
 							Tour
 						</button>
+						<button
+							className={
+								topView === "evaluators"
+									? "border-b-2 border-[var(--t0)] pb-[14px] pt-4 font-medium text-[var(--t0)]"
+									: "pb-[14px] pt-4 text-[var(--t2)] hover:text-[var(--t0)]"
+							}
+							onClick={() => setTopView("evaluators")}
+						>
+							Evaluators
+						</button>
 						<span className="font-mono text-[11px] text-[var(--t2)]">
 							{repoName}
 						</span>
@@ -2424,7 +2696,9 @@ function GraphExplorerPage() {
 					</div>
 
 					<div className="relative overflow-hidden bg-[var(--bg)]">
-						<div className="absolute left-1/2 top-3 z-10 flex -translate-x-1/2 overflow-hidden rounded-[10px] border border-[var(--b1)] bg-[var(--s0)] shadow-sm">
+						{topView !== "evaluators" && (
+							<>
+								<div className="absolute left-1/2 top-3 z-10 flex -translate-x-1/2 overflow-hidden rounded-[10px] border border-[var(--b1)] bg-[var(--s0)] shadow-sm">
 							{layoutOptions.map(({ label, icon: Comp }) => {
 								const isActive =
 									(label === "Force layout" && activeLayout === "force") ||
@@ -2455,10 +2729,10 @@ function GraphExplorerPage() {
 									</button>
 								);
 							})}
-						</div>
+								</div>
 
 						{/* Sparse-data / incomplete indexing banner */}
-						{graphLooksSparse && (
+								{graphLooksSparse && (
 							<div
 								className="absolute left-1/2 top-14 z-10 -translate-x-1/2 w-[520px] rounded-[12px] p-4"
 								style={{
@@ -2589,11 +2863,11 @@ function GraphExplorerPage() {
 									</button>
 								</div>
 							</div>
-						)}
+								)}
 
 
 
-						<div className="absolute bottom-3 left-3 z-10 rounded-[10px] border border-[var(--b1)] bg-[var(--s0)] p-3 text-[11px] text-[var(--t2)]">
+								<div className="absolute bottom-3 left-3 z-10 rounded-[10px] border border-[var(--b1)] bg-[var(--s0)] p-3 text-[11px] text-[var(--t2)]">
 							<div className="mb-2 text-[9px] font-medium uppercase tracking-[0.07em] text-[var(--t3)]">
 								Node types
 							</div>
@@ -2638,9 +2912,9 @@ function GraphExplorerPage() {
 									))
 								)}
 							</div>
-						</div>
+								</div>
 
-						<div className="absolute right-3 top-3 z-10 overflow-hidden rounded-[10px] border border-[var(--b1)] bg-[var(--s0)]">
+								<div className="absolute right-3 top-3 z-10 overflow-hidden rounded-[10px] border border-[var(--b1)] bg-[var(--s0)]">
 							<button
 								onClick={() => graphCanvasRef.current?.zoomIn()}
 								className="grid h-8 w-8 place-items-center border-b border-[var(--b0)] text-[var(--t1)] hover:bg-[var(--s1)] active:bg-[var(--s2)]"
@@ -2660,9 +2934,9 @@ function GraphExplorerPage() {
 							>
 								<Square className="h-3.5 w-3.5" />
 							</button>
-						</div>
+								</div>
 
-						<div className="absolute bottom-3 right-3 z-10 rounded-[10px] border border-[var(--b1)] bg-[var(--s0)] p-3 text-[11px] text-[var(--t2)]">
+								<div className="absolute bottom-3 right-3 z-10 rounded-[10px] border border-[var(--b1)] bg-[var(--s0)] p-3 text-[11px] text-[var(--t2)]">
 							<div className="flex justify-between gap-6">
 								<span>Nodes visible</span>
 								<span className="font-mono text-[var(--t0)]">
@@ -2687,9 +2961,187 @@ function GraphExplorerPage() {
 									{topView === "tour" ? "tour" : mode}
 								</span>
 							</div>
-						</div>
+								</div>
+							</>
+						)}
 
-						{loading ? (
+						{topView === "evaluators" ? (
+							<div className="flex flex-1 flex-col overflow-hidden">
+								<div className="border-b border-[var(--b1)] px-4 py-3">
+									<div className="flex items-center justify-between gap-3">
+										<div className="text-[11px] font-medium uppercase tracking-[0.07em] text-[var(--t2)]">
+										Evaluator Dashboard
+										</div>
+										<button
+											className="rounded-[6px] border border-[var(--b1)] px-2 py-1 text-[10px] text-[var(--t1)] hover:bg-[var(--s1)] disabled:opacity-60"
+											onClick={() => void loadEvaluatorRuns()}
+											disabled={evaluatorLoading}
+										>
+											{evaluatorLoading ? "Loading..." : "Refresh"}
+										</button>
+									</div>
+									<div className="mt-1 text-[11px] text-[var(--t3)]">
+										LLM-as-judge signals for correctness, groundedness, relevance, and retrieval relevance.
+									</div>
+									<div className="mt-2 flex items-center gap-1.5">
+										{([
+											["all", "All"],
+											["ask", "Ask"],
+											["summarize", "Summarize"],
+											["tour", "Tour"],
+										] as Array<[EvaluatorTypeFilter, string]>).map(([value, label]) => (
+											<button
+												key={value}
+												onClick={() => setEvaluatorTypeFilter(value)}
+												className={`rounded-full px-2.5 py-1 text-[10px] ${evaluatorTypeFilter === value ? "bg-[var(--t0)] text-[var(--s0)]" : "border border-[var(--b1)] text-[var(--t2)] hover:bg-[var(--s1)]"}`}
+											>
+												{label}
+											</button>
+										))}
+									</div>
+								</div>
+
+								<div className="flex-1 space-y-3 overflow-y-auto p-3">
+									{evaluatorError && (
+										<div className="rounded-[8px] border border-red-500/30 bg-red-500/10 px-3 py-2 text-[10px] text-red-200">
+											{evaluatorError}
+										</div>
+									)}
+									<div className="rounded-[10px] border border-[var(--b1)] bg-[var(--s1)] p-3">
+									<div className="mb-3 text-[10px] font-medium uppercase tracking-[0.07em] text-[var(--t3)]">
+											{selectedEvaluatorRun ? "Selected Run Metrics" : "Feedback Metrics (Average)"}
+										</div>
+										<div className="space-y-2">
+											{evaluatorMetricDisplay.map((metric) => {
+												const value = metric.value ?? 0;
+												return (
+													<div key={metric.key} className="space-y-1">
+														<div className="flex items-center justify-between text-[10px]">
+															<span style={{ color: metric.color }}>{metric.label}</span>
+															<span className="font-mono text-[var(--t1)]">
+																{metric.value === null ? "—" : value.toFixed(2)}
+															</span>
+														</div>
+														<div className="h-2 overflow-hidden rounded-full bg-[var(--b1)]">
+															<div
+																className="h-full rounded-full"
+																style={{ width: `${Math.max(4, value * 100)}%`, background: metric.color }}
+															/>
+														</div>
+													</div>
+												);
+											})}
+										</div>
+									</div>
+
+									<div className="grid grid-cols-2 gap-2">
+										<div className="rounded-[10px] border border-[var(--b1)] bg-[var(--s1)] p-3">
+											<div className="text-[10px] uppercase tracking-[0.07em] text-[var(--t3)]">
+												Latency
+											</div>
+											<div className="mt-2 font-mono text-[13px] text-[var(--t0)]">
+												P50 {evaluatorOpsSummary.latencyP50Ms}ms
+											</div>
+											<div className="text-[10px] text-[var(--t2)]">
+												P99 {evaluatorOpsSummary.latencyP99Ms}ms
+											</div>
+										</div>
+										<div className="rounded-[10px] border border-[var(--b1)] bg-[var(--s1)] p-3">
+											<div className="text-[10px] uppercase tracking-[0.07em] text-[var(--t3)]">
+												Tokens
+											</div>
+											<div className="mt-2 font-mono text-[13px] text-[var(--t0)]">
+												{evaluatorOpsSummary.inputTokens.toLocaleString()}
+											</div>
+											<div className="text-[10px] text-[var(--t2)]">
+												out {evaluatorOpsSummary.outputTokens.toLocaleString()}
+											</div>
+										</div>
+									</div>
+
+									<div className="rounded-[10px] border border-[var(--b1)] bg-[var(--s1)] p-3">
+										<div className="mb-2 flex items-center justify-between">
+											<div className="text-[10px] font-medium uppercase tracking-[0.07em] text-[var(--t3)]">
+												Runs
+											</div>
+											<div className="text-[10px] text-[var(--t2)]">
+												{selectedEvaluatorRun ? "Run cost" : "Avg cost"} ${evaluatorOpsSummary.costUsd.toFixed(3)}
+											</div>
+										</div>
+										<div className="overflow-hidden rounded-[8px] border border-[var(--b1)]">
+											<table className="w-full border-collapse text-left text-[10px]">
+												<thead className="bg-[var(--s2)] text-[var(--t2)]">
+													<tr>
+														<th className="px-2 py-2 font-medium">Run</th>
+														<th className="px-2 py-2 font-medium">Correct</th>
+														<th className="px-2 py-2 font-medium">Ground</th>
+														<th className="px-2 py-2 font-medium">Relevant</th>
+													</tr>
+												</thead>
+												<tbody>
+													{filteredEvaluatorRuns.map((run) => {
+														const isActive = run.id === selectedEvaluatorRun?.id;
+														return (
+															<tr
+																key={run.id}
+																onClick={() => setSelectedEvaluatorRunId(run.id)}
+																className={`cursor-pointer border-t border-[var(--b1)] ${isActive ? "bg-[var(--blue-l)]" : "hover:bg-[var(--s2)]"}`}
+															>
+																<td className="px-2 py-2 font-mono text-[var(--t0)]">{run.evaluationType}: #{run.id.slice(-3)}</td>
+																<td className="px-2 py-2 text-[var(--t1)]">{run.scores.correctness?.toFixed(2) ?? "—"}</td>
+																<td className="px-2 py-2 text-[var(--t1)]">{run.scores.groundedness?.toFixed(2) ?? "—"}</td>
+																<td className="px-2 py-2 text-[var(--t1)]">{run.scores.relevance?.toFixed(2) ?? "—"}</td>
+															</tr>
+														);
+													})}
+													{filteredEvaluatorRuns.length === 0 && (
+														<tr>
+															<td className="px-2 py-3 text-[var(--t2)]" colSpan={4}>
+																No evaluator runs in this filter yet.
+															</td>
+														</tr>
+													)}
+												</tbody>
+											</table>
+										</div>
+									</div>
+
+									{selectedEvaluatorRun && (
+										<div className="rounded-[10px] border border-[var(--b1)] bg-[var(--s1)] p-3">
+											<div className="mb-1 text-[10px] font-medium uppercase tracking-[0.07em] text-[var(--t3)]">
+												Selected Run
+											</div>
+											<div className="font-mono text-[11px] text-[var(--t0)]">{selectedEvaluatorRun.name}</div>
+											<div className="mt-1 text-[10px] text-[var(--t2)]">
+												{new Date(selectedEvaluatorRun.createdAt).toLocaleString()} • {selectedEvaluatorRun.model} • {selectedEvaluatorRun.evaluationType}
+											</div>
+											<div className="mt-2 rounded-[8px] border border-[var(--b1)] bg-[var(--s0)] p-2 text-[10px] text-[var(--t1)]">
+												{selectedEvaluatorRun.notes}
+											</div>
+											<div className="mt-2 rounded-[8px] border border-[var(--b1)] bg-[var(--s0)] p-2 text-[10px] text-[var(--t2)]">
+												{selectedEvaluatorRun.question}
+											</div>
+											<div className="mt-3 text-[10px] font-medium uppercase tracking-[0.07em] text-[var(--t3)]">
+												Reference Answer (for correctness)
+											</div>
+											<textarea
+												value={referenceAnswerDraft}
+												onChange={(event) => setReferenceAnswerDraft(event.target.value)}
+												placeholder="Paste ground-truth answer to compute correctness"
+												className="mt-1 h-24 w-full resize-y rounded-[8px] border border-[var(--b1)] bg-[var(--s0)] p-2 text-[10px] text-[var(--t1)] outline-none focus:border-[var(--t2)]"
+											/>
+											<button
+												onClick={() => void evaluateSelectedRunWithReference()}
+												disabled={evaluateCorrectnessLoading}
+												className="mt-2 w-full rounded-[8px] border border-[var(--b1)] bg-[var(--s0)] px-3 py-2 text-[10px] text-[var(--t1)] hover:bg-[var(--s2)] disabled:opacity-60"
+											>
+												{evaluateCorrectnessLoading ? "Evaluating..." : "Evaluate Correctness With Reference"}
+											</button>
+										</div>
+									)}
+								</div>
+							</div>
+						) : loading ? (
 							<div className="grid h-full place-items-center text-[var(--t2)]">
 								Loading graph from backend…
 							</div>
