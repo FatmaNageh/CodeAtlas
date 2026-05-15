@@ -69,6 +69,10 @@ CodeAtlas/
 │   └── db/          # Database schema & queries
 ```
 
+## Diagrams
+
+- [State diagrams](docs/state-diagrams.md)
+
 ## Available Scripts
 
 - `pnpm run dev`: Start all applications in development mode
