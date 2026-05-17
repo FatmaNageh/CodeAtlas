@@ -21,5 +21,6 @@ export interface TourResponse {
   repoId: string;
   mode: TourMode;
   generatedAt: string;
+  overallSummary: string;
   steps: TourStep[];
 }

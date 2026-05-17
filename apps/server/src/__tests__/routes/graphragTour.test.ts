@@ -33,6 +33,7 @@ describe('GET /graphrag/tour', () => {
       repoId: 'repo-1',
       mode: 'graph',
       generatedAt: '2026-01-01T00:00:00.000Z',
+      overallSummary: 'Repository overview summary',
       steps: [
         {
           rank: 1,

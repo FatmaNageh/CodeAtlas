@@ -23,6 +23,7 @@ export type TourResponse = {
   repoId: string;
   mode: TourMode;
   generatedAt: string;
+  overallSummary: string;
   steps: TourStep[];
 };
 

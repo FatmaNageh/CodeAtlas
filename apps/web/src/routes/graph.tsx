@@ -3270,6 +3270,15 @@ function GraphExplorerPage() {
 												</div>
 											) : activeTourStep ? (
 												<>
+													<div className="mb-3 rounded-[10px] bg-[var(--s1)] p-3">
+														<div className="mb-2 text-[10px] font-medium uppercase tracking-[0.07em] text-[var(--t3)]">
+															Overall repository summary
+														</div>
+														<AnimatedMarkdown
+															markdown={tourData.overallSummary}
+															emptyText="No overall summary available yet."
+														/>
+													</div>
 													<div className="rounded-[10px] bg-[var(--s1)] p-3">
 														<div className="mb-2 text-[10px] uppercase tracking-[0.07em] text-[var(--t3)]">
 															Step {activeTourStep.rank} of {tourSteps.length}

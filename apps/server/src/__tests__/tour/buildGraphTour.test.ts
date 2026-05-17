@@ -8,17 +8,25 @@ vi.mock('@/pipeline/generateSummary', () => ({
   generateBatchSummaries: vi.fn(),
 }));
 
+vi.mock('@/ai/generation', () => ({
+  generateTextWithContext: vi.fn(),
+}));
+
 import { runCypher } from '@/db/cypher';
 import { generateBatchSummaries } from '@/pipeline/generateSummary';
+import { generateTextWithContext } from '@/ai/generation';
 import { buildGraphTour } from '@/tour/buildGraphTour';
 
 const mockedRunCypher = vi.mocked(runCypher);
 const mockedGenerateBatchSummaries = vi.mocked(generateBatchSummaries);
+const mockedGenerateTextWithContext = vi.mocked(generateTextWithContext);
 
 describe('buildGraphTour', () => {
   beforeEach(() => {
     mockedRunCypher.mockReset();
     mockedGenerateBatchSummaries.mockReset();
+    mockedGenerateTextWithContext.mockReset();
+    mockedGenerateTextWithContext.mockResolvedValue('Repository summary generated from tour context.');
   });
 
   it('reuses existing summaries and only generates missing ones', async () => {
@@ -49,6 +57,7 @@ describe('buildGraphTour', () => {
     expect(result.ok).toBe(true);
     expect(result.repoId).toBe('repo-test');
     expect(result.mode).toBe('graph');
+    expect(result.overallSummary.length).toBeGreaterThan(0);
     expect(result.steps).toHaveLength(2);
 
     expect(mockedGenerateBatchSummaries).toHaveBeenCalledWith(['src/feature.ts'], 'repo-test');
