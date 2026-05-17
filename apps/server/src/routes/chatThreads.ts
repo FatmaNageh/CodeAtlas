@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import {
   clearThreadMessages,
   createChatThread,
+  deleteChatThread,
   getChatThreadForRepo,
   listChatThreads,
   listThreadMessages,
@@ -129,5 +130,34 @@ chatThreadsRoute.post("/threads/:threadId/clear", async (c) => {
       return c.json({ ok: false, error: "Thread not found for repository" }, 404);
     }
     return c.json({ ok: false, error: message }, 500);
+  }
+});
+
+interface DeleteThreadPayload {
+  repoId?: string;
+}
+
+chatThreadsRoute.post("/threads/:threadId/delete", async (c) => {
+  const body = await c.req.json<DeleteThreadPayload>().catch(() => ({} as DeleteThreadPayload));
+  const repoId = typeof body.repoId === "string" ? body.repoId.trim() : "";
+  const threadId = c.req.param("threadId")?.trim();
+
+  if (!repoId) {
+    return c.json({ ok: false, error: "Missing repoId" }, 400);
+  }
+  if (!threadId) {
+    return c.json({ ok: false, error: "Missing threadId" }, 400);
+  }
+
+  try {
+    await deleteChatThread(repoId, threadId);
+    return c.json({ ok: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("does not exist")) {
+      return c.json({ ok: false, error: "Thread not found for repository" }, 404);
+    }
+    console.error("[chatThreads] Failed to delete thread:", error);
+    return c.json({ ok: false, error: "Internal server error" }, 500);
   }
 });
