@@ -26,6 +26,9 @@ import { models } from "@/config/openrouter";
 
 export const graphragRoute = new Hono();
 
+// Maximum number of dataset entries to process in a single batch to prevent unbounded LLM fan-out
+const MAX_DATASET_BATCH = 50;
+
 type AskNodeRef = {
   id: string;
   name?: string;
@@ -94,6 +97,44 @@ type EvaluatorScore = {
   minorErrors: number;
   unsupportedClaims: number;
 };
+
+type ResultItem = {
+  path?: string;
+  summary?: string;
+  text?: string;
+};
+
+function isResultItem(obj: unknown): obj is ResultItem {
+  if (typeof obj !== "object" || obj === null) return false;
+  const candidate = obj as Record<string, unknown>;
+  return (
+    (candidate.path === undefined || typeof candidate.path === "string") &&
+    (candidate.summary === undefined || typeof candidate.summary === "string") &&
+    (candidate.text === undefined || typeof candidate.text === "string")
+  );
+}
+
+type DatasetEntryItem = {
+  question?: string;
+  response?: string;
+  referenceAnswer?: string;
+  retrievedContext?: string;
+  retrievalCount?: number;
+  latencyMs?: number;
+};
+
+function isDatasetEntryItem(obj: unknown): obj is DatasetEntryItem {
+  if (typeof obj !== "object" || obj === null) return false;
+  const candidate = obj as Record<string, unknown>;
+  return (
+    (candidate.question === undefined || typeof candidate.question === "string") &&
+    (candidate.response === undefined || typeof candidate.response === "string") &&
+    (candidate.referenceAnswer === undefined || typeof candidate.referenceAnswer === "string") &&
+    (candidate.retrievedContext === undefined || typeof candidate.retrievedContext === "string") &&
+    (candidate.retrievalCount === undefined || typeof candidate.retrievalCount === "number") &&
+    (candidate.latencyMs === undefined || typeof candidate.latencyMs === "number")
+  );
+}
 
 type EvaluatorInput = {
   evaluationType: "ask" | "summarize" | "tour";
@@ -604,15 +645,15 @@ graphragRoute.post("/summarize", async (c) => {
     const { results, errors } = await generateBatchSummaries(files, repoId);
 
     const summaryLines = (Array.isArray(results) ? results : [])
+      .filter(isResultItem)
       .map((item) => {
-        const candidate = item as { path?: unknown; summary?: unknown; text?: unknown };
-        const filePath = typeof candidate.path === "string" ? candidate.path : "unknown";
+        const filePath = typeof item.path === "string" ? item.path : "unknown";
         const summary =
-          typeof candidate.summary === "string"
-            ? candidate.summary
-            : typeof candidate.text === "string"
-              ? candidate.text
-              : JSON.stringify(item);
+          typeof item.summary === "string"
+            ? item.summary
+            : typeof item.text === "string"
+              ? item.text
+              : "No summary";
         return `File: ${filePath}\nSummary:\n${summary}`;
       })
       .join("\n\n");
@@ -717,12 +758,15 @@ graphragRoute.get("/evaluators/runs", async (c) => {
 
 // POST /graphrag/evaluators/run - Evaluate a single response
 graphragRoute.post("/evaluators/run", async (c) => {
-  const body = await c.req.json().catch(() => ({} as Record<string, unknown>));
-  const evaluationTypeRaw = typeof body.evaluationType === "string" ? body.evaluationType.trim() : "ask";
+  const body = await c.req.json().catch(() => ({}));
+  if (!isDatasetEntryItem(body)) {
+    return c.json({ ok: false, error: "Invalid request payload" }, 400);
+  }
+  const evaluationTypeRaw = typeof body.evaluationType === "string" ? (body as { evaluationType: string }).evaluationType.trim() : "ask";
   const evaluationType =
     evaluationTypeRaw === "summarize" || evaluationTypeRaw === "tour" ? evaluationTypeRaw : "ask";
-  const repoId = typeof body.repoId === "string" ? body.repoId.trim() : "";
-  const threadId = typeof body.threadId === "string" ? body.threadId.trim() : "";
+  const repoId = typeof (body as { repoId?: unknown }).repoId === "string" ? ((body as { repoId: string }).repoId).trim() : "";
+  const threadId = typeof (body as { threadId?: unknown }).threadId === "string" ? ((body as { threadId: string }).threadId).trim() : "";
   const question = typeof body.question === "string" ? body.question.trim() : "";
   const response = typeof body.response === "string" ? body.response.trim() : "";
   const referenceAnswer =
@@ -737,7 +781,7 @@ graphragRoute.post("/evaluators/run", async (c) => {
   const latencyMsRaw = typeof body.latencyMs === "number" ? body.latencyMs : Number(body.latencyMs ?? 0);
   const latencyMs = Number.isFinite(latencyMsRaw) ? Math.max(0, Math.floor(latencyMsRaw)) : 0;
   const sourcePayloadJson =
-    typeof body.sourcePayloadJson === "string" ? body.sourcePayloadJson : null;
+    typeof (body as { sourcePayloadJson?: unknown }).sourcePayloadJson === "string" ? ((body as { sourcePayloadJson: string }).sourcePayloadJson) : null;
 
   if (!repoId || !question || !response) {
     return c.json({ ok: false, error: "Missing repoId, question, or response" }, 400);
@@ -765,36 +809,49 @@ graphragRoute.post("/evaluators/run", async (c) => {
 
 // POST /graphrag/evaluators/dataset-run - Evaluate a batch with reference answers
 graphragRoute.post("/evaluators/dataset-run", async (c) => {
-  const body = await c.req.json().catch(() => ({} as Record<string, unknown>));
-  const repoId = typeof body.repoId === "string" ? body.repoId.trim() : "";
-  const evaluationTypeRaw = typeof body.evaluationType === "string" ? body.evaluationType.trim() : "ask";
+  const body = await c.req.json().catch(() => ({}));
+  const repoId = typeof (body as { repoId?: unknown }).repoId === "string" ? ((body as { repoId: string }).repoId).trim() : "";
+  const evaluationTypeRaw = typeof (body as { evaluationType?: unknown }).evaluationType === "string" ? ((body as { evaluationType: string }).evaluationType).trim() : "ask";
   const evaluationType =
     evaluationTypeRaw === "summarize" || evaluationTypeRaw === "tour" ? evaluationTypeRaw : "ask";
-  const entriesRaw = Array.isArray(body.entries) ? body.entries : [];
+  const entriesRaw = Array.isArray((body as { entries?: unknown }).entries) ? (body as { entries: unknown[] }).entries : [];
 
   if (!repoId || entriesRaw.length === 0) {
     return c.json({ ok: false, error: "Missing repoId or entries" }, 400);
   }
 
+  if (entriesRaw.length > MAX_DATASET_BATCH) {
+    return c.json(
+      {
+        ok: false,
+        error: `Dataset batch size (${entriesRaw.length}) exceeds maximum allowed (${MAX_DATASET_BATCH})`,
+      },
+      400,
+    );
+  }
+
   try {
     const createdRuns = [];
     for (const entry of entriesRaw) {
-      const candidate = entry as Record<string, unknown>;
-      const question = typeof candidate.question === "string" ? candidate.question.trim() : "";
-      const response = typeof candidate.response === "string" ? candidate.response.trim() : "";
+      if (!isDatasetEntryItem(entry)) {
+        continue;
+      }
+
+      const question = typeof entry.question === "string" ? entry.question.trim() : "";
+      const response = typeof entry.response === "string" ? entry.response.trim() : "";
       const referenceAnswer =
-        typeof candidate.referenceAnswer === "string" ? candidate.referenceAnswer.trim() : "";
+        typeof entry.referenceAnswer === "string" ? entry.referenceAnswer.trim() : "";
       const retrievedContext =
-        typeof candidate.retrievedContext === "string" ? candidate.retrievedContext : "";
+        typeof entry.retrievedContext === "string" ? entry.retrievedContext : "";
       const retrievalCountRaw =
-        typeof candidate.retrievalCount === "number"
-          ? candidate.retrievalCount
-          : Number(candidate.retrievalCount ?? 0);
+        typeof entry.retrievalCount === "number"
+          ? entry.retrievalCount
+          : Number(entry.retrievalCount ?? 0);
       const retrievalCount = Number.isFinite(retrievalCountRaw)
         ? Math.max(0, Math.floor(retrievalCountRaw))
         : 0;
       const latencyMsRaw =
-        typeof candidate.latencyMs === "number" ? candidate.latencyMs : Number(candidate.latencyMs ?? 0);
+        typeof entry.latencyMs === "number" ? entry.latencyMs : Number(entry.latencyMs ?? 0);
       const latencyMs = Number.isFinite(latencyMsRaw) ? Math.max(0, Math.floor(latencyMsRaw)) : 0;
 
       if (!question || !response || !referenceAnswer) {

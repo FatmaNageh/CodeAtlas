@@ -25,49 +25,54 @@ function createId(): string {
 export async function ensureEvaluatorPersistenceSchema(): Promise<void> {
   if (!ensureEvaluatorSchemaPromise) {
     ensureEvaluatorSchemaPromise = (async () => {
-      await db.run(
-        sql.raw(`
-          CREATE TABLE IF NOT EXISTS evaluator_runs (
-            id TEXT PRIMARY KEY NOT NULL,
-            evaluation_type TEXT NOT NULL,
-            repo_id TEXT NOT NULL,
-            thread_id TEXT,
-            source_payload_json TEXT,
-            question TEXT NOT NULL,
-            response TEXT NOT NULL,
-            reference_answer TEXT,
-            retrieved_context TEXT,
-            retrieval_count INTEGER NOT NULL,
-            correctness_score REAL,
-            correctness_rationale TEXT,
-            groundedness_score REAL,
-            groundedness_rationale TEXT,
-            relevance_score REAL,
-            relevance_rationale TEXT,
-            retrieval_relevance_score REAL,
-            retrieval_relevance_rationale TEXT,
-            latency_ms INTEGER NOT NULL,
-            model TEXT NOT NULL,
-            created_at TEXT NOT NULL
-          );
-        `),
-      );
       try {
-        await db.run(sql.raw("ALTER TABLE evaluator_runs ADD COLUMN evaluation_type TEXT NOT NULL DEFAULT 'ask';"));
-      } catch {
-        // Column already exists
+        await db.run(
+          sql.raw(`
+            CREATE TABLE IF NOT EXISTS evaluator_runs (
+              id TEXT PRIMARY KEY NOT NULL,
+              evaluation_type TEXT NOT NULL,
+              repo_id TEXT NOT NULL,
+              thread_id TEXT,
+              source_payload_json TEXT,
+              question TEXT NOT NULL,
+              response TEXT NOT NULL,
+              reference_answer TEXT,
+              retrieved_context TEXT,
+              retrieval_count INTEGER NOT NULL,
+              correctness_score REAL,
+              correctness_rationale TEXT,
+              groundedness_score REAL,
+              groundedness_rationale TEXT,
+              relevance_score REAL,
+              relevance_rationale TEXT,
+              retrieval_relevance_score REAL,
+              retrieval_relevance_rationale TEXT,
+              latency_ms INTEGER NOT NULL,
+              model TEXT NOT NULL,
+              created_at TEXT NOT NULL
+            );
+          `),
+        );
+        try {
+          await db.run(sql.raw("ALTER TABLE evaluator_runs ADD COLUMN evaluation_type TEXT NOT NULL DEFAULT 'ask';"));
+        } catch {
+          // Column already exists
+        }
+        try {
+          await db.run(sql.raw("ALTER TABLE evaluator_runs ADD COLUMN source_payload_json TEXT;"));
+        } catch {
+          // Column already exists
+        }
+        await db.run(
+          sql.raw("CREATE INDEX IF NOT EXISTS evaluator_runs_repo_created_idx ON evaluator_runs(repo_id, created_at);"),
+        );
+        await db.run(
+          sql.raw("CREATE INDEX IF NOT EXISTS evaluator_runs_thread_created_idx ON evaluator_runs(thread_id, created_at);"),
+        );
+      } catch (error) {
+        ensureEvaluatorSchemaPromise = null;
+        throw error;
       }
-      try {
-        await db.run(sql.raw("ALTER TABLE evaluator_runs ADD COLUMN source_payload_json TEXT;"));
-      } catch {
-        // Column already exists
-      }
-      await db.run(
-        sql.raw("CREATE INDEX IF NOT EXISTS evaluator_runs_repo_created_idx ON evaluator_runs(repo_id, created_at);"),
-      );
-      await db.run(
-        sql.raw("CREATE INDEX IF NOT EXISTS evaluator_runs_thread_created_idx ON evaluator_runs(thread_id, created_at);"),
-      );
     })();
   }
 
@@ -106,7 +111,7 @@ export async function createEvaluatorRun(input: CreateEvaluatorRunInput): Promis
 
 export async function listEvaluatorRuns(repoId: string, limit = 50): Promise<EvaluatorRunRecord[]> {
   await ensureEvaluatorPersistenceSchema();
-  const safeLimit = Math.max(1, Math.min(200, Math.floor(limit)));
+  const safeLimit = Math.max(1, Math.min(200, Math.floor(Number.isFinite(limit) ? limit : 1)));
   return db
     .select()
     .from(evaluatorRuns)
@@ -121,7 +126,7 @@ export async function listEvaluatorRunsByThread(
   limit = 50,
 ): Promise<EvaluatorRunRecord[]> {
   await ensureEvaluatorPersistenceSchema();
-  const safeLimit = Math.max(1, Math.min(200, Math.floor(limit)));
+  const safeLimit = Math.max(1, Math.min(200, Math.floor(Number.isFinite(limit) ? limit : 1)));
   return db
     .select()
     .from(evaluatorRuns)

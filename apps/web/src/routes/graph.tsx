@@ -904,7 +904,19 @@ function GraphExplorerPage() {
 			),
 		),
 		outputTokens: Math.max(1, Math.round(run.response.length / 4)),
-		costUsd: 0,
+		costUsd:
+			(Math.max(
+				1,
+				Math.round(
+					(run.question.length +
+						(run.retrievedContext?.length ?? 0) +
+						(run.referenceAnswer?.length ?? 0)) /
+						4,
+				),
+			) /
+				1000) *
+				0.00015 +
+			(Math.max(1, Math.round(run.response.length / 4)) / 1000) * 0.0006,
 		scores: {
 			correctness: run.correctnessScore,
 			groundedness: run.groundednessScore,

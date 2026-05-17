@@ -133,8 +133,12 @@ chatThreadsRoute.post("/threads/:threadId/clear", async (c) => {
   }
 });
 
+interface DeleteThreadPayload {
+  repoId?: string;
+}
+
 chatThreadsRoute.post("/threads/:threadId/delete", async (c) => {
-  const body = await c.req.json().catch(() => ({}));
+  const body = await c.req.json<DeleteThreadPayload>().catch(() => ({} as DeleteThreadPayload));
   const repoId = typeof body.repoId === "string" ? body.repoId.trim() : "";
   const threadId = c.req.param("threadId")?.trim();
 
@@ -153,6 +157,7 @@ chatThreadsRoute.post("/threads/:threadId/delete", async (c) => {
     if (message.includes("does not exist")) {
       return c.json({ ok: false, error: "Thread not found for repository" }, 404);
     }
-    return c.json({ ok: false, error: message }, 500);
+    console.error("[chatThreads] Failed to delete thread:", error);
+    return c.json({ ok: false, error: "Internal server error" }, 500);
   }
 });
