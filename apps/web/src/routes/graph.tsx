@@ -2170,7 +2170,7 @@ function GraphExplorerPage() {
 		const mentionText = `@${nodeDisplayLabel(node).replace(/\s+/g, "_")}`;
 		const textBeforeCursor = chatInput.slice(
 			0,
-			chatInput.length - (mentionSearch?.length ?? 0),
+			chatInput.length - ((mentionSearch?.length ?? 0) + 1),
 		);
 		const newText = textBeforeCursor + mentionText + " ";
 		setChatInput(newText);
