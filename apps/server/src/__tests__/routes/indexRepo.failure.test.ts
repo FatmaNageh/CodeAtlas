@@ -5,6 +5,7 @@ vi.mock('@/services/indexing', () => ({
   indexRepoInputSchema: {
     safeParse: vi.fn(),
   },
+  IndexingInProgressError: class IndexingInProgressError extends Error {},
   isIndexingInProgress: vi.fn(),
   startIndexing: vi.fn(),
 }));
