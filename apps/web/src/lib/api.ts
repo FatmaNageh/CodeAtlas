@@ -318,6 +318,29 @@ export async function clearThreadMessages(
   }
 }
 
+export async function deleteChatThread(
+  body: { repoId: string; threadId: string },
+  baseUrl = "",
+): Promise<void> {
+  const res = await fetch(
+    `${baseUrl}/chat/threads/${encodeURIComponent(body.threadId)}/delete`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repoId: body.repoId }),
+    },
+  );
+
+  const data = (await res.json().catch(() => ({}))) as {
+    ok?: boolean;
+    error?: string;
+  };
+
+  if (!res.ok || data.ok !== true) {
+    throw new Error(data.error ?? `Delete thread failed: ${res.status} ${res.statusText}`);
+  }
+}
+
 export async function fetchTour(repoId: string, baseUrl = "", limit = 12): Promise<TourResponse> {
   const safeLimit = Math.max(0, Math.floor(Number(limit) || 0)) || 12;
   const res = await fetch(

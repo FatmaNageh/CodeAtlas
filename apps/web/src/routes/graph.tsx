@@ -29,8 +29,8 @@ import {
 	Upload,
 } from "lucide-react";
 import {
-	clearThreadMessages,
 	createChatThread,
+	deleteChatThread,
 	createEvaluatorRun,
 	fetchEvaluatorRuns,
 	fetchChatThreads,
@@ -837,6 +837,8 @@ function GraphExplorerPage() {
 	const [chatThreads, setChatThreads] = useState<ChatThreadRecord[]>([]);
 	const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
 	const [threadsLoading, setThreadsLoading] = useState(false);
+	const [showSessionsModal, setShowSessionsModal] = useState(false);
+	const [threadActionLoadingId, setThreadActionLoadingId] = useState<string | null>(null);
 	const [chatInput, setChatInput] = useState("");
 	const [mentionSearch, setMentionSearch] = useState<string | null>(null);
 	const [mentionSelected, setMentionSelected] = useState(0);
@@ -2315,24 +2317,24 @@ function GraphExplorerPage() {
 		}
 	};
 
-	const clearChatHistory = () => {
-		const run = async () => {
-			if (!repoId.trim() || !activeThreadId) return;
-			try {
-				await clearThreadMessages(
-					{ repoId: repoId.trim(), threadId: activeThreadId },
-					baseUrl,
-				);
-				await syncThreads(repoId.trim(), activeThreadId);
-				toast.success("Chat history cleared");
-			} catch (error) {
-				const message =
-					error instanceof Error ? error.message : "Failed to clear thread";
-				toast.error(message);
-			}
-		};
-
-		void run();
+	const handleDeleteThread = async (threadId: string) => {
+		if (!repoId.trim()) {
+			toast.error("No repository loaded. Index a repo first.");
+			return;
+		}
+		setThreadActionLoadingId(threadId);
+		try {
+			await deleteChatThread({ repoId: repoId.trim(), threadId }, baseUrl);
+			const preferredId = activeThreadId === threadId ? null : activeThreadId;
+			await syncThreads(repoId.trim(), preferredId);
+			toast.success("Session deleted");
+		} catch (error) {
+			const message =
+				error instanceof Error ? error.message : "Failed to delete thread";
+			toast.error(message);
+		} finally {
+			setThreadActionLoadingId(null);
+		}
 	};
 
 	const embedNodes = async () => {
@@ -4564,52 +4566,25 @@ function GraphExplorerPage() {
 														</span>
 													)}
 												</div>
-												<div className="flex items-center gap-1.5">
-													<button
-														type="button"
-														className="rounded-[6px] border px-2 py-1 text-[10px] font-medium text-[var(--t2)] hover:bg-[var(--s2)]"
-														style={{ borderColor: "var(--b1)" }}
-														onClick={() => void handleCreateNewThread()}
-														disabled={chatLoading}
-													>
-														New thread
-													</button>
-													<button
-														type="button"
-														className="rounded-[6px] border px-2 py-1 text-[10px] font-medium text-[var(--t2)] hover:bg-[var(--s2)]"
-														style={{ borderColor: "var(--b1)" }}
-														onClick={clearChatHistory}
-														disabled={!activeThreadId || chatMessages.length === 0}
-													>
-														Clear chat
-													</button>
-												</div>
-											</div>
-											<div className="mb-2 flex items-center gap-2">
-												<select
-													className="h-7 flex-1 rounded-[6px] border border-[var(--b1)] bg-[var(--s0)] px-2 text-[10px] text-[var(--t1)]"
-													value={activeThreadId ?? ""}
-													onChange={(event) => {
-														const nextThreadId = event.target.value;
-														if (!nextThreadId || !repoId.trim()) return;
-														void syncThreads(repoId.trim(), nextThreadId);
-													}}
+											<div className="flex items-center gap-1.5">
+												<button
+													type="button"
+													className="rounded-[6px] border px-2 py-1 text-[10px] font-medium text-[var(--t2)] hover:bg-[var(--s2)]"
+													style={{ borderColor: "var(--b1)" }}
+													onClick={() => setShowSessionsModal(true)}
 													disabled={threadsLoading || chatLoading}
 												>
-													{chatThreads.length === 0 ? (
-														<option value="">No threads</option>
-													) : (
-														chatThreads.map((thread) => (
-															<option key={thread.id} value={thread.id}>
-																{thread.title}
-															</option>
-														))
-													)}
-												</select>
-												{threadsLoading && (
-													<span className="text-[10px] text-[var(--t3)]">Loading...</span>
-												)}
+													View sessions
+												</button>
 											</div>
+										</div>
+										<div className="mb-2 text-[10px] text-[var(--t3)]">
+											{threadsLoading
+												? "Loading sessions..."
+												: activeThreadId
+													? `Active session: ${chatThreads.find((thread) => thread.id === activeThreadId)?.title ?? "Untitled"}`
+													: "No active session"}
+										</div>
 											{selectedNodeIds.length > 0 ? (
 												<div className="flex flex-wrap gap-1">
 													{selectedNodeIds.slice(0, 8).map((id) => {
@@ -4830,6 +4805,95 @@ function GraphExplorerPage() {
 					</aside>
 				</div>
 			</div>
+			{showSessionsModal && (
+				<div
+					className="fixed inset-0 z-[90] flex items-center justify-center bg-black/45 px-4"
+					onClick={() => {
+						if (!threadActionLoadingId) setShowSessionsModal(false);
+					}}
+				>
+					<div
+						className="w-full max-w-xl rounded-[12px] border border-[var(--b1)] bg-[var(--s0)] p-4 shadow-2xl"
+						onClick={(event) => event.stopPropagation()}
+					>
+						<div className="mb-3 flex items-center justify-between">
+							<div className="text-sm font-semibold text-[var(--t0)]">Sessions</div>
+							<button
+								type="button"
+								className="rounded-[6px] border px-2 py-1 text-[11px] text-[var(--t2)] hover:bg-[var(--s1)]"
+								style={{ borderColor: "var(--b1)" }}
+								onClick={() => setShowSessionsModal(false)}
+								disabled={Boolean(threadActionLoadingId)}
+							>
+								Close
+							</button>
+						</div>
+						<div className="mb-3 flex items-center justify-between gap-2">
+							<div className="text-[11px] text-[var(--t3)]">
+								Manage AI chat sessions for this repository
+							</div>
+							<button
+								type="button"
+								className="rounded-[6px] border px-2.5 py-1 text-[11px] font-medium text-[var(--t2)] hover:bg-[var(--s1)]"
+								style={{ borderColor: "var(--b1)" }}
+								onClick={() => void handleCreateNewThread()}
+								disabled={chatLoading || threadsLoading || Boolean(threadActionLoadingId)}
+							>
+								New session
+							</button>
+						</div>
+						<div className="max-h-[52vh] space-y-2 overflow-y-auto pr-1">
+							{chatThreads.length === 0 ? (
+								<div className="rounded-[8px] border border-dashed border-[var(--b1)] px-3 py-5 text-center text-[11px] text-[var(--t3)]">
+									No sessions yet. Create one to start chatting.
+								</div>
+							) : (
+								chatThreads.map((thread) => {
+									const isActive = thread.id === activeThreadId;
+									const isLoading = threadActionLoadingId === thread.id;
+										return (
+											<div
+												key={thread.id}
+												className={`flex items-center justify-between gap-2 rounded-[8px] border px-3 py-2 transition-colors ${
+													isActive
+														? "border-[var(--blue)] bg-[var(--blue-l)]"
+														: "border-[var(--b1)] bg-[var(--s1)] hover:border-[var(--blue)] hover:bg-[var(--blue-l)]"
+												}`}
+											>
+											<button
+												type="button"
+												className="min-w-0 flex-1 text-left"
+												onClick={() => {
+													if (!repoId.trim() || isLoading) return;
+													void syncThreads(repoId.trim(), thread.id);
+													setShowSessionsModal(false);
+												}}
+												disabled={isLoading}
+											>
+												<div className="truncate text-[12px] font-medium text-[var(--t1)]">
+													{thread.title}
+												</div>
+												<div className="text-[10px] text-[var(--t3)]">
+													{isActive ? "Active session" : "Select session"}
+												</div>
+											</button>
+											<button
+												type="button"
+												className="rounded-[6px] border px-2 py-1 text-[10px] text-[var(--red)] hover:bg-[var(--s2)] disabled:opacity-60"
+												style={{ borderColor: "var(--b1)" }}
+												onClick={() => void handleDeleteThread(thread.id)}
+												disabled={Boolean(threadActionLoadingId)}
+											>
+												{isLoading ? "Deleting..." : "Delete"}
+											</button>
+										</div>
+									);
+								})
+							)}
+						</div>
+					</div>
+				</div>
+			)}
 		</section>
 	);
 }

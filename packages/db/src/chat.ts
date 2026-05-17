@@ -246,3 +246,24 @@ export async function clearThreadMessages(repoId: string, threadId: string): Pro
       .where(and(eq(chatThreads.id, threadId), eq(chatThreads.repoId, repoId)));
   });
 }
+
+export async function deleteChatThread(repoId: string, threadId: string): Promise<void> {
+  await ensureChatPersistenceSchema();
+
+  await db.transaction(async (tx) => {
+    const threadRows = await tx
+      .select()
+      .from(chatThreads)
+      .where(and(eq(chatThreads.id, threadId), eq(chatThreads.repoId, repoId)))
+      .limit(1);
+    const thread = threadRows[0];
+
+    if (!thread) {
+      throw new Error("Thread does not exist for this repository.");
+    }
+
+    await tx
+      .delete(chatThreads)
+      .where(and(eq(chatThreads.id, threadId), eq(chatThreads.repoId, repoId)));
+  });
+}

@@ -47,6 +47,7 @@ app.get("/", (c) =>
       "POST /chat/threads",
       "GET /chat/threads/:threadId/messages?repoId=...",
       "POST /chat/threads/:threadId/clear",
+      "POST /chat/threads/:threadId/delete",
       "GET /graphrag/tour",
       "GET /graphrag/evaluators/runs?repoId=...",
       "POST /graphrag/evaluators/run",
