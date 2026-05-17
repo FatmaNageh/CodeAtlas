@@ -37,7 +37,11 @@ let singleton: Neo4jClient | null = null;
 export function getNeo4jClient(): Neo4jClient {
   if (singleton) return singleton;
 
-  const uri = process.env.NEO4J_URI || "bolt://localhost:7687";
+  const rawUri = process.env.NEO4J_URI || "bolt://localhost:7687";
+  const disableRouting = process.env.NEO4J_DISABLE_ROUTING === "true" || process.env.NEO4J_DISABLE_ROUTING === "1";
+  const uri = disableRouting && rawUri.startsWith("neo4j://")
+    ? `bolt://${rawUri.slice("neo4j://".length)}`
+    : rawUri;
   const username = process.env.NEO4J_USERNAME || "neo4j";
   const password = process.env.NEO4J_PASSWORD || "neo4j";
 

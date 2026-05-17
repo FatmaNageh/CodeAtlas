@@ -49,5 +49,7 @@ coverage
 tmp
 temp
 
-**/.codeatlas/**
+# Eval artifacts
+apps/server/.eval-runs/
 
+**/.codeatlas/**

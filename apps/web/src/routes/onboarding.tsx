@@ -1159,6 +1159,12 @@ export function OnboardingWizard() {
                         <>
                           <Link
                             to="/graph"
+                            search={{
+                              repoId: selectedRepoId,
+                              repoRoot: selectedRepo.path,
+                              repoName: selectedRepo.name,
+                              baseUrl,
+                            }}
                             className="rounded-xl border px-4 py-2.5 text-[12px] font-medium"
                             style={{
                               borderColor: "var(--border2)",
@@ -1169,7 +1175,17 @@ export function OnboardingWizard() {
                           </Link>
                           <button
                             type="button"
-                            onClick={() => navigate({ to: "/graph" })}
+                            onClick={() =>
+                              navigate({
+                                to: "/graph",
+                                search: {
+                                  repoId: selectedRepoId,
+                                  repoRoot: selectedRepo.path,
+                                  repoName: selectedRepo.name,
+                                  baseUrl,
+                                },
+                              })
+                            }
                             disabled={!buildDone}
                             className="inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-[12px] font-medium disabled:opacity-40"
                             style={{

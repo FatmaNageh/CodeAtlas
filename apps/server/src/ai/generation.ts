@@ -13,6 +13,7 @@ export async function generateTextWithContext(
     prompt,
     temperature: options.temperature ?? 0.1,
     maxOutputTokens: options.maxTokens ?? 1500,
+    experimental_telemetry: { isEnabled: true },
   });
   
   return result.text;

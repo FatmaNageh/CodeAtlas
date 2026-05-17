@@ -7,6 +7,19 @@ type GenerateEmbeddingsOptions = {
 };
 
 const DEFAULT_EMBEDDING_CONCURRENCY = 8;
+const MAX_EMBEDDING_INPUT_CHARS = 6000;
+
+function normalizeEmbeddingInput(text: string): string {
+  const trimmed = text.trim();
+  if (trimmed.length <= MAX_EMBEDDING_INPUT_CHARS) {
+    return trimmed;
+  }
+
+  console.warn(
+    `[EMBEDDINGS] Truncating embedding input from ${trimmed.length} to ${MAX_EMBEDDING_INPUT_CHARS} chars`,
+  );
+  return trimmed.slice(0, MAX_EMBEDDING_INPUT_CHARS);
+}
 
 function normalizeConcurrency(value: number | undefined): number {
   if (!value || Number.isNaN(value)) {
@@ -43,10 +56,13 @@ export async function generateEmbeddings(
         continue;
       }
 
+      const embeddingInput = normalizeEmbeddingInput(text);
+
       try {
         const result = await embed({
           model: openrouter.textEmbeddingModel('openai/text-embedding-3-small'),
-          value: text,
+          value: embeddingInput,
+          experimental_telemetry: { isEnabled: true },
         });
         embeddings[currentIndex] = result.embedding;
       } catch (error) {
@@ -63,11 +79,13 @@ export async function generateEmbeddings(
 // Pure function to generate single embedding using OpenRouter
 export async function generateSingleEmbed(text: string): Promise<number[]> {
   console.log(`[EMBEDDINGS] Generating single embedding (length: ${text.length})...`);
+  const embeddingInput = normalizeEmbeddingInput(text);
   
   try {
     const result = await embed({
       model: openrouter.textEmbeddingModel("openai/text-embedding-3-small"),
-      value: text,
+      value: embeddingInput,
+      experimental_telemetry: { isEnabled: true },
     });
     
     console.log(`[EMBEDDINGS] ✓ Single embedding done`);

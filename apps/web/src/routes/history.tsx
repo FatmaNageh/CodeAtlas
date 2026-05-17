@@ -35,10 +35,26 @@ function GraphHistoryPage() {
 
   useEffect(() => { load(); }, []);
 
-  function openGraph(repoId: string) {
-    saveSession({ lastRepoId: repoId });
-    navigate({ to: "/graph" });
+  function openGraph(repoId: string, rootPath: string) {
+    saveSession({ lastRepoId: repoId, lastProjectPath: rootPath });
+    navigate({
+      to: "/graph",
+      search: {
+        repoId,
+        repoRoot: rootPath,
+        repoName: rootPath.replace(/\\/g, "/").split("/").filter(Boolean).pop() ?? repoId,
+      },
+    });
   }
+
+  const openStoredGraph = (repoId: string, rootPath: string) => ({
+    to: "/graph" as const,
+    search: {
+      repoId,
+      repoRoot: rootPath,
+      repoName: rootPath.replace(/\\/g, "/").split("/").filter(Boolean).pop() ?? repoId,
+    },
+  });
 
   async function removeGraph(repoId: string) {
     const confirmed = window.confirm(
@@ -262,7 +278,7 @@ function GraphHistoryPage() {
         {/* ── Nav buttons ── */}
         <div style={{ display: "flex", gap: 12, marginTop: 48, flexWrap: "wrap" }}>
           <NavButton to="/" label="Home" />
-          <NavButton to="/graph" label="Graph Explorer" accent="var(--teal)" />
+           <NavButton to="/graph" label="Graph Explorer" accent="var(--teal)" />
           <NavButton to="/onboarding" label="Onboarding" />
           <NavButton to="/faquestions" label="FAQ" />
         </div>
@@ -293,7 +309,7 @@ function RepoCard({
     chatUpdatedAt?: string;
     chatMessageCount?: number;
   };
-  onOpen: (id: string) => void;
+  onOpen: (id: string, rootPath: string) => void;
   onDelete: (id: string) => void;
 }) {
   const [hovered, setHovered] = useState(false);
@@ -322,7 +338,7 @@ function RepoCard({
         cursor: "pointer",
         transition: "background 0.15s, border-color 0.15s",
       }}
-      onClick={() => onOpen(repo.repoId)}
+      onClick={() => onOpen(repo.repoId, rootPath)}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 14, minWidth: 0 }}>
         <div

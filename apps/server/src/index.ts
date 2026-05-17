@@ -16,8 +16,11 @@ import { repositoryRoute } from "./routes/repository";
 import { embedRoute } from "./routes/embedding";
 import { graphragRoute } from "./routes/graphrag";
 import { chatThreadsRoute } from "./routes/chatThreads";
+import { initPhoenixTracing } from "./observability/phoenix";
 
 const app = new Hono();
+
+initPhoenixTracing();
 
 app.use(logger());
 app.use(

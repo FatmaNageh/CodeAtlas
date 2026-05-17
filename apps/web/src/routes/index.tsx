@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState, useCallback } from "react";
+import { loadSession } from "@/lib/session";
 
 export const Route = createFileRoute("/")({
   component: CodeAtlasHomePage,
@@ -70,6 +71,23 @@ function useTilt(strength = 12) {
     return () => { el.removeEventListener("mousemove", onMove); el.removeEventListener("mouseleave", onLeave); };
   }, [strength]);
   return { ref, tilt, glowPos };
+}
+
+type GraphSearch = {
+	repoId?: string;
+	repoRoot?: string;
+	repoName?: string;
+};
+
+function getGraphSearchFromSession(): GraphSearch | undefined {
+	const session = loadSession();
+	if (!session.lastRepoId) return undefined;
+	return {
+		repoId: session.lastRepoId,
+		repoRoot: session.lastProjectPath,
+		repoName:
+			session.lastProjectPath?.replace(/\\/g, "/").split("/").filter(Boolean).pop() ?? session.lastRepoId,
+	};
 }
 
 // ── Custom Cursor ─────────────────────────────────────────────────────────────
@@ -277,6 +295,7 @@ function HeroHeadline() {
 function HeroCTAs() {
   const btn1Ref = useRef<HTMLAnchorElement>(null);
   const btn2Ref = useRef<HTMLAnchorElement>(null);
+  const graphSearch = getGraphSearchFromSession();
 
   const makeMagnetic = useCallback((ref: React.RefObject<HTMLAnchorElement | null>) => {
     const el = ref.current; if (!el) return;
@@ -302,7 +321,7 @@ function HeroCTAs() {
         <span className="ca-btn-label">Get Started</span>
         <span className="ca-arr">→</span>
       </Link>
-      <Link ref={btn2Ref} to="/graph" className="ca-btn-outline" data-hover="true">
+      <Link ref={btn2Ref} to="/graph" search={graphSearch} className="ca-btn-outline" data-hover="true">
         <span className="ca-btn-label">Open Graph Viewer</span>
       </Link>
     </div>
@@ -840,6 +859,7 @@ function ArchitectureSection() {
 // ── CTA Section ───────────────────────────────────────────────────────────────
 function CtaSection() {
   const { ref, inView } = useInView(0.2);
+  const graphSearch = getGraphSearchFromSession();
   return (
     <section className="ca-cta-section">
       <div ref={ref} className={`ca-cta-inner ca-reveal ${inView ? "ca-reveal--in" : ""}`}>
@@ -857,7 +877,7 @@ function CtaSection() {
             <span className="ca-btn-label">Launch CodeAtlas</span>
             <span className="ca-arr">→</span>
           </Link>
-          <Link to="/graph" className="ca-btn-outline" data-hover="true">
+          <Link to="/graph" search={graphSearch} className="ca-btn-outline" data-hover="true">
             <span className="ca-btn-label">Explore Demo Graph</span>
           </Link>
         </div>

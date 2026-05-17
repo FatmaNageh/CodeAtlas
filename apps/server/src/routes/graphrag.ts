@@ -4,28 +4,15 @@ import { embedASTFiles } from "@/pipeline/embed/embedASTFiles";
 import { embedTextChunks } from "@/pipeline/embed/embedTextChunks";
 import { generateBatchSummaries } from "@/pipeline/generateSummary";
 import { assembleFileContext } from "@/retrieval/context";
-import { generateTextWithContext } from "@/ai/generation";
-import { generateEmbeddings, generateSingleEmbed } from "@/ai/embeddings";
-import { isValidEmbeddingVector } from "@/utils/embedding";
-import { findSimilarChunks, type SimilarASTNodeRow } from "@/retrieval/vector";
+import { generateEmbeddings } from "@/ai/embeddings";
 import { runCypher } from "@/db/cypher";
-import fs from "fs/promises";
 import { repoRoots } from "@/state/repoRoots";
-import { embedDimensions } from "@/config/openrouter";
 import { buildGraphTour } from "@/tour/buildGraphTour";
-import { getAdjacentASTChunks } from "@/retrieval/graph";
-import {
-  appendThreadMessage,
-  resolveThreadForQuestion,
-} from "@CodeAtlas/db/chat";
+import { askGraphRag } from "@/services/graphrag";
+import type { AskNodeRef } from "@/types/graphragEval";
+import { appendThreadMessage, resolveThreadForQuestion } from "@CodeAtlas/db/chat";
 
 export const graphragRoute = new Hono();
-
-type AskNodeRef = {
-  id: string;
-  name?: string;
-  path?: string;
-};
 
 type AskRequestBody = {
   repoId?: string;
@@ -34,12 +21,6 @@ type AskRequestBody = {
   contextNodeId?: string;
   mentionedNodes?: AskNodeRef[];
   selectedNodes?: AskNodeRef[];
-};
-
-type SummaryRow = {
-  path: string;
-  summary: string;
-  fileKind: string;
 };
 
 type FilePathRow = {
@@ -57,200 +38,6 @@ type StatusRow = {
   textChunks: number;
   embeddedTextChunks: number;
 };
-
-type FileSummaryRow = {
-  summary: string | null;
-  fileKind: string;
-};
-
-type ContextNodeRow = {
-  id: string;
-  labels: string[];
-  path: string | null;
-  filePath: string | null;
-  name: string | null;
-  qname: string | null;
-  text: string | null;
-  content: string | null;
-  summary: string | null;
-};
-
-type AskSource = {
-  file: string;
-  symbol: string;
-  score: number;
-  sourceKind: string;
-};
-
-function formatRetrievedChunk(chunk: SimilarASTNodeRow): string {
-  const parts: string[] = [];
-
-  if (chunk.filePath) {
-    parts.push(`File: ${chunk.filePath}`);
-  }
-  if (chunk.symbol) {
-    parts.push(`Label: ${chunk.symbol}`);
-  }
-  if (chunk.unitKind) {
-    parts.push(`Unit kind: ${chunk.unitKind}`);
-  }
-  if (chunk.segmentReason) {
-    parts.push(`Segment reason: ${chunk.segmentReason}`);
-  }
-  if (chunk.topLevelSymbols && chunk.topLevelSymbols.length > 0) {
-    parts.push(`Top-level symbols: ${chunk.topLevelSymbols.join(", ")}`);
-  }
-  if (chunk.keywords && chunk.keywords.length > 0) {
-    parts.push(`Keywords: ${chunk.keywords.join(", ")}`);
-  }
-  if (chunk.summaryCandidate) {
-    parts.push(`Summary: ${chunk.summaryCandidate}`);
-  }
-  if (chunk.startLine != null || chunk.endLine != null) {
-    parts.push(`Lines: ${chunk.startLine ?? "?"}-${chunk.endLine ?? "?"}`);
-  }
-  if (chunk.chunkText) {
-    parts.push("Code:");
-    parts.push(chunk.chunkText);
-  }
-
-  return parts.join("\n");
-}
-
-function uniqueNodeRefs(...groups: (AskNodeRef[] | undefined)[]): AskNodeRef[] {
-  const out: AskNodeRef[] = [];
-  const seen = new Set<string>();
-
-  for (const group of groups) {
-    for (const ref of group ?? []) {
-      const id = typeof ref?.id === "string" ? ref.id.trim() : "";
-      if (!id || seen.has(id)) continue;
-      seen.add(id);
-      out.push({
-        id,
-        name: typeof ref.name === "string" ? ref.name : undefined,
-        path: typeof ref.path === "string" ? ref.path : undefined,
-      });
-    }
-  }
-
-  return out;
-}
-
-async function getFileSummary(filePath: string, repoId: string): Promise<string> {
-  const rows = await runCypher<FileSummaryRow>(
-    `/*cypher*/
-    MATCH (f {repoId: $repoId, path: $filePath})
-    WHERE f:CodeFile OR f:TextFile
-    RETURN f.summary AS summary,
-           CASE WHEN f:CodeFile THEN 'CodeFile' ELSE 'TextFile' END AS fileKind
-    LIMIT 1`,
-    { repoId, filePath },
-  );
-
-  const row = rows[0];
-  if (!row?.summary) return "";
-
-  return `File: ${filePath}\nType: ${row.fileKind}\nSummary:\n${row.summary}`;
-}
-
-async function gatherNodeContext(
-  repoId: string,
-  refs: AskNodeRef[],
-): Promise<{ context: string; sources: AskSource[] }> {
-  if (refs.length === 0) {
-    return { context: "", sources: [] };
-  }
-
-  const rows = await runCypher<ContextNodeRow>(
-    `/*cypher*/
-    UNWIND $nodeIds AS nodeId
-    MATCH (n {repoId: $repoId, id: nodeId})
-    RETURN n.id AS id,
-           labels(n) AS labels,
-           n.path AS path,
-           n.filePath AS filePath,
-           n.name AS name,
-           n.qname AS qname,
-           n.text AS text,
-           n.content AS content,
-           n.summary AS summary`,
-    { repoId, nodeIds: refs.map((ref) => ref.id) },
-  );
-
-  const rowById = new Map(rows.map((row) => [row.id, row] as const));
-  const filePaths = new Set<string>();
-  const sections: string[] = [];
-  const sources: AskSource[] = [];
-
-  for (const ref of refs) {
-    const row = rowById.get(ref.id);
-    const label = row?.labels?.[0] ?? "Node";
-    const symbol = row?.qname ?? row?.name ?? ref.name ?? label;
-    const filePath = row?.path ?? row?.filePath ?? ref.path ?? "";
-    const nodeText = row?.text ?? row?.content ?? "";
-    const summary = row?.summary ?? "";
-
-    if (filePath) filePaths.add(filePath);
-
-    sources.push({
-      file: filePath || "unknown",
-      symbol,
-      score: 1,
-      sourceKind: `node:${label}`,
-    });
-
-    const parts = [
-      `Selected context node: ${symbol}`,
-      `Type: ${label}`,
-      filePath ? `Path: ${filePath}` : "",
-      summary ? `Summary:\n${summary}` : "",
-      nodeText ? `Relevant content:\n${nodeText.slice(0, 2400)}` : "",
-    ].filter(Boolean);
-
-    if (parts.length > 0) {
-      sections.push(parts.join("\n"));
-    }
-  }
-
-  const fileContextSections = await Promise.all(
-    Array.from(filePaths).map(async (filePath) => {
-      const [fileContext, fileSummary] = await Promise.all([
-        assembleFileContext(filePath, repoId).catch(() => null),
-        getFileSummary(filePath, repoId).catch(() => ""),
-      ]);
-
-      const chunkText =
-        fileContext?.fileChunks
-          .map((chunk) => chunk.text ?? "")
-          .filter((text) => text.trim().length > 0)
-          .slice(0, 6)
-          .join("\n\n") ?? "";
-      const relatedSymbols =
-        fileContext?.relatedASTNodes
-          .map((node) => node.symbol)
-          .filter((value): value is string => typeof value === "string" && value.length > 0)
-          .slice(0, 12)
-          .join(", ") ?? "";
-      const references = fileContext?.references.slice(0, 12).join(", ") ?? "";
-
-      const parts = [
-        `Context file: ${filePath}`,
-        fileSummary,
-        chunkText ? `File content:\n${chunkText.slice(0, 3200)}` : "",
-        relatedSymbols ? `Symbols: ${relatedSymbols}` : "",
-        references ? `References: ${references}` : "",
-      ].filter(Boolean);
-
-      return parts.length > 1 ? parts.join("\n") : "";
-    }),
-  );
-
-  return {
-    context: [...sections, ...fileContextSections.filter(Boolean)].join("\n\n"),
-    sources,
-  };
-}
 
 // Helper: Convert absolute Windows/macOS paths to repo-relative POSIX paths
 function normalizeToRepoPath(filePath: string, repoRoot: string): string {
@@ -426,168 +213,29 @@ graphragRoute.post("/ask", async (c) => {
       content: question,
     });
 
-    const contextNodeRefs = uniqueNodeRefs(
-      contextNodeId ? [{ id: contextNodeId }] : undefined,
+    const askResult = await askGraphRag({
+      repoId,
+      question,
+      threadId,
+      contextNodeId,
       mentionedNodes,
       selectedNodes,
-    );
-    const nodeContextResult = await gatherNodeContext(repoId, contextNodeRefs);
+    });
 
-    // Embed question
-    const embeddingResult = await generateSingleEmbed(question);
-    if (!isValidEmbeddingVector(embeddingResult, embedDimensions)) {
-      throw new Error("Invalid embedding vector generated for the question");
-    }
-
-    // Find relevant chunks
-    const chunks = await findSimilarChunks(embeddingResult, repoId, 5, question);
-    const vectorSources: AskSource[] = chunks.map((chunk: SimilarASTNodeRow) => ({
-      file: chunk.filePath ?? "unknown",
-      symbol: chunk.symbol ?? "",
-      score: chunk.score ?? 0,
-      sourceKind: chunk.sourceKind,
-    }));
-
-    const adjacentAstChunks = await getAdjacentASTChunks(
-      chunks
-        .filter((chunk) => chunk.sourceKind === "ast" && typeof chunk.id === "string" && chunk.id.length > 0)
-        .map((chunk) => chunk.id as string),
-      repoId,
-    );
-
-    const adjacentChunkMap = new Map(
-      adjacentAstChunks.map((chunk) => [chunk.id, { ...chunk, score: 0, id: chunk.id }] as const),
-    );
-    const expandedChunks = [
-      ...chunks,
-      ...Array.from(adjacentChunkMap.values()).filter(
-        (chunk) => !chunks.some((existing) => existing.id === chunk.id),
-      ),
-    ];
-
-    // Build code context if any chunks exist
-    let codeContext =
-      expandedChunks.length > 0
-        ? expandedChunks.map((chunk) => formatRetrievedChunk(chunk)).join("\n\n")
-        : "";
-    // Trim excessively long code context to avoid huge prompts
-    const MAX_CODE_CONTEXT = 8000; // characters
-    if (codeContext && codeContext.length > MAX_CODE_CONTEXT) {
-      codeContext = codeContext.slice(-MAX_CODE_CONTEXT);
-    }
-    // Fallback: if code context is empty, try reading from disk (for a best-effort context)
-    if (!codeContext && expandedChunks.length > 0) {
-      const repoRoot = repoRoots.get(repoId);
-      if (repoRoot) {
-        try {
-          const texts = await Promise.all(
-            expandedChunks.slice(0, 5).map(async (chunk) => {
-              const rel = normalizeToRepoPath(chunk.filePath, repoRoot);
-              const absPath = path.resolve(repoRoot, rel);
-              const t = await fs.readFile(absPath, "utf8");
-              return t;
-            }),
-          );
-          const stacked = texts.filter((t) => t.length > 0).join("\n\n");
-          if (stacked) {
-            codeContext =
-              stacked.length > MAX_CODE_CONTEXT
-                ? stacked.slice(-MAX_CODE_CONTEXT)
-                : stacked;
-          }
-        } catch {
-          // ignore disk read errors; keep codeContext as empty to fall back to summaries
-        }
-      }
-    }
-
-    // Fallback: gather file summaries if no code context
-    let summaryContext = "";
-    if (!codeContext) {
-      const sums = await runCypher<SummaryRow>(
-        `/*cypher*/
-        MATCH (f {repoId: $repoId})
-        WHERE (f:CodeFile OR f:TextFile) AND f.summary IS NOT NULL
-        RETURN f.path AS path,
-               f.summary AS summary,
-               CASE WHEN f:CodeFile THEN 'CodeFile' ELSE 'TextFile' END AS fileKind`,
-        { repoId },
-      );
-      if (Array.isArray(sums) && sums.length > 0) {
-        summaryContext = sums
-          .map(
-            (summaryRow) =>
-              `File: ${summaryRow.path}\nType: ${summaryRow.fileKind}\nSummary:\n${summaryRow.summary}`,
-          )
-          .join("\n\n");
-        // Cap length to avoid overly long prompts
-        const MAX_SUMMARY_CONTEXT = 2000;
-        if (summaryContext.length > MAX_SUMMARY_CONTEXT) {
-          summaryContext = summaryContext.slice(0, MAX_SUMMARY_CONTEXT) + "...";
-        }
-      }
-    }
-
-    const combinedContext = [nodeContextResult.context, codeContext, summaryContext]
-      .filter(Boolean)
-      .join("\n\n");
-
-    if (!combinedContext) {
-      return c.json(
-        {
-          ok: false,
-          error:
-            "No relevant node context, code chunks, or file summaries found for this repository.",
-        },
-        400,
-      );
-    }
-
-    console.log(
-      "[GRAPHRAG] Context lengths -> code:",
-      codeContext ? codeContext.length : 0,
-      "node:",
-      nodeContextResult.context ? nodeContextResult.context.length : 0,
-      "summary:",
-      summaryContext ? summaryContext.length : 0,
-      "combined:",
-      combinedContext.length,
-    );
-    const prompt = `Context:\n${combinedContext}\n\nQuestion: ${question}\n\nAnswer concisely:`;
-    console.log(
-      "[GRAPHRAG] Prompt prepared. length:",
-      prompt.length,
-      "nodeCtx",
-      nodeContextResult.context ? nodeContextResult.context.length : 0,
-      "codeCtx",
-      codeContext ? codeContext.length : 0,
-      "sumCtx",
-      summaryContext ? summaryContext.length : 0,
-      "chunks",
-      expandedChunks.length,
-    );
-    if (codeContext) {
-      const preview = codeContext.substring(0, 120).replace(/\n/g, " ");
-      console.log("[GRAPHRAG] CodeContext preview:", preview);
-    }
-
-    // Generate answer
-    const answer = await generateTextWithContext(prompt, { maxTokens: 1000 });
-
-    const allSources = [...nodeContextResult.sources, ...vectorSources];
+    const allSources = askResult.sources;
 
     await appendThreadMessage({
       repoId,
       threadId: thread.id,
       role: "assistant",
-      content: answer,
+      content: askResult.answer,
       sourcesJson: JSON.stringify(allSources),
     });
 
     return c.json({
       ok: true,
       threadId: thread.id,
-      answer,
+      answer: askResult.answer,
       sources: allSources,
     });
   } catch (err) {

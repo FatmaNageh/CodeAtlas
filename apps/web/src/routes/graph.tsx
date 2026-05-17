@@ -58,6 +58,24 @@ import {
 } from "@/components/explorer-graph-canvas";
 import { AnimatedMarkdown } from "@/components/animated-markdown";
 
+type GraphSearch = {
+	repoId?: string;
+	repoRoot?: string;
+	repoName?: string;
+	baseUrl?: string;
+};
+
+function getGraphSearch(): GraphSearch {
+	if (typeof window === "undefined") return {};
+	const params = new URLSearchParams(window.location.search);
+	return {
+		repoId: params.get("repoId") ?? undefined,
+		repoRoot: params.get("repoRoot") ?? undefined,
+		repoName: params.get("repoName") ?? undefined,
+		baseUrl: params.get("baseUrl") ?? undefined,
+	};
+}
+
 export const Route = createFileRoute("/graph")({
 	component: GraphExplorerPage,
 });
@@ -751,12 +769,13 @@ function shortestPath(
 }
 
 function GraphExplorerPage() {
+	const routeSearch = getGraphSearch();
 	const session = loadSession();
 	const [baseUrl] = useState(
-		session.baseUrl ?? import.meta.env.VITE_SERVER_URL ?? "",
+		routeSearch.baseUrl ?? session.baseUrl ?? import.meta.env.VITE_SERVER_URL ?? "",
 	);
-	const [repoId] = useState(session.lastRepoId ?? "");
-	const [repoRoot] = useState(session.lastProjectPath ?? "");
+	const [repoId] = useState(routeSearch.repoId ?? session.lastRepoId ?? "");
+	const [repoRoot] = useState(routeSearch.repoRoot ?? session.lastProjectPath ?? "");
 	const [graph, setGraph] = useState<{
 		nodes: Neo4jNode[];
 		edges: Neo4jEdge[];
@@ -1676,6 +1695,10 @@ function GraphExplorerPage() {
 	}, [filteredNodes, depthMap]);
 
 	const repoName = useMemo(() => {
+		if (routeSearch.repoName?.trim()) {
+			return routeSearch.repoName.trim();
+		}
+
 		const cleanRoot = repoRoot?.trim();
 
 		if (cleanRoot) {
@@ -1689,7 +1712,7 @@ function GraphExplorerPage() {
 		}
 
 		return "No repository loaded";
-	}, [repoRoot, repoId]);
+	}, [repoRoot, repoId, routeSearch.repoName]);
 
 	const handleReIndex = async () => {
 		if (!repoRoot.trim()) {
@@ -2092,7 +2115,7 @@ function GraphExplorerPage() {
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
 					repoId: repoId.trim(),
-					repoRoot: repoRoot.trim(),
+					repoRoot: repoRoot.trim() || undefined,
 				}),
 			});
 			const data = await res.json().catch(() => ({}));
