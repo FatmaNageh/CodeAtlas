@@ -45,9 +45,13 @@ coverage
 
 # Misc
 *.tgz
+*.vsix
 .cache
 tmp
 temp
 
 **/.codeatlas/**
+
+# Claude settings
+.claude/settings.local.json
 

@@ -1,0 +1,22 @@
+{
+  "name": "@CodeAtlas/extension-bridge",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "check-types": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@CodeAtlas/config": "workspace:*",
+    "tsdown": "catalog:",
+    "typescript": "catalog:"
+  },
+  "dependencies": {
+    "zod": "catalog:"
+  }
+}

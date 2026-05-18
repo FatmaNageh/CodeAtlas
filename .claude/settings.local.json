@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc *)",
+      "Bash(pnpm -C apps/extension build)",
+      "Bash(pnpm --filter codeatlas-extension build)",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(d.get\\('scripts',{}\\)\\)\")",
+      "Bash(curl -s -o /dev/null -D - http://localhost:3000/debug/subgraph?repoId=test)",
+      "Bash(netstat -ano)",
+      "PowerShell(Get-NetTCPConnection *)",
+      "Bash(PORT=3000 CORS_ORIGIN=\"*\" node -e \"require\\('dotenv/config'\\); require\\('./src/index.ts'\\)\")",
+      "Bash(curl -si \"http://localhost:3000/\")",
+      "Bash(PORT=3000 CORS_ORIGIN=\"*\" ./node_modules/.bin/tsx src/index.ts)",
+      "Bash(curl -si -X OPTIONS http://localhost:3000/debug/subgraph -H 'Origin: vscode-webview://abc123' -H 'Access-Control-Request-Method: GET' -H 'Access-Control-Request-Private-Network: true')"
+    ]
+  }
+}

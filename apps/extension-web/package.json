@@ -1,0 +1,26 @@
+{
+  "name": "extension-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host=127.0.0.1 --port=3011",
+    "build": "vite build",
+    "check-types": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@CodeAtlas/extension-bridge": "workspace:*",
+    "@vitejs/plugin-react": "^4.3.4",
+    "d3": "^7.9.0",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "vite": "^6.2.2"
+  },
+  "devDependencies": {
+    "@CodeAtlas/config": "workspace:*",
+    "@types/d3": "^7.4.3",
+    "@types/react": "~19.1.10",
+    "@types/react-dom": "^19.0.4",
+    "typescript": "catalog:"
+  }
+}

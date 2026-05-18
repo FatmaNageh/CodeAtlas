@@ -66,7 +66,7 @@
 
 | Command | Shortcut | Description |
 |---------|----------|-------------|
-| `CodeAtlas: Open Knowledge Graph` | `Ctrl+Shift+G` | Open the interactive graph panel |
+| `CodeAtlas: Open Knowledge Graph` | `Ctrl+Shift+G` | Open the CodeAtlas app |
 | `CodeAtlas: Index a Repository` | — | Parse a folder into Neo4j |
 | `CodeAtlas: Settings` | — | Configure server URL, Repo ID, Neo4j URL |
 | `CodeAtlas: Server Options` | — | Start / stop / restart the backend |
@@ -83,7 +83,6 @@
 | `codeatlas.repoId` | `""` | Repository ID (set automatically after indexing) |
 | `codeatlas.neo4jBrowserUrl` | `http://localhost:7474` | Neo4j Browser URL |
 | `codeatlas.autoStartServer` | `true` | Auto-start backend on workspace open |
-| `codeatlas.graphNodeLimit` | `500` | Max nodes fetched (50–2000) |
 | `codeatlas.autoRefreshGraph` | `false` | Refresh graph every 30 s |
 
 ---
