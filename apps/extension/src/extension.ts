@@ -350,22 +350,41 @@ async function indexRepository(
     {
       location: vscode.ProgressLocation.Notification,
       title: `CodeAtlas: Indexing ${trimmedProjectPath}...`,
-      cancellable: false,
+      cancellable: true,
     },
-    async () => {
+    async (_progress, token) => {
+      const controller = new AbortController();
+      const indexTimeoutMs = 10 * 60_000;
+      let abortedByTimeout = false;
+      let abortedByUser = false;
+      const timeoutId = setTimeout(() => {
+        abortedByTimeout = true;
+        controller.abort();
+      }, indexTimeoutMs);
+      const cancelSubscription = token.onCancellationRequested(() => {
+        abortedByUser = true;
+        controller.abort();
+      });
+
       try {
         const url = getServerUrl();
         const res = await fetch(`${url}/indexRepo`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ projectPath: trimmedProjectPath, mode: "full", saveDebugJson: true }),
+          signal: controller.signal,
         });
         const data = (await res.json()) as IndexRepoResponse;
         if (data.ok) {
-          if (!data.repoId || (typeof data.repoId !== "string" && typeof data.repoId !== "number")) {
+          if (
+            data.repoId === undefined
+            || data.repoId === null
+            || (typeof data.repoId !== "string" && typeof data.repoId !== "number")
+            || String(data.repoId).trim() === ""
+          ) {
             throw new Error("Server returned success but no valid repoId");
           }
-          const repoId = String(data.repoId);
+          const repoId = String(data.repoId).trim();
           await updateCodeAtlasSetting("repoId", repoId);
           await updateCodeAtlasSetting("repoRoot", trimmedProjectPath);
           broadcastSettings();
@@ -383,9 +402,20 @@ async function indexRepository(
           vscode.window.showErrorMessage(`CodeAtlas indexing failed: ${error}`);
         }
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = err instanceof Error && err.name === "AbortError"
+          ? abortedByTimeout
+            ? "Indexing timed out after 10 minutes."
+            : abortedByUser
+              ? "Indexing canceled."
+              : "Indexing request was aborted."
+          : err instanceof Error
+            ? err.message
+            : String(err);
         AppPanel.currentPanel?.sendIndexingFailed(trimmedProjectPath, msg);
         vscode.window.showErrorMessage(`CodeAtlas indexing error: ${msg}`);
+      } finally {
+        clearTimeout(timeoutId);
+        cancelSubscription.dispose();
       }
     },
   );
