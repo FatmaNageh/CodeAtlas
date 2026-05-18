@@ -15,7 +15,7 @@ function htmlAttr(value: string): string {
 
 export function getChatHtml(webview: vscode.Webview, serverUrl: string, repoId: string, repoRoot: string): string {
   const nonce = getNonce();
-  let serverOrigin = "http://127.0.0.1: http://localhost:";
+  let serverOrigin = "http://127.0.0.1:* http://localhost:*";
   try {
     const parsed = new URL(serverUrl);
     serverOrigin = htmlAttr(parsed.origin);
@@ -630,6 +630,7 @@ body {
       <input class="cfg-input" id="cfg-r" value="${htmlAttr(repoId)}" placeholder="repo-id">
     </div>
     <div class="bar-sep"></div>
+    <button class="bar-btn" id="btn-embed" title="Generate Embeddings">Emb</button>
     <button class="bar-btn" id="btn-graph" title="Open Graph">⬡</button>
     <button class="bar-btn" id="btn-index" title="Index Repository">⊕</button>
     <button class="bar-btn" id="btn-clear" title="Clear History">⊘</button>
@@ -660,6 +661,8 @@ const ST = {
   gNodes: [],
   mentionSearch: null,
   mentionIdx: 0,
+  _embedBtn: null,
+  _embedBtnText: null,
   get serverUrl() { return $('cfg-s').value.trim(); },
   get repoId()    { return $('cfg-r').value.trim(); },
   get repoRoot()  { return CFG.repoRoot; },
@@ -881,19 +884,26 @@ document.querySelectorAll('.qb').forEach(b => b.addEventListener('click', () => 
   $('chat-ta').value = b.dataset.p || ''; $('chat-ta').focus();
 }));
 
-$('btn-embed-fix').addEventListener('click', async () => {
-  const btn = $('btn-embed-fix'); btn.textContent = '⏳ Embedding…'; btn.disabled = true;
+async function runEmbed(triggerBtn) {
+  const previousText = triggerBtn.textContent;
+  triggerBtn.textContent = '⏳';
+  triggerBtn.disabled = true;
   addMsg({ role: 'bot', text: 'Generating embeddings — this may take a few minutes…' });
-  try {
-    const res = await fetch(ST.serverUrl + '/graphrag/embedRepo', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ repoId: ST.repoId, repoRoot: ST.repoRoot }),
-    });
-    const d = await res.json();
-    if (d.ok !== false) { $('embed-notice').style.display = 'none'; addMsg({ role: 'bot', text: '✓ Embeddings generated! Try your question again.' }); }
-    else addMsg({ role: 'bot', text: 'Embedding failed: ' + d.error, error: true });
-  } catch (e) { addMsg({ role: 'bot', text: 'Embedding error: ' + e.message, error: true }); }
-  btn.textContent = '↑ Generate Embeddings'; btn.disabled = false;
+  vsc.postMessage({ type: 'embedRepo' });
+  ST._embedBtn = triggerBtn;
+  ST._embedBtnText = previousText;
+}
+
+$('btn-embed-fix').addEventListener('click', async () => {
+  const btn = $('btn-embed-fix');
+  const previousText = btn.textContent;
+  btn.textContent = '⏳ Embedding…';
+  await runEmbed(btn);
+  btn.textContent = previousText;
+});
+
+$('btn-embed').addEventListener('click', async () => {
+  await runEmbed($('btn-embed'));
 });
 
 $('btn-graph').addEventListener('click', () => vsc.postMessage({ type: 'openGraph' }));
@@ -933,6 +943,22 @@ window.addEventListener('message', ev => {
     const s = msg.payload || {};
     if (s.status === 'error')   addMsg({ role: 'sys', text: '⚠ Backend error: ' + (s.error || 'unknown') });
     if (s.status === 'stopped') addMsg({ role: 'sys', text: 'Server stopped' });
+  }
+  if (msg.type === 'embed/status') {
+    const payload = msg.payload || {};
+    if (payload.ok) {
+      $('embed-notice').style.display = 'none';
+      addMsg({ role: 'bot', text: '✓ ' + (payload.message || 'Embeddings generated and saved in Neo4j.') });
+    } else {
+      addMsg({ role: 'bot', text: 'Embedding failed: ' + (payload.message || 'unknown error'), error: true });
+    }
+
+    if (ST._embedBtn) {
+      ST._embedBtn.textContent = ST._embedBtnText || 'Emb';
+      ST._embedBtn.disabled = false;
+      ST._embedBtn = null;
+      ST._embedBtnText = null;
+    }
   }
   if (msg.type === 'clearHistory') { ST.msgs = []; renderMsgs(); }
 });

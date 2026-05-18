@@ -191,6 +191,35 @@ export async function activate(context: vscode.ExtensionContext) {
   );
 
   context.subscriptions.push(
+    vscode.commands.registerCommand("codeatlas.embedRepo", async () => {
+      const cfg = getCfg();
+      const repoId = cfg.repoId.trim();
+      const repoRoot = cfg.repoRoot.trim();
+
+      if (!repoId) {
+        const message = "Set Repo ID first (index repository).";
+        chatProvider?.sendEmbedStatus(false, message);
+        vscode.window.showErrorMessage(`CodeAtlas: ${message}`);
+        return;
+      }
+      if (!repoRoot) {
+        const message = "Missing repo root. Re-index repository first.";
+        chatProvider?.sendEmbedStatus(false, message);
+        vscode.window.showErrorMessage(`CodeAtlas: ${message}`);
+        return;
+      }
+
+      const result = await runEmbeddingForRepo(repoId, repoRoot);
+      chatProvider?.sendEmbedStatus(result.ok, result.message);
+      if (result.ok) {
+        vscode.window.showInformationMessage(`CodeAtlas: ${result.message}`);
+      } else {
+        vscode.window.showErrorMessage(`CodeAtlas: ${result.message}`);
+      }
+    })
+  );
+
+  context.subscriptions.push(
     vscode.commands.registerCommand("codeatlas.indexRepo", async () => {
       const folder = await vscode.window.showOpenDialog({
         canSelectFolders: true, canSelectFiles: false,
@@ -470,6 +499,43 @@ async function ensureServerRunning(): Promise<void> {
   });
 }
 
+async function runEmbeddingForRepo(
+  repoId: string,
+  repoRoot: string,
+): Promise<{ ok: boolean; message: string }> {
+  const configuredServerUrl = normalizeUrl(
+    vscode.workspace.getConfiguration("codeatlas").get<string>("serverUrl"),
+    "http://localhost:3000",
+  );
+
+  const primaryUrl = configuredServerUrl;
+  const fallbackUrl = getServerUrl();
+
+  let targetUrl = primaryUrl;
+  if (!(await canReachServer(primaryUrl))) {
+    await ensureServerRunning();
+    targetUrl = fallbackUrl;
+  }
+
+  const res = await fetch(`${targetUrl}/graphrag/embedRepo`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ repoId, repoRoot }),
+  });
+  const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+  if (!res.ok || data.ok === false) {
+    return {
+      ok: false,
+      message: data.error ?? `Embedding failed (HTTP ${res.status}) via ${targetUrl}`,
+    };
+  }
+
+  return {
+    ok: true,
+    message: `Embeddings generated and saved in Neo4j via ${targetUrl}.`,
+  };
+}
+
 async function canReachServer(serverUrl: string): Promise<boolean> {
   try {
     const parsed = new URL(serverUrl);
@@ -669,6 +735,9 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
         if (msg?.type === "indexRepo") {
           vscode.commands.executeCommand("codeatlas.indexRepo");
         }
+        if (msg?.type === "embedRepo") {
+          await vscode.commands.executeCommand("codeatlas.embedRepo");
+        }
         if (msg?.type === "chat/ready") {
           const s = serverManager.state;
           const cfg = getCfg();
@@ -710,6 +779,10 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 
   sendSettings(s: CodeAtlasSettings) {
     this._view?.webview.postMessage({ type: "settings/update", payload: s });
+  }
+
+  sendEmbedStatus(ok: boolean, message: string) {
+    this._view?.webview.postMessage({ type: "embed/status", payload: { ok, message } });
   }
 
   dispose() {

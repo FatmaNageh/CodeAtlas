@@ -78,6 +78,11 @@
         "command": "codeatlas.indexCurrentProject",
         "title": "CodeAtlas: Index Current Project",
         "icon": "$(database)"
+      },
+      {
+        "command": "codeatlas.embedRepo",
+        "title": "CodeAtlas: Generate Embeddings",
+        "icon": "$(symbol-key)"
       }
     ],
     "keybindings": [
@@ -122,6 +127,11 @@
           "command": "codeatlas.indexCurrentProject",
           "when": "view == codeatlas.chatView && workspaceFolderCount > 0",
           "group": "navigation@3"
+        },
+        {
+          "command": "codeatlas.embedRepo",
+          "when": "view == codeatlas.chatView",
+          "group": "navigation@4"
         }
       ]
     },

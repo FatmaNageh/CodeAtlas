@@ -13,6 +13,44 @@ import type { GraphData, GraphNode } from "@/graph/types";
 
 const defaultStatus: ServerStatus = { status: "stopped", port: 0, url: "" };
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function renderMarkdown(markdown: string): string {
+  let html = escapeHtml(markdown)
+    .replace(/```([\s\S]*?)```/g, (_match, code: string) => `<pre><code>${code.trim()}</code></pre>`)
+    .replace(/^### (.+)$/gm, "<h4>$1</h4>")
+    .replace(/^## (.+)$/gm, "<h3>$1</h3>")
+    .replace(/^# (.+)$/gm, "<h2>$1</h2>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/`([^`]+)`/g, "<code>$1</code>");
+
+  html = html.replace(/(?:^|\n)- (.+)(?=\n|$)/g, "\n<li>$1</li>");
+  html = html.replace(/(?:\n<li>.+<\/li>)+/g, (listBlock: string) => `<ul>${listBlock.replace(/\n/g, "")}</ul>`);
+  html = html.replace(/(?:^|\n)\d+\. (.+)(?=\n|$)/g, "\n<oli>$1</oli>");
+  html = html.replace(/(?:\n<oli>.+<\/oli>)+/g, (listBlock: string) => {
+    const items = listBlock.replace(/\n/g, "").replace(/<oli>/g, "<li>").replace(/<\/oli>/g, "</li>");
+    return `<ol>${items}</ol>`;
+  });
+
+  const blocks = html
+    .split(/\n\n+/)
+    .map((block) => block.trim())
+    .filter(Boolean)
+    .map((block) => {
+      if (/^<(pre|h2|h3|h4|ul)/.test(block)) return block;
+      return `<p>${block.replace(/\n/g, "<br />")}</p>`;
+    });
+
+  return blocks.join("");
+}
+
 function getStatusLabel(status: ServerStatus): string {
   switch (status.status) {
     case "running":
@@ -54,6 +92,10 @@ export function App() {
     | { status: "completed"; repoId: string; repoRoot: string }
     | { status: "failed"; repoRoot: string; error: string }
   >({ status: "idle" });
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [summaryText, setSummaryText] = useState("");
+  const [animatedSummaryText, setAnimatedSummaryText] = useState("");
+  const [summaryAnimating, setSummaryAnimating] = useState(false);
 
   useEffect(() => {
     const unsubscribe = subscribeToHostMessages((message) => {
@@ -168,6 +210,91 @@ export function App() {
 
   const selectedPath = selectedNode ? getNodePath(selectedNode) : "";
   const selectedKind = selectedNode ? getNodeKind(selectedNode) : undefined;
+  const summaryHtml = useMemo(() => renderMarkdown(animatedSummaryText), [animatedSummaryText]);
+
+  const summarizeSelectedNode = useCallback(async () => {
+    if (!initialState?.serverUrl || !initialState.repoId || !initialState.repoRoot) {
+      setSummaryText("Missing server/repository config. Re-index and try again.");
+      return;
+    }
+    if (!selectedPath) {
+      setSummaryText("Selected node has no file path to summarize.");
+      return;
+    }
+
+    setSummaryLoading(true);
+    setSummaryText("");
+    try {
+      const response = await fetch(`${initialState.serverUrl}/graphrag/summarize`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          repoId: initialState.repoId,
+          repoRoot: initialState.repoRoot,
+          filePaths: [selectedPath],
+        }),
+      });
+      const data = (await response.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        results?: Array<{ summary?: string; text?: string }>;
+        errors?: string[];
+      };
+
+      if (!response.ok || data.ok === false) {
+        setSummaryText(`Error: ${data.error ?? `HTTP ${response.status}`}`);
+        return;
+      }
+
+      const rendered = (data.results ?? [])
+        .map((result) => result.summary ?? result.text ?? "")
+        .filter((item) => item.trim().length > 0)
+        .join("\n\n");
+
+      if (rendered) {
+        setSummaryText(rendered);
+      } else if ((data.errors ?? []).length > 0) {
+        setSummaryText(`Errors: ${(data.errors ?? []).join("; ")}`);
+      } else {
+        setSummaryText("Summary generated, but no content was returned.");
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setSummaryText(`Error: ${message}`);
+    } finally {
+      setSummaryLoading(false);
+    }
+  }, [initialState?.repoId, initialState?.repoRoot, initialState?.serverUrl, selectedPath]);
+
+  useEffect(() => {
+    setSummaryText("");
+    setAnimatedSummaryText("");
+  }, [selectedNode?.id]);
+
+  useEffect(() => {
+    if (!summaryText) {
+      setAnimatedSummaryText("");
+      setSummaryAnimating(false);
+      return;
+    }
+
+    setSummaryAnimating(true);
+    let index = 0;
+    const step = 14;
+    const timer = window.setInterval(() => {
+      index = Math.min(summaryText.length, index + step);
+      setAnimatedSummaryText(summaryText.slice(0, index));
+      if (index >= summaryText.length) {
+        window.clearInterval(timer);
+        setSummaryAnimating(false);
+      }
+    }, 16);
+
+    return () => {
+      window.clearInterval(timer);
+      setSummaryAnimating(false);
+    };
+  }, [summaryText]);
 
   return (
     <main className="app-shell">
@@ -236,28 +363,60 @@ export function App() {
 
           <aside className="node-inspector" aria-label="Selected node details">
             {selectedNode ? (
-              <>
-                <span className="label">{selectedKind}</span>
-                <strong>{getNodeLabel(selectedNode)}</strong>
-                <span className="path">{selectedPath || selectedNode.id}</span>
-                <dl>
-                  {Object.entries(selectedNode.properties).slice(0, 8).map(([key, value]) => (
-                    <div key={key}>
-                      <dt>{key}</dt>
-                      <dd>{String(value)}</dd>
-                    </div>
-                  ))}
-                </dl>
+              <div className="inspector-content">
+                <div className="inspector-head">
+                  <span className="label">{selectedKind}</span>
+                  <strong>{getNodeLabel(selectedNode)}</strong>
+                  <span className="path">{selectedPath || selectedNode.id}</span>
+                </div>
+                <div className="inspector-meta">
+                  <dl>
+                    {Object.entries(selectedNode.properties).slice(0, 8).map(([key, value]) => (
+                      <div key={key}>
+                        <dt>{key}</dt>
+                        <dd>{String(value)}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </div>
                 {selectedPath ? (
-                  <button
-                    type="button"
-                    className="compact-button wide"
-                    onClick={() => postHostMessage({ type: "app/openFile", payload: { path: selectedPath } })}
-                  >
-                    Open File
-                  </button>
+                  <div className="inspector-tail">
+                    <div className="inspector-actions">
+                      <button
+                        type="button"
+                        className="compact-button"
+                        onClick={() => postHostMessage({ type: "app/openFile", payload: { path: selectedPath } })}
+                      >
+                        Open File
+                      </button>
+                      <button
+                        type="button"
+                        className="compact-button"
+                        disabled={summaryLoading}
+                        onClick={() => void summarizeSelectedNode()}
+                      >
+                        {summaryLoading ? "Summarizing..." : "Summarize"}
+                      </button>
+                    </div>
+                    <div className="summary-section">
+                      <span className="label">Summary</span>
+                      <div className="summary-scroll" aria-live="polite">
+                        {summaryLoading && !summaryText ? (
+                          <p className="summary-empty">Generating summary...</p>
+                        ) : summaryText ? (
+                          summaryAnimating ? (
+                            <pre className="summary-live">{animatedSummaryText}</pre>
+                          ) : (
+                            <div dangerouslySetInnerHTML={{ __html: summaryHtml }} />
+                          )
+                        ) : (
+                          <p className="summary-empty">Generate a summary for this selected node.</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                 ) : null}
-              </>
+              </div>
             ) : (
               <div className="inspector-empty">
                 <span className="label">Node Inspector</span>
