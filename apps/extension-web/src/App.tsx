@@ -47,6 +47,7 @@ export function App() {
   const [selectedNode, setSelectedNode] = useState<GraphNode | undefined>();
   const [graphFocusRequest, setGraphFocusRequest] = useState(0);
   const graphWorkbenchRef = useRef<HTMLElement | null>(null);
+  const latestLoadId = useRef(0);
   const [indexingState, setIndexingState] = useState<
     | { status: "idle" }
     | { status: "running"; repoRoot: string }
@@ -127,13 +128,17 @@ export function App() {
       return;
     }
 
+    latestLoadId.current += 1;
+    const localRequestId = latestLoadId.current;
     setGraphStatus({ status: "loading" });
     try {
       const nextGraph = await fetchGraphData(initialState.serverUrl, initialState.repoId);
+      if (localRequestId !== latestLoadId.current) return;
       setGraph(nextGraph);
       setSelectedNode(undefined);
       setGraphStatus(nextGraph.nodes.length > 0 ? { status: "ready" } : { status: "empty" });
     } catch (error) {
+      if (localRequestId !== latestLoadId.current) return;
       const message = error instanceof Error ? error.message : String(error);
       setGraph({ nodes: [], edges: [] });
       setSelectedNode(undefined);

@@ -1,3 +1,4 @@
+import * as crypto from "crypto";
 import * as fs from "fs";
 import * as path from "path";
 import * as vscode from "vscode";
@@ -71,10 +72,11 @@ function getMissingBuildHtml(): string {
 function createNonce(): string {
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
   const length = 32;
+  const bytes = crypto.randomBytes(length);
   let value = "";
 
   for (let index = 0; index < length; index += 1) {
-    value += alphabet.charAt(Math.floor(Math.random() * alphabet.length));
+    value += alphabet.charAt(bytes[index] % alphabet.length);
   }
 
   return value;

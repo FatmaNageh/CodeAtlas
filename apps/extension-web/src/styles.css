@@ -241,6 +241,11 @@ strong {
   opacity: 0.62;
 }
 
+.graph-node:focus-visible circle {
+  stroke: var(--vscode-focusBorder);
+  stroke-width: 4px;
+}
+
 .graph-placeholder {
   display: grid;
   place-content: center;

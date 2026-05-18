@@ -63,12 +63,37 @@ export async function fetchGraphData(serverUrl: string, repoId: string): Promise
   }
 
   const data = JSON.parse(text) as RawGraphResponse;
+  if (!data || typeof data !== "object") {
+    throw new Error("Invalid response: expected an object");
+  }
   if (data.ok === false) {
     throw new Error(data.error || "The server rejected the graph request.");
   }
 
-  return {
-    nodes: (data.nodes ?? []).map(normalizeNode),
-    edges: (data.edges ?? []).map(normalizeEdge),
-  };
+  const rawNodes = Array.isArray(data.nodes) ? data.nodes : [];
+  const rawEdges = Array.isArray(data.edges) ? data.edges : [];
+
+  const nodes = rawNodes
+    .filter((node) => node && typeof node === "object")
+    .map((node) => {
+      try {
+        return normalizeNode(node);
+      } catch {
+        return null;
+      }
+    })
+    .filter((node): node is GraphNode => node !== null);
+
+  const edges = rawEdges
+    .filter((edge) => edge && typeof edge === "object")
+    .map((edge, index) => {
+      try {
+        return normalizeEdge(edge, index);
+      } catch {
+        return null;
+      }
+    })
+    .filter((edge): edge is GraphEdge => edge !== null);
+
+  return { nodes, edges };
 }

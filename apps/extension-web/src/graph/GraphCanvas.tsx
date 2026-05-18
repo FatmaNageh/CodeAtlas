@@ -115,7 +115,15 @@ export function GraphCanvas({
       .selectAll<SVGGElement, SimNode>("g")
       .data(prepared.nodes, (node) => node.id)
       .join((enter) => {
-        const group = enter.append("g").attr("class", "graph-node").attr("tabindex", 0);
+        const group = enter
+          .append("g")
+          .attr("class", "graph-node")
+          .attr("role", "button")
+          .attr("tabindex", 0)
+          .attr("aria-label", (node) => {
+            const path = getNodePath(node);
+            return path ? `${node.label} at ${path}` : node.label;
+          });
         group
           .append("circle")
           .attr("r", (node) => nodeRadius(node.kind))

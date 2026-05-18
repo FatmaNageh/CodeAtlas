@@ -1,8 +1,8 @@
+import * as crypto from "crypto";
 import * as vscode from "vscode";
 
 function getNonce(): string {
-  const c = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  return Array.from({ length: 32 }, () => c[Math.floor(Math.random() * c.length)]).join("");
+  return crypto.randomBytes(16).toString("hex");
 }
 
 function htmlAttr(value: string): string {
@@ -15,12 +15,19 @@ function htmlAttr(value: string): string {
 
 export function getChatHtml(webview: vscode.Webview, serverUrl: string, repoId: string, repoRoot: string): string {
   const nonce = getNonce();
+  let serverOrigin = "http://127.0.0.1: http://localhost:";
+  try {
+    const parsed = new URL(serverUrl);
+    serverOrigin = htmlAttr(parsed.origin);
+  } catch {
+    // fallback to localhost if serverUrl is invalid
+  }
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none';style-src 'unsafe-inline';script-src 'nonce-${nonce}';connect-src http://127.0.0.1: http://localhost:;img-src ${webview.cspSource} data:;">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none';style-src 'unsafe-inline';script-src 'nonce-${nonce}';connect-src ${serverOrigin};img-src ${webview.cspSource} data:;">
 <title>CodeAtlas Chat</title>
 <style>
 /* ── Reset & Base ─────────────────────────────────────────────── */

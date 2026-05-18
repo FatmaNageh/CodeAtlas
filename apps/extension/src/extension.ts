@@ -362,6 +362,9 @@ async function indexRepository(
         });
         const data = (await res.json()) as IndexRepoResponse;
         if (data.ok) {
+          if (!data.repoId || (typeof data.repoId !== "string" && typeof data.repoId !== "number")) {
+            throw new Error("Server returned success but no valid repoId");
+          }
           const repoId = String(data.repoId);
           await updateCodeAtlasSetting("repoId", repoId);
           await updateCodeAtlasSetting("repoRoot", trimmedProjectPath);
@@ -441,8 +444,16 @@ async function canReachServer(serverUrl: string): Promise<boolean> {
   try {
     const parsed = new URL(serverUrl);
     if (parsed.hostname !== "127.0.0.1" && parsed.hostname !== "localhost") return false;
-    const response = await fetch(`${serverUrl}/`);
-    return response.ok;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    try {
+      const response = await fetch(`${serverUrl}/`, { signal: controller.signal });
+      clearTimeout(timeoutId);
+      return response.ok;
+    } catch (err) {
+      clearTimeout(timeoutId);
+      return false;
+    }
   } catch {
     return false;
   }

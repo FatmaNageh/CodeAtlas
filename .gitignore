@@ -52,3 +52,6 @@ temp
 
 **/.codeatlas/**
 
+# Claude settings
+.claude/settings.local.json
+
