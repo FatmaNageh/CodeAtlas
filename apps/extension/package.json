@@ -75,6 +75,11 @@
         "title": "CodeAtlas: Clear Chat History"
       },
       {
+        "command": "codeatlas.syncChatWithGraph",
+        "title": "CodeAtlas: Sync Chat With Indexed Graph",
+        "icon": "$(sync)"
+      },
+      {
         "command": "codeatlas.indexCurrentProject",
         "title": "CodeAtlas: Index Current Project",
         "icon": "$(database)"
@@ -82,7 +87,10 @@
       {
         "command": "codeatlas.embedRepo",
         "title": "CodeAtlas: Generate Embeddings",
-        "icon": "$(symbol-key)"
+        "icon": {
+          "light": "media/icons/embed-light.svg",
+          "dark": "media/icons/embed-dark.svg"
+        }
       }
     ],
     "keybindings": [

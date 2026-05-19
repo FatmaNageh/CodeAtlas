@@ -57,13 +57,16 @@ export function getAppWebviewHtml(webview: vscode.Webview, extensionUri: vscode.
 function replaceBuiltAssetReferences(html: string, assetsDir: string): string {
   if (!fs.existsSync(assetsDir)) return html;
 
-  const entries = fs
+  const files = fs
     .readdirSync(assetsDir, { withFileTypes: true })
     .filter((entry) => entry.isFile())
-    .map((entry) => entry.name);
+    .map((entry) => ({
+      name: entry.name,
+      mtimeMs: fs.statSync(path.join(assetsDir, entry.name)).mtimeMs,
+    }));
 
-  const jsFile = selectAsset(entries, ".js");
-  const cssFile = selectAsset(entries, ".css");
+  const jsFile = selectAsset(files, ".js");
+  const cssFile = selectAsset(files, ".css");
 
   let nextHtml = html;
   if (jsFile) {
@@ -83,15 +86,18 @@ function replaceBuiltAssetReferences(html: string, assetsDir: string): string {
   return nextHtml;
 }
 
-function selectAsset(entries: string[], extension: ".js" | ".css"): string | undefined {
+function selectAsset(
+  entries: Array<{ name: string; mtimeMs: number }>,
+  extension: ".js" | ".css",
+): string | undefined {
   const exactName = `index${extension}`;
-  if (entries.includes(exactName)) return exactName;
+  if (entries.some((entry) => entry.name === exactName)) return exactName;
 
   const hashedCandidates = entries
-    .filter((name) => name.startsWith("index-") && name.endsWith(extension))
-    .sort();
+    .filter((entry) => entry.name.startsWith("index-") && entry.name.endsWith(extension))
+    .sort((left, right) => right.mtimeMs - left.mtimeMs);
 
-  return hashedCandidates.at(-1);
+  return hashedCandidates[0]?.name;
 }
 
 function getMissingBuildHtml(): string {

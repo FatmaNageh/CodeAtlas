@@ -16,6 +16,20 @@ interface IndexRepoResponse {
   error?: string;
 }
 
+type GraphPropertyValue = string | number | boolean | null;
+
+interface SubgraphNode {
+  id: string;
+  labels: string[];
+  properties: Record<string, GraphPropertyValue>;
+}
+
+interface SubgraphResponse {
+  ok?: boolean;
+  error?: string;
+  nodes?: SubgraphNode[];
+}
+
 interface CodeAtlasSettings {
   serverUrl: string;
   repoId: string;
@@ -29,6 +43,8 @@ type WritableCodeAtlasSetting = "serverUrl" | "repoId" | "repoRoot" | "neo4jBrow
 let serverManager: ServerManager;
 let chatProvider: ChatViewProvider | undefined;
 let statusBarItem: vscode.StatusBarItem;
+let latestChatContextNode: object | null = null;
+let latestChatGraphNodes: object[] = [];
 
 function getConfigurationTarget(): vscode.ConfigurationTarget {
   return vscode.workspace.workspaceFolders?.length
@@ -187,6 +203,17 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("codeatlas.clearHistory", () => {
       chatProvider?.clearHistory();
       vscode.window.showInformationMessage("CodeAtlas: Chat history cleared.");
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("codeatlas.syncChatWithGraph", async () => {
+      try {
+        await syncChatWithGraphFromServer();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        vscode.window.showErrorMessage(`CodeAtlas: Sync failed: ${message}`);
+      }
     })
   );
 
@@ -374,6 +401,7 @@ async function indexRepository(
 
   await ensureServerRunning();
   AppPanel.currentPanel?.sendIndexingStarted(trimmedProjectPath);
+  chatProvider?.sendIndexingStarted(trimmedProjectPath);
 
   await vscode.window.withProgress(
     {
@@ -418,6 +446,7 @@ async function indexRepository(
           await updateCodeAtlasSetting("repoRoot", trimmedProjectPath);
           broadcastSettings();
           AppPanel.currentPanel?.sendIndexingCompleted(repoId, trimmedProjectPath);
+          chatProvider?.sendIndexingCompleted(repoId, trimmedProjectPath);
           const actions = options.promptForGraph ? ["Open Graph", "Copy ID"] : ["Copy ID"];
           const choice = await vscode.window.showInformationMessage(
             `CodeAtlas: Indexed! Repo ID: ${repoId}`,
@@ -428,6 +457,7 @@ async function indexRepository(
         } else {
           const error = data.error ?? "Indexing failed without a server error message.";
           AppPanel.currentPanel?.sendIndexingFailed(trimmedProjectPath, error);
+          chatProvider?.sendIndexingFailed(trimmedProjectPath, error);
           vscode.window.showErrorMessage(`CodeAtlas indexing failed: ${error}`);
         }
       } catch (err) {
@@ -441,6 +471,7 @@ async function indexRepository(
             ? err.message
             : String(err);
         AppPanel.currentPanel?.sendIndexingFailed(trimmedProjectPath, msg);
+        chatProvider?.sendIndexingFailed(trimmedProjectPath, msg);
         vscode.window.showErrorMessage(`CodeAtlas indexing error: ${msg}`);
       } finally {
         clearTimeout(timeoutId);
@@ -555,6 +586,59 @@ async function canReachServer(serverUrl: string): Promise<boolean> {
   }
 }
 
+async function syncChatWithGraphFromServer(): Promise<void> {
+  const cfg = getCfg();
+  const repoId = cfg.repoId.trim();
+  if (!repoId) {
+    vscode.window.showErrorMessage("CodeAtlas: Repo ID is missing. Index a repository first.");
+    return;
+  }
+
+  await ensureServerRunning();
+  const serverUrl = getServerUrl();
+  const response = await fetch(`${serverUrl}/debug/subgraph?repoId=${encodeURIComponent(repoId)}&limit=5000`);
+  const data = (await response.json().catch(() => ({}))) as SubgraphResponse;
+
+  if (!response.ok || data.ok === false) {
+    const message = data.error ?? `Failed to fetch graph (${response.status})`;
+    vscode.window.showErrorMessage(`CodeAtlas: ${message}`);
+    return;
+  }
+
+  const nodes = Array.isArray(data.nodes) ? data.nodes : [];
+  chatProvider?.sendGraphNodes(nodes);
+
+  const activePath = vscode.window.activeTextEditor?.document.uri.fsPath ?? "";
+  const repoRoot = cfg.repoRoot.trim();
+  const relativeActivePath = repoRoot && activePath
+    ? path.relative(repoRoot, activePath).replace(/\\/g, "/")
+    : "";
+
+  const contextNode = relativeActivePath
+    ? nodes.find((node) => {
+        const relPath = node.properties.relPath;
+        const filePath = node.properties.filePath;
+        const pathValue = node.properties.path;
+        const candidate = typeof relPath === "string"
+          ? relPath
+          : typeof filePath === "string"
+            ? filePath
+            : typeof pathValue === "string"
+              ? pathValue
+              : "";
+        return candidate.replace(/\\/g, "/") === relativeActivePath;
+      }) ?? null
+    : null;
+
+  if (contextNode) {
+    chatProvider?.sendContextNode(contextNode, nodes);
+  }
+
+  vscode.window.showInformationMessage(
+    `CodeAtlas: Synced chat with graph (${nodes.length} nodes${contextNode ? ", context selected" : ""}).`,
+  );
+}
+
 function autoStartIfAvailable() {
   serverManager.start().catch(() => {/* shown in status bar */});
 }
@@ -617,6 +701,21 @@ class AppPanel {
     this._panel.webview.html = getAppWebviewHtml(this._panel.webview, extensionUri);
 
     this._panel.webview.onDidReceiveMessage(async (message) => {
+      const rawMessage = typeof message === "object" && message !== null
+        ? message as { type?: string; payload?: unknown }
+        : null;
+      if (rawMessage?.type === "app/setChatContext") {
+        const payload = (typeof rawMessage.payload === "object" && rawMessage.payload !== null)
+          ? rawMessage.payload as { node?: object | null; nodes?: object[] }
+          : {};
+        const nodes = Array.isArray(payload.nodes) ? payload.nodes : [];
+        latestChatContextNode = payload.node ?? null;
+        latestChatGraphNodes = nodes;
+        chatProvider?.sendContextNode(latestChatContextNode, nodes);
+        chatProvider?.sendGraphNodes(nodes);
+        return;
+      }
+
       const value = parseWebviewToHostMessage(typeof message === "object" && message !== null ? message : null);
       if (!value) return;
 
@@ -643,6 +742,12 @@ class AppPanel {
           break;
         case "app/openFile":
           await openWorkspaceFile(value.payload.path, value.payload.line, value.payload.column);
+          break;
+        case "app/setChatContext":
+          latestChatContextNode = value.payload.node ?? null;
+          latestChatGraphNodes = value.payload.nodes;
+          chatProvider?.sendContextNode(value.payload.node ?? null, value.payload.nodes);
+          chatProvider?.sendGraphNodes(value.payload.nodes);
           break;
         case "app/openSettings":
           await vscode.commands.executeCommand("codeatlas.configure");
@@ -738,14 +843,132 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
         if (msg?.type === "embedRepo") {
           await vscode.commands.executeCommand("codeatlas.embedRepo");
         }
+        if (msg?.type === "chat/ask") {
+          const payload = (typeof msg.payload === "object" && msg.payload !== null)
+            ? msg.payload as {
+              requestId?: string;
+              repoId?: string;
+              question?: string;
+              contextNodeId?: string;
+              contextNodeLabel?: string;
+              mentionedNodes?: Array<{ id?: string; name?: string; path?: string }>;
+            }
+            : {};
+
+          const requestId = typeof payload.requestId === "string" ? payload.requestId : "";
+          const repoId = typeof payload.repoId === "string" ? payload.repoId.trim() : "";
+          const question = typeof payload.question === "string" ? payload.question.trim() : "";
+
+          if (!requestId || !repoId || !question) {
+            webviewView.webview.postMessage({
+              type: "chat/askResult",
+              payload: { ok: false, requestId, error: "Missing requestId, repoId, or question" },
+            });
+            return;
+          }
+
+          try {
+            await ensureServerRunning();
+            const targetUrl = getServerUrl();
+            webviewView.webview.postMessage({
+              type: "chat/askTrace",
+              payload: { requestId, stage: `Host received ask. Target: ${targetUrl}` },
+            });
+            const body = {
+              repoId,
+              question,
+              ...(typeof payload.contextNodeId === "string" && payload.contextNodeId
+                ? {
+                    contextNodeId: payload.contextNodeId,
+                    contextNodeLabel: typeof payload.contextNodeLabel === "string"
+                      ? payload.contextNodeLabel
+                      : undefined,
+                  }
+                : {}),
+              ...(Array.isArray(payload.mentionedNodes) && payload.mentionedNodes.length > 0
+                ? {
+                    mentionedNodes: payload.mentionedNodes.filter(
+                      (node) => typeof node.id === "string" && node.id.length > 0,
+                    ),
+                  }
+                : {}),
+            };
+
+            const response = await fetch(`${targetUrl}/graphrag/ask`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(body),
+            });
+            webviewView.webview.postMessage({
+              type: "chat/askTrace",
+              payload: { requestId, stage: `Host got HTTP ${response.status}` },
+            });
+            const data = (await response.json().catch(() => ({}))) as {
+              ok?: boolean;
+              error?: string;
+              answer?: string;
+              sources?: Array<{ file?: string }>;
+            };
+
+            if (!response.ok || data.ok === false) {
+              webviewView.webview.postMessage({
+                type: "chat/askResult",
+                payload: {
+                  ok: false,
+                  requestId,
+                  error: data.error ?? `HTTP ${response.status}`,
+                  targetUrl,
+                },
+              });
+              return;
+            }
+
+            webviewView.webview.postMessage({
+              type: "chat/askResult",
+              payload: {
+                ok: true,
+                requestId,
+                answer: data.answer ?? "No answer returned.",
+                sources: Array.isArray(data.sources) ? data.sources : [],
+                targetUrl,
+              },
+            });
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            webviewView.webview.postMessage({
+              type: "chat/askResult",
+              payload: { ok: false, requestId, error: message },
+            });
+          }
+        }
         if (msg?.type === "chat/ready") {
           const s = serverManager.state;
           const cfg = getCfg();
+          const effectiveSettings = s.status === "running" ? { ...cfg, serverUrl: s.url } : cfg;
           webviewView.webview.postMessage({ type: "server/status", payload: s });
           webviewView.webview.postMessage({
             type: "settings/update",
-            payload: s.status === "running" ? { ...cfg, serverUrl: s.url } : cfg,
+            payload: effectiveSettings,
           });
+          if (s.status !== "running") {
+            try {
+              await ensureServerRunning();
+              const runningState = serverManager.state;
+              if (runningState.status === "running") {
+                webviewView.webview.postMessage({ type: "server/status", payload: runningState });
+                webviewView.webview.postMessage({
+                  type: "settings/update",
+                  payload: { ...cfg, serverUrl: runningState.url },
+                });
+              }
+            } catch {
+              // keep existing settings if server could not start
+            }
+          }
+          if (latestChatGraphNodes.length > 0) {
+            this.sendGraphNodes(latestChatGraphNodes);
+            this.sendContextNode(latestChatContextNode, latestChatGraphNodes);
+          }
         }
       })
     );
@@ -765,7 +988,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
     this._view?.webview.postMessage({ type: "clearHistory" });
   }
 
-  sendContextNode(node: object, allNodes?: object[]) {
+  sendContextNode(node: object | null, allNodes?: object[]) {
     this._view?.webview.postMessage({ type: "contextNode", payload: { node, allNodes } });
   }
 
@@ -783,6 +1006,18 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 
   sendEmbedStatus(ok: boolean, message: string) {
     this._view?.webview.postMessage({ type: "embed/status", payload: { ok, message } });
+  }
+
+  sendIndexingStarted(repoRoot: string) {
+    this._view?.webview.postMessage({ type: "chat/indexingStarted", payload: { repoRoot } });
+  }
+
+  sendIndexingCompleted(repoId: string, repoRoot: string) {
+    this._view?.webview.postMessage({ type: "chat/indexingCompleted", payload: { repoId, repoRoot } });
+  }
+
+  sendIndexingFailed(repoRoot: string, error: string) {
+    this._view?.webview.postMessage({ type: "chat/indexingFailed", payload: { repoRoot, error } });
   }
 
   dispose() {

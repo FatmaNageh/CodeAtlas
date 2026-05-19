@@ -272,6 +272,34 @@ export function App() {
   }, [selectedNode?.id]);
 
   useEffect(() => {
+    if (graph.nodes.length === 0) return;
+
+    const contextNode = selectedNode
+      ? {
+          ...selectedNode,
+          _lbl: getNodeLabel(selectedNode),
+          _k: getNodeKind(selectedNode),
+          _path: getNodePath(selectedNode),
+        }
+      : null;
+
+    const allNodes = graph.nodes.map((node) => ({
+      ...node,
+      _lbl: getNodeLabel(node),
+      _k: getNodeKind(node),
+      _path: getNodePath(node),
+    }));
+
+    postHostMessage({
+      type: "app/setChatContext",
+      payload: {
+        node: contextNode,
+        nodes: allNodes,
+      },
+    });
+  }, [graph.nodes, selectedNode]);
+
+  useEffect(() => {
     if (!summaryText) {
       setAnimatedSummaryText("");
       setSummaryAnimating(false);
