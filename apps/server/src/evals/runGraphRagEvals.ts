@@ -11,6 +11,7 @@ import {
   createFaithfulnessEvaluator,
   type EvaluationResult,
 } from "@arizeai/phoenix-evals";
+import { runCypher } from "@/db/cypher";
 import { createOpenRouterClient, models } from "@/config/openrouter";
 import { z } from "zod";
 
@@ -28,7 +29,6 @@ const EVAL_DATASET_PATH = path.resolve(
 );
 const EVAL_OUTPUT_DIR = path.resolve(process.cwd(), ".eval-runs/graphrag");
 const EVAL_OUTPUT_FILE = path.join(EVAL_OUTPUT_DIR, "latest.json");
-const EVAL_REPO_ID = "24c4cbf502c7";
 const SERVER_URL = process.env.SERVER_URL ?? "http://localhost:3000";
 
 const THRESHOLDS = {
@@ -76,6 +76,10 @@ type AskResponse = {
   retrievedContext?: string;
 };
 
+type RepoLookupRow = {
+  repoId: string;
+};
+
 function parseJsonLine(line: string, lineNumber: number): GraphRagEvalCase {
   const parsed: unknown = JSON.parse(line);
   const result = evalCaseSchema.safeParse(parsed);
@@ -94,6 +98,25 @@ async function loadEvalCases(): Promise<GraphRagEvalCase[]> {
     .filter((line) => line.length > 0 && !line.startsWith("//"));
 
   return lines.map((line, index) => parseJsonLine(line, index + 1));
+}
+
+async function resolveEvalRepoId(repoName: string): Promise<string> {
+  const rows = await runCypher<RepoLookupRow>(
+    `/*cypher*/
+    MATCH (r:Repo {name: $repoName})
+    WITH r
+    ORDER BY r.rootPath ASC
+    RETURN r.repoId AS repoId
+    LIMIT 1`,
+    { repoName },
+  );
+
+  const repoId = rows[0]?.repoId;
+  if (!repoId) {
+    throw new Error(`No repo found in Neo4j with name "${repoName}".`);
+  }
+
+  return repoId;
 }
 
 async function callAskEndpoint(repoId: string, question: string): Promise<AskResponse> {
@@ -208,14 +231,14 @@ function renderTable(rows: Array<Record<string, string>>): void {
   }
 }
 
-async function writeReport(results: GraphRagEvalResult[]): Promise<void> {
+async function writeReport(results: GraphRagEvalResult[], repoId: string): Promise<void> {
   await fs.mkdir(EVAL_OUTPUT_DIR, { recursive: true });
   await fs.writeFile(
     EVAL_OUTPUT_FILE,
     JSON.stringify(
       {
         generatedAt: new Date().toISOString(),
-        repoId: EVAL_REPO_ID,
+        repoId,
         thresholds: THRESHOLDS,
         results,
       },
@@ -228,6 +251,8 @@ async function writeReport(results: GraphRagEvalResult[]): Promise<void> {
 async function run() {
   initPhoenixTracing();
   const evalCases = await loadEvalCases();
+  const evalRepoName = evalCases[0]?.repoId ?? "fzf-master";
+  const evalRepoId = await resolveEvalRepoId(evalRepoName);
   const openrouter = createOpenRouterClient();
   const model = openrouter(process.env.PHOENIX_EVAL_MODEL ?? models.chat);
 
@@ -252,7 +277,7 @@ async function run() {
     let askResult: AskResponse | null = null;
     let askError: string | null = null;
     try {
-      askResult = await callAskEndpoint(EVAL_REPO_ID, evalCase.question);
+      askResult = await callAskEndpoint(evalRepoId, evalCase.question);
     } catch (error) {
       askError = error instanceof Error ? error.message : String(error);
     }
@@ -279,7 +304,7 @@ async function run() {
       };
 
       results.push(result);
-      await writeReport(results);
+      await writeReport(results, evalRepoId);
       tableRows.push({
         id: evalCase.id,
         grounded: "-",
@@ -365,7 +390,7 @@ async function run() {
     };
 
     results.push(result);
-    await writeReport(results);
+    await writeReport(results, evalRepoId);
 
     const groundedPass = verdictForScore(result.scores.groundedness, THRESHOLDS.groundedness);
     const answerRelPass = verdictForScore(result.scores.answerRelevance, THRESHOLDS.answerRelevance);
