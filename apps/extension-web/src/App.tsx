@@ -44,7 +44,7 @@ function renderMarkdown(markdown: string): string {
     .map((block) => block.trim())
     .filter(Boolean)
     .map((block) => {
-      if (/^<(pre|h2|h3|h4|ul)/.test(block)) return block;
+      if (/^<(pre|h2|h3|h4|ul|ol)/.test(block)) return block;
       return `<p>${block.replace(/\n/g, "<br />")}</p>`;
     });
 
@@ -96,6 +96,8 @@ export function App() {
   const [summaryText, setSummaryText] = useState("");
   const [animatedSummaryText, setAnimatedSummaryText] = useState("");
   const [summaryAnimating, setSummaryAnimating] = useState(false);
+  const summaryRequestIdRef = useRef(0);
+  const summaryAbortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     const unsubscribe = subscribeToHostMessages((message) => {
@@ -199,7 +201,6 @@ export function App() {
   }, [focusGraphWorkspace, graphFocusRequest]);
 
   useEffect(() => {
-    if (!repoReady) return;
     void loadGraph();
   }, [loadGraph, repoReady]);
 
@@ -222,18 +223,26 @@ export function App() {
       return;
     }
 
+    summaryAbortControllerRef.current?.abort();
+    const controller = new AbortController();
+    summaryAbortControllerRef.current = controller;
+    const requestId = summaryRequestIdRef.current + 1;
+    summaryRequestIdRef.current = requestId;
+
     setSummaryLoading(true);
     setSummaryText("");
     try {
       const response = await fetch(`${initialState.serverUrl}/graphrag/summarize`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({
           repoId: initialState.repoId,
           repoRoot: initialState.repoRoot,
           filePaths: [selectedPath],
         }),
       });
+      if (controller.signal.aborted || requestId !== summaryRequestIdRef.current) return;
       const data = (await response.json().catch(() => ({}))) as {
         ok?: boolean;
         error?: string;
@@ -259,20 +268,36 @@ export function App() {
         setSummaryText("Summary generated, but no content was returned.");
       }
     } catch (error) {
+      if (controller.signal.aborted || requestId !== summaryRequestIdRef.current) return;
       const message = error instanceof Error ? error.message : String(error);
       setSummaryText(`Error: ${message}`);
     } finally {
-      setSummaryLoading(false);
+      if (!controller.signal.aborted && requestId === summaryRequestIdRef.current) {
+        setSummaryLoading(false);
+      }
     }
   }, [initialState?.repoId, initialState?.repoRoot, initialState?.serverUrl, selectedPath]);
 
   useEffect(() => {
+    summaryAbortControllerRef.current?.abort();
+    summaryAbortControllerRef.current = null;
+    summaryRequestIdRef.current += 1;
+    setSummaryLoading(false);
     setSummaryText("");
     setAnimatedSummaryText("");
   }, [selectedNode?.id]);
 
   useEffect(() => {
-    if (graph.nodes.length === 0) return;
+    if (graph.nodes.length === 0) {
+      postHostMessage({
+        type: "app/setChatContext",
+        payload: {
+          node: null,
+          nodes: [],
+        },
+      });
+      return;
+    }
 
     const contextNode = selectedNode
       ? {
@@ -428,12 +453,12 @@ export function App() {
                     </div>
                     <div className="summary-section">
                       <span className="label">Summary</span>
-                      <div className="summary-scroll" aria-live="polite">
+                      <div className="summary-scroll" aria-live={summaryAnimating ? undefined : "polite"} aria-busy={summaryAnimating}>
                         {summaryLoading && !summaryText ? (
                           <p className="summary-empty">Generating summary...</p>
                         ) : summaryText ? (
                           summaryAnimating ? (
-                            <pre className="summary-live">{animatedSummaryText}</pre>
+                            <pre className="summary-live" aria-hidden="true">{animatedSummaryText}</pre>
                           ) : (
                             <div dangerouslySetInnerHTML={{ __html: summaryHtml }} />
                           )

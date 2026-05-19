@@ -626,6 +626,7 @@ body {
   <div id="mention-dd"></div>
   <div class="input-box">
     <input id="chat-ta" type="text" placeholder="Ask about your code… (@mention a node)">
+    <button id="btn-send" type="button" title="Send">↑</button>
   </div>
   <div id="bottom-bar">
     <div class="cfg-field">
@@ -720,8 +721,12 @@ function setReady(ready) {
 
 function setSendDisabled(disabled) {
   const input = $('chat-ta');
-  if (!input) return;
-  input.setAttribute('data-busy', disabled ? '1' : '0');
+  const button = $('btn-send');
+  if (input) {
+    input.setAttribute('data-busy', disabled ? '1' : '0');
+    input.disabled = disabled;
+  }
+  if (button) button.disabled = disabled;
 }
 
 /* ── Markdown renderer ────────────────────────────────────────── */
@@ -768,7 +773,9 @@ function renderMd(raw) {
   s = s.replace(/^[-*] (.+)$/gm, '<li>$1</li>');
   s = s.replace(/(<li>.*?<\/li>(\n)?)+/gs, m => '<ul>' + m + '</ul>');
   // links
-  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, label, href) =>
+    '<a href="' + normalizeSafeHref(href) + '" target="_blank" rel="noopener noreferrer">' + label + '</a>'
+  );
   // paragraphs
   const blocks = s.split(/\n\n+/);
   return blocks.map(b => {
@@ -779,6 +786,20 @@ function renderMd(raw) {
 
 function escHtml(s) {
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function normalizeSafeHref(rawHref) {
+  const href = String(rawHref || '').trim();
+  try {
+    const parsed = new URL(href, 'http://localhost');
+    const protocol = parsed.protocol.toLowerCase();
+    if (protocol === 'http:' || protocol === 'https:' || protocol === 'mailto:') {
+      return escHtml(encodeURI(href));
+    }
+  } catch {
+    // ignore parse errors
+  }
+  return '#';
 }
 
 /* ── Context Node ─────────────────────────────────────────────── */
@@ -867,7 +888,10 @@ async function send(rawText) {
       : (!ST.hasRepoId ? 'Index a repository first to activate chat.' : 'Chat is still initializing. Please wait a second and try again.');
     addMsg({ role: 'sys', text: reason + ' Sending anyway…' });
   }
-  if (ST.loading && ST.pendingAskId) addMsg({ role: 'sys', text: 'Starting a new request…' });
+  if (ST.loading && ST.pendingAskId) {
+    addMsg({ role: 'sys', text: 'Previous request still running. Please wait…' });
+    return;
+  }
 
   if (!ST.repoId) {
     addMsg({ role: 'err', text: '⚠ Set a Repo ID below — or run "Index a Repository" first.', error: true });
@@ -966,12 +990,22 @@ function showMention(matches) {
 function hideMention() { ST.mentionSearch = null; ST.mentionIdx = 0; $('mention-dd').classList.remove('show'); }
 
 function insertMention(n) {
-  const ta = $('chat-ta'), val = ta.value, at = val.lastIndexOf('@');
-  if (at === -1) return;
-  const before = val.slice(0, at);
-  const safePrefix = before.endsWith('@') ? before.slice(0, -1) : before;
-  ta.value = safePrefix + '@' + (n._lbl || n.id || '').replace(/\s+/g, '_') + ' ';
-  hideMention(); ta.focus();
+  const ta = $('chat-ta');
+  const val = ta.value;
+  const selectionStart = ta.selectionStart ?? val.length;
+  const selectionEnd = ta.selectionEnd ?? selectionStart;
+  const tokenStart = val.lastIndexOf('@', Math.max(0, selectionStart - 1));
+  if (tokenStart === -1) return;
+
+  const suffix = val.slice(tokenStart);
+  const ws = suffix.search(/\s/);
+  const tokenEnd = ws === -1 ? val.length : tokenStart + ws;
+  const mention = '@' + (n._lbl || n.id || '').replace(/\s+/g, '_') + ' ';
+  ta.value = val.slice(0, tokenStart) + mention + val.slice(Math.max(tokenEnd, selectionEnd));
+  const caret = tokenStart + mention.length;
+  ta.setSelectionRange(caret, caret);
+  hideMention();
+  ta.focus();
 }
 
 $('chat-ta').addEventListener('input', ev => {
@@ -983,6 +1017,7 @@ $('chat-ta').addEventListener('input', ev => {
 });
 
 $('chat-ta').addEventListener('keydown', ev => {
+  if ($('chat-ta').disabled) return;
   if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing) {
     ev.preventDefault();
     ev.stopPropagation();
@@ -1008,6 +1043,7 @@ $('chat-ta').addEventListener('keydown', ev => {
 document.addEventListener('keydown', ev => {
   const active = document.activeElement;
   if (!active || active.id !== 'chat-ta') return;
+  if ($('chat-ta').disabled) return;
   if (ev.key !== 'Enter' || ev.shiftKey) return;
   ev.preventDefault();
   ev.stopPropagation();
@@ -1016,6 +1052,7 @@ document.addEventListener('keydown', ev => {
 }, true);
 
 $('chat-ta').addEventListener('keypress', ev => {
+  if ($('chat-ta').disabled) return;
   if (ev.key !== 'Enter' || ev.isComposing) return;
   ev.preventDefault();
   ev.stopPropagation();
@@ -1028,6 +1065,14 @@ $('chat-ta').addEventListener('keyup', ev => {
   ev.preventDefault();
   ev.stopPropagation();
 });
+
+const sendButton = $('btn-send');
+if (sendButton) {
+  sendButton.addEventListener('click', () => {
+    hideMention();
+    void send();
+  });
+}
 
 setSendDisabled(false);
 setInterval(() => {

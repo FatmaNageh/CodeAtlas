@@ -540,19 +540,28 @@ async function runEmbeddingForRepo(
   );
 
   const primaryUrl = configuredServerUrl;
-  const fallbackUrl = getServerUrl();
 
   let targetUrl = primaryUrl;
   if (!(await canReachServer(primaryUrl))) {
     await ensureServerRunning();
-    targetUrl = fallbackUrl;
+    targetUrl = getServerUrl();
   }
 
-  const res = await fetch(`${targetUrl}/graphrag/embedRepo`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ repoId, repoRoot }),
-  });
+  let res: Response;
+  try {
+    res = await fetchWithTimeout(
+      `${targetUrl}/graphrag/embedRepo`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repoId, repoRoot }),
+      },
+      45_000,
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { ok: false, message: `Embedding request failed: ${message}` };
+  }
   const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
   if (!res.ok || data.ok === false) {
     return {
@@ -586,6 +595,16 @@ async function canReachServer(serverUrl: string): Promise<boolean> {
   }
 }
 
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 async function syncChatWithGraphFromServer(): Promise<void> {
   const cfg = getCfg();
   const repoId = cfg.repoId.trim();
@@ -596,7 +615,11 @@ async function syncChatWithGraphFromServer(): Promise<void> {
 
   await ensureServerRunning();
   const serverUrl = getServerUrl();
-  const response = await fetch(`${serverUrl}/debug/subgraph?repoId=${encodeURIComponent(repoId)}&limit=5000`);
+  const response = await fetchWithTimeout(
+    `${serverUrl}/debug/subgraph?repoId=${encodeURIComponent(repoId)}&limit=5000`,
+    { method: "GET" },
+    30_000,
+  );
   const data = (await response.json().catch(() => ({}))) as SubgraphResponse;
 
   if (!response.ok || data.ok === false) {
@@ -630,9 +653,7 @@ async function syncChatWithGraphFromServer(): Promise<void> {
       }) ?? null
     : null;
 
-  if (contextNode) {
-    chatProvider?.sendContextNode(contextNode, nodes);
-  }
+  chatProvider?.sendContextNode(contextNode, nodes);
 
   vscode.window.showInformationMessage(
     `CodeAtlas: Synced chat with graph (${nodes.length} nodes${contextNode ? ", context selected" : ""}).`,
@@ -701,21 +722,6 @@ class AppPanel {
     this._panel.webview.html = getAppWebviewHtml(this._panel.webview, extensionUri);
 
     this._panel.webview.onDidReceiveMessage(async (message) => {
-      const rawMessage = typeof message === "object" && message !== null
-        ? message as { type?: string; payload?: unknown }
-        : null;
-      if (rawMessage?.type === "app/setChatContext") {
-        const payload = (typeof rawMessage.payload === "object" && rawMessage.payload !== null)
-          ? rawMessage.payload as { node?: object | null; nodes?: object[] }
-          : {};
-        const nodes = Array.isArray(payload.nodes) ? payload.nodes : [];
-        latestChatContextNode = payload.node ?? null;
-        latestChatGraphNodes = nodes;
-        chatProvider?.sendContextNode(latestChatContextNode, nodes);
-        chatProvider?.sendGraphNodes(nodes);
-        return;
-      }
-
       const value = parseWebviewToHostMessage(typeof message === "object" && message !== null ? message : null);
       if (!value) return;
 
@@ -894,11 +900,15 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
                 : {}),
             };
 
-            const response = await fetch(`${targetUrl}/graphrag/ask`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(body),
-            });
+            const response = await fetchWithTimeout(
+              `${targetUrl}/graphrag/ask`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+              },
+              45_000,
+            );
             webviewView.webview.postMessage({
               type: "chat/askTrace",
               payload: { requestId, stage: `Host got HTTP ${response.status}` },
