@@ -15,19 +15,20 @@ function htmlAttr(value: string): string {
 
 export function getChatHtml(webview: vscode.Webview, serverUrl: string, repoId: string, repoRoot: string): string {
   const nonce = getNonce();
-  let serverOrigin = "http://127.0.0.1: http://localhost:";
+  const connectOrigins = new Set<string>(["http://127.0.0.1:*", "http://localhost:*"]);
   try {
     const parsed = new URL(serverUrl);
-    serverOrigin = htmlAttr(parsed.origin);
+    connectOrigins.add(parsed.origin);
   } catch {
     // fallback to localhost if serverUrl is invalid
   }
+  const connectSrc = Array.from(connectOrigins).map((origin) => htmlAttr(origin)).join(" ");
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none';style-src 'unsafe-inline';script-src 'nonce-${nonce}';connect-src ${serverOrigin};img-src ${webview.cspSource} data:;">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none';style-src 'unsafe-inline';script-src 'nonce-${nonce}';connect-src ${connectSrc};img-src ${webview.cspSource} data:;">
 <title>CodeAtlas Chat</title>
 <style>
 /* ── Reset & Base ─────────────────────────────────────────────── */
@@ -442,11 +443,18 @@ body {
   font-size: 12px;
   font-family: var(--font-ui);
   line-height: 1.5;
-  resize: none;
-  height: 48px;
-  max-height: 120px;
-  overflow-y: auto;
-  padding: 2px 0;
+  height: 30px;
+  padding: 0 2px;
+}
+
+#chat-ready {
+  padding: 4px var(--sp3) 0;
+  color: var(--fg-muted);
+  font-size: 10px;
+}
+
+#chat-ready.ready {
+  color: var(--c-green);
 }
 #chat-ta::placeholder { color: var(--fg-placeholder); }
 
@@ -573,6 +581,7 @@ body {
   flex-shrink: 0;
 }
 .bar-btn:hover { background: var(--bg-hover); color: var(--fg); }
+
 </style>
 </head>
 <body>
@@ -600,8 +609,8 @@ body {
 <div id="embed-notice">
   <strong>⚠ Embeddings required</strong>
   The AI needs code embeddings to answer questions accurately.
-  <button class="embed-btn" id="btn-embed-fix">↑ Generate Embeddings</button>
 </div>
+<div id="chat-ready">Chat initializing…</div>
 
 <!-- Quick Prompts -->
 <div id="quick">
@@ -616,8 +625,8 @@ body {
 <div id="input-area">
   <div id="mention-dd"></div>
   <div class="input-box">
-    <textarea id="chat-ta" placeholder="Ask about your code… (@mention a node)"></textarea>
-    <button id="btn-send" title="Send (Enter)">↑</button>
+    <input id="chat-ta" type="text" placeholder="Ask about your code… (@mention a node)">
+    <button id="btn-send" type="button" title="Send">↑</button>
   </div>
   <div id="bottom-bar">
     <div class="cfg-field">
@@ -643,6 +652,25 @@ const vsc = acquireVsCodeApi();
 const $ = id => document.getElementById(id);
 const CFG = { repoRoot: ${JSON.stringify(repoRoot)} };
 
+function safePost(message) {
+  try { vsc.postMessage(message); }
+  catch (error) {
+    const text = error && error.message ? error.message : String(error);
+    const msgs = $('msgs');
+    if (msgs) msgs.innerHTML = '<div class="msg err"><div class="msg-bubble">Webview postMessage failed: ' + text + '</div></div>';
+  }
+}
+
+window.addEventListener('error', (event) => {
+  const msgs = $('msgs');
+  if (!msgs) return;
+  const message = event.error && event.error.message ? event.error.message : event.message;
+  const item = document.createElement('div');
+  item.className = 'msg err';
+  item.innerHTML = '<div class="msg-bubble">Webview error: ' + escHtml(String(message || 'unknown')) + '</div>';
+  msgs.appendChild(item);
+});
+
 /* ── Kind colours ─────────────────────────────────────────────── */
 const KC = {
   folder: { bg: 'rgba(177,128,215,.18)', fg: '#b180d7', label: 'DIR' },
@@ -657,21 +685,86 @@ const ST = {
   msgs: [],
   ctxNode: null,
   loading: false,
+  ready: false,
+  indexing: false,
+  hasRepoId: false,
+  pendingAskId: null,
+  pendingAskStartedAt: 0,
   gNodes: [],
   mentionSearch: null,
   mentionIdx: 0,
+  _embedBtn: null,
+  _embedBtnText: null,
   get serverUrl() { return $('cfg-s').value.trim(); },
   get repoId()    { return $('cfg-r').value.trim(); },
   get repoRoot()  { return CFG.repoRoot; },
 };
+ST.hasRepoId = ST.repoId.length > 0;
+
+function setReady(ready) {
+  ST.ready = ready;
+  const el = $('chat-ready');
+  if (!el) return;
+  if (ST.indexing) {
+    el.textContent = 'Indexing repository… chat will activate when complete';
+    el.classList.remove('ready');
+    return;
+  }
+  if (!ST.hasRepoId) {
+    el.textContent = 'Chat waiting for repository indexing';
+    el.classList.remove('ready');
+    return;
+  }
+  el.textContent = ready ? 'Chat ready' : 'Chat initializing…';
+  el.classList.toggle('ready', ready);
+}
+
+function setSendDisabled(disabled) {
+  const input = $('chat-ta');
+  const button = $('btn-send');
+  if (input) {
+    input.setAttribute('data-busy', disabled ? '1' : '0');
+    input.disabled = disabled;
+  }
+  if (button) button.disabled = disabled;
+}
 
 /* ── Markdown renderer ────────────────────────────────────────── */
 function renderMd(raw) {
   let s = escHtml(raw);
-  // fenced code blocks — use RegExp to avoid template-literal backtick conflicts
-  s = s.replace(new RegExp('\`\`\`[\\w]*\\n([\\s\\S]*?)\`\`\`','g'), (_, c) => '<pre><code>' + c.trim() + '</code></pre>');
-  // inline code
-  s = s.replace(new RegExp('\`([^\`]+)\`','g'), '<code>$1</code>');
+  // fenced code blocks (manual parse to avoid regex/backtick parsing issues)
+  const fence = String.fromCharCode(96, 96, 96);
+  let cursor = 0;
+  let rebuilt = '';
+  while (true) {
+    const open = s.indexOf(fence, cursor);
+    if (open === -1) {
+      rebuilt += s.slice(cursor);
+      break;
+    }
+    rebuilt += s.slice(cursor, open);
+    const close = s.indexOf(fence, open + fence.length);
+    if (close === -1) {
+      rebuilt += s.slice(open);
+      break;
+    }
+    const block = s.slice(open + fence.length, close).replace(/^\w*\n/, '').trim();
+    rebuilt += '<pre><code>' + block + '</code></pre>';
+    cursor = close + fence.length;
+  }
+  s = rebuilt;
+
+  // inline code (manual parse to avoid backtick parser issues)
+  const tick = String.fromCharCode(96);
+  const parts = s.split(tick);
+  if (parts.length > 1) {
+    let inline = '';
+    for (let i = 0; i < parts.length; i += 1) {
+      if (i % 2 === 1) inline += '<code>' + parts[i] + '</code>';
+      else inline += parts[i];
+    }
+    s = inline;
+  }
   // bold
   s = s.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
   // headings (h3 max)
@@ -680,7 +773,9 @@ function renderMd(raw) {
   s = s.replace(/^[-*] (.+)$/gm, '<li>$1</li>');
   s = s.replace(/(<li>.*?<\/li>(\n)?)+/gs, m => '<ul>' + m + '</ul>');
   // links
-  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, label, href) =>
+    '<a href="' + normalizeSafeHref(href) + '" target="_blank" rel="noopener noreferrer">' + label + '</a>'
+  );
   // paragraphs
   const blocks = s.split(/\n\n+/);
   return blocks.map(b => {
@@ -693,8 +788,23 @@ function escHtml(s) {
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
+function normalizeSafeHref(rawHref) {
+  const href = String(rawHref || '').trim();
+  try {
+    const parsed = new URL(href, 'http://localhost');
+    const protocol = parsed.protocol.toLowerCase();
+    if (protocol === 'http:' || protocol === 'https:' || protocol === 'mailto:') {
+      return escHtml(encodeURI(href));
+    }
+  } catch {
+    // ignore parse errors
+  }
+  return '#';
+}
+
 /* ── Context Node ─────────────────────────────────────────────── */
 function setCtx(node) {
+  const prevId = ST.ctxNode?.id;
   ST.ctxNode = node;
   const el = $('ctx-node'), em = $('ctx-empty');
   if (node) {
@@ -705,8 +815,12 @@ function setCtx(node) {
     icon.style.color = c.fg;
     icon.textContent = c.label;
     $('ctx-label').textContent = node._lbl || node.id || '';
+    if (node.id && node.id !== prevId) {
+      addMsg({ role: 'sys', text: 'Context selected: ' + (node._lbl || node.id) });
+    }
   } else {
     el.classList.remove('show'); em.style.display = '';
+    if (prevId) addMsg({ role: 'sys', text: 'Context cleared' });
   }
 }
 $('ctx-clear').addEventListener('click', () => setCtx(null));
@@ -759,13 +873,33 @@ function renderMsgs() {
 
 function addMsg(m) { ST.msgs.push({ id: Date.now() + Math.random(), ...m }); renderMsgs(); }
 
+function isHttpUrl(value) {
+  return /^https?:\/\//i.test(String(value || '').trim());
+}
+
 /* ── Send ─────────────────────────────────────────────────────── */
 async function send(rawText) {
   rawText = (rawText || $('chat-ta').value).trim();
-  if (!rawText || ST.loading) return;
+  if (!rawText) return;
+
+  if (!ST.ready) {
+    const reason = ST.indexing
+      ? 'Repository is indexing. Chat will activate when indexing completes.'
+      : (!ST.hasRepoId ? 'Index a repository first to activate chat.' : 'Chat is still initializing. Please wait a second and try again.');
+    addMsg({ role: 'sys', text: reason + ' Sending anyway…' });
+  }
+  if (ST.loading && ST.pendingAskId) {
+    addMsg({ role: 'sys', text: 'Previous request still running. Please wait…' });
+    return;
+  }
 
   if (!ST.repoId) {
     addMsg({ role: 'err', text: '⚠ Set a Repo ID below — or run "Index a Repository" first.', error: true });
+    return;
+  }
+
+  if (!isHttpUrl(ST.serverUrl)) {
+    addMsg({ role: 'err', text: '⚠ Invalid Server URL. Update SRV at the bottom (e.g. http://localhost:3000).', error: true });
     return;
   }
 
@@ -776,7 +910,7 @@ async function send(rawText) {
   const { clean, mentioned } = parseMentions(rawText);
   addMsg({ role: 'user', text: rawText });
   ST.loading = true;
-  $('btn-send').disabled = true;
+  setSendDisabled(true);
   renderMsgs();
 
   const body = {
@@ -786,40 +920,44 @@ async function send(rawText) {
     ...(mentioned.length ? { mentionedNodes: mentioned } : {}),
   };
 
-  try {
-    const res = await fetch(ST.serverUrl + '/graphrag/ask', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || data.ok === false) {
-      const errMsg = data.error || 'HTTP ' + res.status;
-      if (/chunk|embed|summar/i.test(errMsg)) $('embed-notice').style.display = '';
-      throw new Error(errMsg);
-    }
-    const files = [...new Set((data.sources || []).map(s => s.file).filter(Boolean))];
-    addMsg({ role: 'bot', text: data.answer || 'No answer returned.', files });
-  } catch (err) {
-    const msg = err.message || String(err);
-    const friendly = /fetch|refused|network/i.test(msg)
-      ? '**Cannot reach the backend server.**\nMake sure it is running and the Server URL is correct.'
-      : msg;
-    addMsg({ role: 'bot', text: friendly, error: true });
-  } finally {
+  const requestId = String(Date.now()) + '-' + String(Math.floor(Math.random() * 100000));
+  ST.pendingAskId = requestId;
+  ST.pendingAskStartedAt = Date.now();
+  addMsg({ role: 'sys', text: 'Sending question…' });
+  addMsg({ role: 'sys', text: 'Host ask dispatch (' + requestId + ')' });
+  safePost({
+    type: 'chat/ask',
+    payload: {
+      requestId,
+      repoId: ST.repoId,
+      question: clean,
+      ...(ST.ctxNode ? { contextNodeId: ST.ctxNode.id, contextNodeLabel: ST.ctxNode._lbl } : {}),
+      ...(mentioned.length ? { mentionedNodes: mentioned } : {}),
+    },
+  });
+
+  setTimeout(() => {
+    if (ST.pendingAskId !== requestId) return;
+    ST.pendingAskId = null;
+    ST.pendingAskStartedAt = 0;
     ST.loading = false;
-    $('btn-send').disabled = false;
-    renderMsgs();
-  }
+    setSendDisabled(false);
+    addMsg({ role: 'bot', text: 'Chat request timed out waiting for host response.', error: true });
+  }, 30000);
 }
 
 /* ── Mentions ─────────────────────────────────────────────────── */
 function parseMentions(text) {
   const mentioned = [];
-  const clean = text.replace(/@(\w+)/g, (match, name) => {
+  const clean = text.replace(/(^|[^@])@(\S+)/g, (match, prefix, token) => {
+    const name = token.trim();
     const found = ST.gNodes.find(n =>
-      (n._lbl || '').replace(/\s+/g, '_') === name || (n._path || '').includes(name));
-    if (found) { mentioned.push({ id: found.id, name: found._lbl, path: found._path || '' }); return '[Node: ' + found._lbl + ']'; }
+      (n._lbl || '').replace(/\s+/g, '_').toLowerCase() === name.toLowerCase() ||
+      (n._path || '').toLowerCase().includes(name.toLowerCase()));
+    if (found) {
+      mentioned.push({ id: found.id, name: found._lbl, path: found._path || '' });
+      return prefix + '[Node: ' + found._lbl + ']';
+    }
     return match;
   });
   return { clean, mentioned };
@@ -852,62 +990,127 @@ function showMention(matches) {
 function hideMention() { ST.mentionSearch = null; ST.mentionIdx = 0; $('mention-dd').classList.remove('show'); }
 
 function insertMention(n) {
-  const ta = $('chat-ta'), val = ta.value, at = val.lastIndexOf('@');
-  if (at === -1) return;
-  ta.value = val.slice(0, at) + '@' + (n._lbl || n.id || '').replace(/\s+/g, '_') + ' ';
-  hideMention(); ta.focus();
+  const ta = $('chat-ta');
+  const val = ta.value;
+  const selectionStart = ta.selectionStart ?? val.length;
+  const selectionEnd = ta.selectionEnd ?? selectionStart;
+  const tokenStart = val.lastIndexOf('@', Math.max(0, selectionStart - 1));
+  if (tokenStart === -1) return;
+
+  const suffix = val.slice(tokenStart);
+  const ws = suffix.search(/\s/);
+  const tokenEnd = ws === -1 ? val.length : tokenStart + ws;
+  const mention = '@' + (n._lbl || n.id || '').replace(/\s+/g, '_') + ' ';
+  ta.value = val.slice(0, tokenStart) + mention + val.slice(Math.max(tokenEnd, selectionEnd));
+  const caret = tokenStart + mention.length;
+  ta.setSelectionRange(caret, caret);
+  hideMention();
+  ta.focus();
 }
 
 $('chat-ta').addEventListener('input', ev => {
   const val = ev.target.value;
   const before = val.slice(0, ev.target.selectionStart || val.length);
-  const m = before.match(/@(\w*)$/);
+  const m = before.match(/@([^\s@]*)$/);
   if (m) { ST.mentionSearch = m[1]; showMention(getMatches(m[1])); }
   else hideMention();
 });
 
 $('chat-ta').addEventListener('keydown', ev => {
+  if ($('chat-ta').disabled) return;
+  if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    hideMention();
+    void send();
+    return;
+  }
+
   if ($('mention-dd').classList.contains('show')) {
     const matches = getMatches(ST.mentionSearch || '');
     if (ev.key === 'ArrowDown') { ev.preventDefault(); ST.mentionIdx = Math.min(ST.mentionIdx + 1, matches.length - 1); showMention(matches); return; }
     if (ev.key === 'ArrowUp')   { ev.preventDefault(); ST.mentionIdx = Math.max(ST.mentionIdx - 1, 0); showMention(matches); return; }
-    if (ev.key === 'Enter' || ev.key === 'Tab') { ev.preventDefault(); insertMention(matches[ST.mentionIdx]); return; }
+    if (ev.key === 'Tab') {
+      ev.preventDefault();
+      if (matches.length > 0) insertMention(matches[Math.min(ST.mentionIdx, matches.length - 1)]);
+      else hideMention();
+      return;
+    }
     if (ev.key === 'Escape') { hideMention(); return; }
   }
-  if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); send(); }
 });
-$('btn-send').addEventListener('click', () => send());
+
+document.addEventListener('keydown', ev => {
+  const active = document.activeElement;
+  if (!active || active.id !== 'chat-ta') return;
+  if ($('chat-ta').disabled) return;
+  if (ev.key !== 'Enter' || ev.shiftKey) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  hideMention();
+  void send();
+}, true);
+
+$('chat-ta').addEventListener('keypress', ev => {
+  if ($('chat-ta').disabled) return;
+  if (ev.key !== 'Enter' || ev.isComposing) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  hideMention();
+  void send();
+});
+
+$('chat-ta').addEventListener('keyup', ev => {
+  if (ev.key !== 'Enter' || ev.isComposing) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+});
+
+const sendButton = $('btn-send');
+if (sendButton) {
+  sendButton.addEventListener('click', () => {
+    hideMention();
+    void send();
+  });
+}
+
+setSendDisabled(false);
+setInterval(() => {
+  if (!ST.loading || !ST.pendingAskId) return;
+  const elapsed = Date.now() - (ST.pendingAskStartedAt || 0);
+  if (elapsed < 30000) return;
+  ST.loading = false;
+  ST.pendingAskId = null;
+  ST.pendingAskStartedAt = 0;
+  setSendDisabled(false);
+}, 2000);
 document.querySelectorAll('.qb').forEach(b => b.addEventListener('click', () => {
   $('chat-ta').value = b.dataset.p || ''; $('chat-ta').focus();
 }));
 
-$('btn-embed-fix').addEventListener('click', async () => {
-  const btn = $('btn-embed-fix'); btn.textContent = '⏳ Embedding…'; btn.disabled = true;
+async function runEmbed(triggerBtn) {
+  const previousText = triggerBtn.textContent;
+  triggerBtn.textContent = '⏳';
+  triggerBtn.disabled = true;
   addMsg({ role: 'bot', text: 'Generating embeddings — this may take a few minutes…' });
-  try {
-    const res = await fetch(ST.serverUrl + '/graphrag/embedRepo', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ repoId: ST.repoId, repoRoot: ST.repoRoot }),
-    });
-    const d = await res.json();
-    if (d.ok !== false) { $('embed-notice').style.display = 'none'; addMsg({ role: 'bot', text: '✓ Embeddings generated! Try your question again.' }); }
-    else addMsg({ role: 'bot', text: 'Embedding failed: ' + d.error, error: true });
-  } catch (e) { addMsg({ role: 'bot', text: 'Embedding error: ' + e.message, error: true }); }
-  btn.textContent = '↑ Generate Embeddings'; btn.disabled = false;
-});
+  safePost({ type: 'embedRepo' });
+  ST._embedBtn = triggerBtn;
+  ST._embedBtnText = previousText;
+}
 
-$('btn-graph').addEventListener('click', () => vsc.postMessage({ type: 'openGraph' }));
-$('btn-index').addEventListener('click', () => vsc.postMessage({ type: 'indexRepo' }));
+$('btn-graph').addEventListener('click', () => safePost({ type: 'openGraph' }));
+$('btn-index').addEventListener('click', () => safePost({ type: 'indexRepo' }));
 $('btn-clear').addEventListener('click', () => { ST.msgs = []; renderMsgs(); });
 
 ['cfg-s', 'cfg-r'].forEach(id =>
   document.getElementById(id).addEventListener('change', () =>
-    vsc.postMessage({ type: 'settings/save', payload: { serverUrl: $('cfg-s').value, repoId: $('cfg-r').value } })
+    safePost({ type: 'settings/save', payload: { serverUrl: $('cfg-s').value, repoId: $('cfg-r').value } })
   )
 );
 
 /* ── Extension messages ───────────────────────────────────────── */
-vsc.postMessage({ type: 'chat/ready' });
+safePost({ type: 'chat/ready' });
+setReady(false);
 window.addEventListener('message', ev => {
   const msg = ev.data;
   if (msg.type === 'contextNode') {
@@ -926,15 +1129,75 @@ window.addEventListener('message', ev => {
   if (msg.type === 'settings/update') {
     const { serverUrl, repoId, repoRoot } = msg.payload || {};
     if (serverUrl) $('cfg-s').value = serverUrl;
-    if (repoId)    $('cfg-r').value = repoId;
+    if (repoId !== undefined) {
+      $('cfg-r').value = repoId;
+      ST.hasRepoId = String(repoId).trim().length > 0;
+      if (ST.hasRepoId) ST.indexing = false;
+    }
     if (repoRoot !== undefined) CFG.repoRoot = repoRoot;
+    setReady(ST.hasRepoId && !ST.indexing);
   }
   if (msg.type === 'server/status') {
     const s = msg.payload || {};
     if (s.status === 'error')   addMsg({ role: 'sys', text: '⚠ Backend error: ' + (s.error || 'unknown') });
     if (s.status === 'stopped') addMsg({ role: 'sys', text: 'Server stopped' });
   }
+  if (msg.type === 'embed/status') {
+    const payload = msg.payload || {};
+    if (payload.ok) {
+      $('embed-notice').style.display = 'none';
+      addMsg({ role: 'bot', text: '✓ ' + (payload.message || 'Embeddings generated and saved in Neo4j.') });
+    } else {
+      addMsg({ role: 'bot', text: 'Embedding failed: ' + (payload.message || 'unknown error'), error: true });
+    }
+
+    if (ST._embedBtn) {
+      ST._embedBtn.textContent = ST._embedBtnText || 'E';
+      ST._embedBtn.disabled = false;
+      ST._embedBtn = null;
+      ST._embedBtnText = null;
+    }
+  }
   if (msg.type === 'clearHistory') { ST.msgs = []; renderMsgs(); }
+  if (msg.type === 'chat/askResult') {
+    const payload = msg.payload || {};
+    if (!payload.requestId || payload.requestId !== ST.pendingAskId) return;
+
+    if (payload.ok) {
+      const files = [...new Set((payload.sources || []).map(s => s.file).filter(Boolean))];
+      addMsg({ role: 'bot', text: payload.answer || 'No answer returned.', files });
+    } else {
+      const msgText = payload.error || 'Unknown chat error';
+      if (/chunk|embed|summar/i.test(msgText)) $('embed-notice').style.display = '';
+      addMsg({ role: 'bot', text: msgText, error: true });
+    }
+
+    ST.pendingAskId = null;
+    ST.pendingAskStartedAt = 0;
+    ST.loading = false;
+    setSendDisabled(false);
+    renderMsgs();
+  }
+  if (msg.type === 'chat/askTrace') {
+    const payload = msg.payload || {};
+    if (!payload.requestId) return;
+    addMsg({ role: 'sys', text: '[trace ' + payload.requestId + '] ' + (payload.stage || 'unknown') });
+  }
+  if (msg.type === 'chat/indexingStarted') {
+    ST.indexing = true;
+    ST.ready = false;
+    setReady(false);
+  }
+  if (msg.type === 'chat/indexingCompleted') {
+    ST.indexing = false;
+    ST.hasRepoId = true;
+    setReady(true);
+  }
+  if (msg.type === 'chat/indexingFailed') {
+    ST.indexing = false;
+    setReady(ST.hasRepoId);
+    addMsg({ role: 'sys', text: 'Indexing failed: ' + ((msg.payload && msg.payload.error) || 'unknown error') });
+  }
 });
 
 })();

@@ -64,6 +64,13 @@ export const webviewToHostMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("app/showError"), payload: z.object({ message: z.string() }) }),
   z.object({ type: z.literal("app/showInfo"), payload: z.object({ message: z.string() }) }),
   z.object({ type: z.literal("app/openNeo4jBrowser") }),
+  z.object({
+    type: z.literal("app/setChatContext"),
+    payload: z.object({
+      node: z.object({}).passthrough().nullable(),
+      nodes: z.array(z.object({}).passthrough()),
+    }),
+  }),
 ]);
 
 export const hostToWebviewMessageSchema = z.discriminatedUnion("type", [

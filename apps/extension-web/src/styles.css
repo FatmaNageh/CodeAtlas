@@ -176,9 +176,10 @@ strong {
 .graph-stage {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+  align-items: start;
   gap: 14px;
   margin-top: 14px;
-  min-height: 520px;
+  min-height: 0;
 }
 
 .graph-canvas-shell,
@@ -194,6 +195,7 @@ strong {
 .graph-canvas-shell {
   position: relative;
   overflow: hidden;
+  height: 520px;
 }
 
 .graph-canvas {
@@ -271,7 +273,34 @@ strong {
 
 .node-inspector {
   padding: 16px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 520px;
+}
+
+.inspector-content {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-height: 0;
+  height: 100%;
+}
+
+.inspector-head {
+  min-width: 0;
+}
+
+.inspector-meta {
+  min-height: 0;
   overflow: auto;
+  padding-right: 2px;
+}
+
+.inspector-tail {
+  border-top: 1px solid var(--vscode-panel-border);
+  margin-top: 10px;
+  padding-top: 10px;
 }
 
 .node-inspector dl {
@@ -298,6 +327,102 @@ strong {
   font-family: var(--vscode-editor-font-family);
   font-size: 12px;
   line-height: 1.45;
+}
+
+.inspector-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.summary-section {
+  margin-top: 12px;
+  min-height: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.summary-scroll {
+  height: 220px;
+  overflow: auto;
+  border: 1px solid color-mix(in srgb, var(--vscode-focusBorder) 22%, var(--vscode-panel-border));
+  border-radius: 10px;
+  padding: 12px;
+  background:
+    linear-gradient(160deg, color-mix(in srgb, var(--vscode-focusBorder) 10%, transparent), transparent 40%),
+    color-mix(in srgb, var(--vscode-editorWidget-background) 90%, black);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 6%, transparent);
+}
+
+.summary-scroll p {
+  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--vscode-editor-foreground);
+}
+
+.summary-live {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--vscode-font-family);
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--vscode-editor-foreground);
+}
+
+.summary-scroll p:last-child {
+  margin-bottom: 0;
+}
+
+.summary-scroll h2,
+.summary-scroll h3,
+.summary-scroll h4 {
+  margin: 0 0 10px;
+  font-size: 16px;
+  font-weight: 780;
+  line-height: 1.4;
+  color: color-mix(in srgb, white 90%, var(--vscode-editor-foreground));
+}
+
+.summary-scroll ul {
+  margin: 0 0 12px;
+  padding-left: 22px;
+}
+
+.summary-scroll ol {
+  margin: 0 0 12px;
+  padding-left: 22px;
+}
+
+.summary-scroll li {
+  margin: 0 0 7px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.summary-scroll pre {
+  margin: 0 0 10px;
+  padding: 10px;
+  overflow: auto;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--vscode-panel-border) 70%, transparent);
+  background: color-mix(in srgb, var(--vscode-editor-background) 94%, black);
+}
+
+.summary-scroll code {
+  font-family: var(--vscode-editor-font-family);
+  font-size: 11px;
+  border: 1px solid color-mix(in srgb, var(--vscode-panel-border) 65%, transparent);
+  background: color-mix(in srgb, var(--vscode-editor-background) 92%, black);
+  padding: 1px 6px;
+  border-radius: 6px;
+}
+
+.summary-empty {
+  margin: 0;
+  color: var(--vscode-descriptionForeground);
 }
 
 .inspector-empty {
@@ -397,6 +522,19 @@ code {
   .graph-toolbar,
   .graph-stage {
     grid-template-columns: 1fr;
+  }
+
+  .node-inspector {
+    height: auto;
+    min-height: 320px;
+  }
+
+  .inspector-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .summary-scroll {
+    height: 180px;
   }
 
   .graph-metrics {
