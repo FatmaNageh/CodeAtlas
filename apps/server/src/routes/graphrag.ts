@@ -237,6 +237,11 @@ graphragRoute.post("/ask", async (c) => {
       threadId: thread.id,
       answer: askResult.answer,
       sources: allSources,
+      prompt: askResult.prompt,
+      nodeContext: askResult.nodeContext,
+      codeContext: askResult.codeContext,
+      summaryContext: askResult.summaryContext,
+      retrievedContext: askResult.retrievedContext,
     });
   } catch (err) {
     return c.json({ ok: false, error: String(err) }, 500);

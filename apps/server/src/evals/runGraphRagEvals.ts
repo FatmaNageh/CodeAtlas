@@ -69,6 +69,11 @@ type AskResponse = {
   answer?: string;
   sources?: AskSource[];
   error?: string;
+  prompt?: string;
+  nodeContext?: string;
+  codeContext?: string;
+  summaryContext?: string;
+  retrievedContext?: string;
 };
 
 function parseJsonLine(line: string, lineNumber: number): GraphRagEvalCase {
@@ -108,6 +113,11 @@ async function callAskEndpoint(repoId: string, question: string): Promise<AskRes
     ok: true,
     answer: data.answer,
     sources: data.sources ?? [],
+    prompt: data.prompt,
+    nodeContext: data.nodeContext,
+    codeContext: data.codeContext,
+    summaryContext: data.summaryContext,
+    retrievedContext: data.retrievedContext,
   };
 }
 
@@ -284,11 +294,12 @@ async function run() {
     const answer = askResult.answer ?? "";
     const sources = askResult.sources ?? [];
     const reference = buildReferenceText(evalCase);
+    const retrievedContext = askResult.retrievedContext ?? "";
 
     const evalRecord: EvaluationRecord = {
       question: evalCase.question,
       answer,
-      context: "",
+      context: retrievedContext,
       documentText: "",
       reference,
     };
@@ -326,11 +337,11 @@ async function run() {
       answer,
       retrievedSources: sources,
       retrieval: {
-        prompt: "",
-        nodeContext: "",
-        codeContext: "",
-        summaryContext: "",
-        retrievedContext: "",
+        prompt: askResult.prompt ?? "",
+        nodeContext: askResult.nodeContext ?? "",
+        codeContext: askResult.codeContext ?? "",
+        summaryContext: askResult.summaryContext ?? "",
+        retrievedContext,
       },
       scores: {
         retrievalRelevance: undefined,
