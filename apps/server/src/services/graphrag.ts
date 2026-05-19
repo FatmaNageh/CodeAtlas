@@ -344,11 +344,12 @@ export async function askGraphRag(input: AskGraphRagInput): Promise<AskGraphRagR
   const initialChunks = await findSimilarChunks(embeddingResult, repoId, 5, question);
   console.log("[GRAPHRAG] initialChunks count:", initialChunks.length, "for repoId:", repoId);
   if (initialChunks.length > 0) {
+    const firstChunk = initialChunks[0]!;
     console.log("[GRAPHRAG] First chunk:", JSON.stringify({
-      filePath: initialChunks[0].filePath,
-      symbol: initialChunks[0].symbol,
-      sourceKind: initialChunks[0].sourceKind,
-      chunkTextLen: initialChunks[0].chunkText?.length ?? 0,
+      filePath: firstChunk.filePath,
+      symbol: firstChunk.symbol,
+      sourceKind: firstChunk.sourceKind,
+      chunkTextLen: firstChunk.chunkText?.length ?? 0,
     }));
   }
   const vectorSources: AskSource[] = initialChunks.map((chunk) => ({
